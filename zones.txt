@@ -1,0 +1,1 @@
+[{"cnflcAtNm": "접함", "prposAreaDstrcCodeNm": "보전산지"}, {"cnflcAtNm": "접함", "prposAreaDstrcCodeNm": "임업용산지"}, {"cnflcAtNm": "접함", "prposAreaDstrcCodeNm": "준보전산지"}, {"cnflcAtNm": "접함", "prposAreaDstrcCodeNm": "준보전산지"}, {"cnflcAtNm": "저촉", "prposAreaDstrcCodeNm": "가축사육제한구역"}, {"cnflcAtNm": "포함", "prposAreaDstrcCodeNm": "보전관리지역"}, {"cnflcAtNm": "접함", "prposAreaDstrcCodeNm": "농림지역"}]

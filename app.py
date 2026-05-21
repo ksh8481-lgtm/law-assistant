@@ -1,0 +1,279 @@
+import os
+import json
+import requests
+import xml.etree.ElementTree as ET
+from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
+import google.generativeai as genai
+import random
+from dotenv import load_dotenv
+
+# .env 파일 로드
+load_dotenv()
+
+app = Flask(__name__)
+CORS(app)
+
+# 서버에 저장된 고정 API 키 사용
+VWORLD_KEY = os.environ.get('VWORLD_API_KEY', '')
+GEMINI_KEY = os.environ.get('GEMINI_API_KEY', '')
+LAW_KEY = os.environ.get('LAW_API_KEY', '')
+
+SIDO_DATA = [
+    {"code": "11", "name": "서울특별시"}, {"code": "26", "name": "부산광역시"},
+    {"code": "27", "name": "대구광역시"}, {"code": "28", "name": "인천광역시"},
+    {"code": "29", "name": "광주광역시"}, {"code": "30", "name": "대전광역시"},
+    {"code": "31", "name": "울산광역시"}, {"code": "36", "name": "세종특별자치시"},
+    {"code": "41", "name": "경기도"}, {"code": "43", "name": "충청북도"},
+    {"code": "44", "name": "충청남도"}, {"code": "45", "name": "전북특별자치도"},
+    {"code": "46", "name": "전라남도"}, {"code": "47", "name": "경상북도"},
+    {"code": "48", "name": "경상남도"}, {"code": "50", "name": "제주특별자치도"},
+    {"code": "51", "name": "강원특별자치도"}
+]
+
+@app.route('/api/regions/sido', methods=['GET'])
+def get_sido():
+    return jsonify({"success": True, "data": SIDO_DATA})
+
+@app.route('/api/regions/<layer>', methods=['GET'])
+def get_regions(layer):
+    vworld_key = request.args.get('vworldKey')
+    parent_code = request.args.get('parentCode')
+    
+    layer_map = {
+        'sigungu': ('LT_C_ADSIGG_INFO', 'sig_cd', 'sig_kor_nm'),
+        'emd': ('LT_C_ADEMD_INFO', 'emd_cd', 'emd_kor_nm'),
+        'ri': ('LT_C_ADRI_INFO', 'li_cd', 'li_kor_nm')
+    }
+    
+    if layer not in layer_map:
+        return jsonify({"success": False, "message": "Invalid layer"})
+        
+    v_layer, code_field, name_field = layer_map[layer]
+    url = f"https://api.vworld.kr/req/data?service=data&request=GetFeature&data={v_layer}&key={vworld_key}&domain=http://127.0.0.1&size=1000&geometry=false"
+    
+    if parent_code:
+        url += f"&attrFilter={code_field}:like:{parent_code}"
+        
+    try:
+        res = requests.get(url, timeout=10).json()
+        if res.get('response', {}).get('status') == 'OK':
+            features = res['response']['result']['featureCollection']['features']
+            
+            data_list = []
+            for f in features:
+                props = f['properties']
+                data_list.append({
+                    "code": props[code_field],
+                    "name": props.get(name_field, props[code_field])
+                })
+            
+            data_list.sort(key=lambda x: x['name'])
+            return jsonify({"success": True, "data": data_list})
+            
+        return jsonify({"success": True, "data": []})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+def fetch_law_data(law_key, search_query="국토의 계획 및 이용에 관한 법률"):
+    if not law_key:
+        return "법제처 API 키가 제공되지 않아 AI 자체 지식을 기반으로 분석합니다."
+    try:
+        url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={law_key}&target=law&type=XML&query={search_query}"
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+        root = ET.fromstring(response.content)
+        laws = []
+        for law in root.findall('.//law'):
+            law_name = law.find('법령명한글').text if law.find('법령명한글') is not None else ""
+            laws.append(law_name)
+        if laws:
+            return f"법제처 API에서 조회된 연관 법령 목록: {', '.join(laws[:5])} 등."
+        else:
+            return "연관 법령을 찾지 못했습니다."
+    except Exception as e:
+        return "법제처 API 통신 중 오류가 발생하여 자체 지식을 활용합니다."
+
+@app.route('/api/verify_parcel', methods=['POST'])
+def verify_parcel():
+    data = request.json
+    
+    full_address = data.get('address')
+    pnu = ""
+    san = "1"
+    
+    if full_address and VWORLD_KEY:
+        try:
+            url_search = f"https://api.vworld.kr/req/search?service=search&request=search&version=2.0&size=10&page=1&query={full_address}&type=address&category=parcel&format=json&errorformat=json&key={VWORLD_KEY}&domain=http://127.0.0.1"
+            res_search = requests.get(url_search, timeout=5).json()
+            items = res_search.get('response', {}).get('result', {}).get('items', [])
+            if items:
+                pnu = items[0].get('id', '')
+        except Exception as e:
+            print(f"VWorld 주소 검색 오류: {e}")
+            
+        if not pnu:
+            return jsonify({"success": False, "message": "주소에서 고유번호(PNU)를 찾을 수 없습니다."}), 400
+    else:
+        bcode = data.get('bcode')
+        san = data.get('san')
+        bonbeon = data.get('bonbeon')
+        bubeon = data.get('bubeon')
+        
+        if not bcode or not bonbeon:
+            return jsonify({"success": False, "message": "bcode와 bonbeon은 필수입니다."}), 400
+        pnu = f"{bcode}{san}{bonbeon.zfill(4)}{bubeon.zfill(4)}"
+
+    area = data.get('area', '0')
+    actual_area = str(area)
+    jimok = "대" if san == '1' else "임"
+    zoning_list = []
+    
+    # 1. VWorld API 실제 연동 (키가 있을 경우)
+    if VWORLD_KEY:
+        # (1) 토지특성정보 조회 (실제 지목, 면적, 공시지가 확인)
+        try:
+            url_char = f"http://api.vworld.kr/ned/data/getLandCharacteristics?key={VWORLD_KEY}&domain=http://127.0.0.1&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
+            res_char = requests.get(url_char, timeout=5).json()
+            if 'landCharacteristicss' in res_char and 'field' in res_char['landCharacteristicss']:
+                fields = res_char['landCharacteristicss']['field']
+                if fields:
+                    # 보통 최신 연도가 배열의 마지막에 있거나 첫 번째에 있음 (마지막 요소 사용)
+                    latest = sorted(fields, key=lambda x: x.get('stdrYear', '0'))[-1]
+                    jimok = latest.get('lndcgrCodeNm', jimok)
+                    
+                    # 사용자가 면적을 비워뒀거나 0일 경우에만 실제 면적 적용, 
+                    # 아니면 사용자가 입력한 면적(부분 매입 등)을 존중하되 실제 대장 면적도 리턴
+                    real_area = latest.get('lndpclAr', '')
+                    if real_area:
+                        actual_area = str(real_area)
+        except Exception as e:
+            print(f"VWorld 토지특성정보 통신 오류: {e}")
+
+        # (2) 토지이용계획(지역지구) 실데이터 조회
+        try:
+            url_zoning = f"http://api.vworld.kr/ned/data/getLandUseAttr?key={VWORLD_KEY}&domain=http://127.0.0.1&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
+            res_zoning = requests.get(url_zoning, timeout=5).json()
+            
+            if 'landUses' in res_zoning and 'field' in res_zoning['landUses']:
+                fields = res_zoning['landUses']['field']
+                for f in fields:
+                    z_name = f.get('prposAreaDstrcCodeNm')
+                    status = f.get('cnflcAtNm', '')
+                    # '접함'은 인접한 지역지구일 뿐 해당 필지에 속하지 않으므로 제외 (토지이음 기준)
+                    if z_name and z_name not in zoning_list and status != '접함':
+                        zoning_list.append(z_name)
+        except Exception as e:
+            print(f"VWorld 토지이용계획 통신 오류: {e}")
+            
+    # 2. 결과 조합 (API가 실패했거나 결과가 없을 경우 대비 Fallback)
+    if not zoning_list:
+        zoning_list.append("지역지구 데이터 없음")
+            
+    return jsonify({
+        "success": True,
+        "pnu": pnu,
+        "actualArea": area,
+        "jimok": jimok,
+        "zoning": zoning_list
+    })
+
+@app.route('/api/analyze', methods=['POST'])
+def analyze():
+    data = request.json
+    
+    if not GEMINI_KEY:
+        return jsonify({"error": "Google Gemini API Key가 설정되지 않았습니다. 서버 관리자에게 문의하세요."}), 400
+
+    genai.configure(api_key=GEMINI_KEY)
+    
+    try:
+        available_models = []
+        try:
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        except Exception as list_e:
+            return jsonify({"error": f"API 키가 유효하지 않거나 권한이 없습니다. (상세 에러: {list_e})"}), 500
+            
+        model_name = None
+        for preferred in ['models/gemini-1.5-pro-latest', 'models/gemini-1.5-pro', 'models/gemini-1.5-flash-latest', 'models/gemini-1.5-flash', 'models/gemini-pro', 'models/gemini-1.0-pro']:
+            if preferred in available_models:
+                model_name = preferred
+                break
+        if not model_name and available_models:
+            model_name = available_models[0]
+        if not model_name:
+            return jsonify({"error": f"텍스트 생성을 지원하는 모델이 없습니다. (검색된 모델: {available_models})"}), 500
+
+        model = genai.GenerativeModel(model_name)
+        
+        project_name = data.get('projectName', '')
+        budget = data.get('budget', 0)
+        area = data.get('totalArea', 0)
+        description = data.get('description', '')
+        parcels = data.get('parcels', [])
+        
+        # 지역지구를 포함한 동적 프롬프트 구성 (RAG 핵심 로직)
+        parcel_str_list = []
+        all_zonings = set()
+        for p in parcels:
+            parcel_str_list.append(f"- {p['address']} (면적: {p['area']}㎡) | 지역지구: {p['zoning']}")
+            for z in p['zoning'].split(', '):
+                all_zonings.add(z)
+                
+        parcel_str = "\n".join(parcel_str_list)
+        zoning_context = ", ".join(list(all_zonings))
+        
+        law_context = fetch_law_data(LAW_KEY, "도시계획")
+        
+        prompt = f"""
+        당신은 대한민국 시설직 공무원을 돕는 최고 수준의 법규 검토 AI 전문가입니다.
+        아래 [사업 개요]와 토지대장에서 실시간으로 조회한 [편입필지 지역지구], [법제처 법령]을 융합하여 분석하세요.
+
+        [사업 개요]
+        - 사업명: {project_name}
+        - 총 사업비: {budget}억 원
+        - 검증된 총 사업 면적: {area}㎡
+        - 주요 사업 내용: {description}
+        
+        [편입 필지 및 지역지구 현황] (매우 중요)
+        {parcel_str}
+        
+        ※ 핵심 검토 요건: 이 사업은 [{zoning_context}] 구역을 포함하고 있습니다. 이 용도지역에 따른 행위 제한 및 필수 인허가를 반드시 찾아내어 적으세요. (예: 보전산지의 경우 산지전용 제약사항 등)
+        
+        [법제처 제공 컨텍스트]
+        {law_context}
+
+        [요청 사항]
+        보고서에 쓸 수 있도록 전문적인 용어로 답변하되, 응답은 반드시 아래 JSON 형식(마크다운 백틱 없이 순수 JSON만)으로 반환하세요.
+        {{
+            "risks": ["보전산지 편입으로 인한 행위제한 검토 요망", "수질보전특별대책지역에 따른 오수처리계획 수립 필수"],
+            "permits": ["건축허가 (건축법 제11조)", "산지전용허가 (산지관리법 제14조)"],
+            "timeline": ["1단계: 기본계획", "2단계: 투자심사"],
+            "laws": ["국토의 계획 및 이용에 관한 법률", "산지관리법"]
+        }}
+        """
+        
+        response = model.generate_content(prompt)
+        text_resp = response.text.strip()
+        
+        if text_resp.startswith("```json"):
+            text_resp = text_resp[7:]
+        if text_resp.startswith("```"):
+            text_resp = text_resp[3:]
+        if text_resp.endswith("```"):
+            text_resp = text_resp[:-3]
+            
+        result = json.loads(text_resp.strip())
+        return jsonify(result)
+        
+    except json.JSONDecodeError as e:
+        return jsonify({"error": "AI가 반환한 데이터를 파싱할 수 없습니다."}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)

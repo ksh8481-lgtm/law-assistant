@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>개발사업 스마트 법규 검토 어시스턴트</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <h1>🏛️ 개발사업 스마트 법규 검토</h1>
+            <p>실제 법령 데이터와 AI를 활용하여 인허가를 완벽 분석합니다.</p>
+        </header>
+
+        <main class="app-main">
+            <section class="input-section glass-panel">
+                <h2>사업 개요 입력</h2>
+                <form id="project-form">
+                    <div class="form-group">
+                        <label for="projectName">사업명</label>
+                        <input type="text" id="projectName" placeholder="예: 구도심 도시재생사업" required>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="budget">사업 재원 (단위: 억 원)</label>
+                            <input type="number" id="budget" placeholder="예: 150" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>편입 필지 상세 입력 및 토지대장 검증</label>
+                        <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 0.8rem;">
+                            지번을 7단계로 정확히 입력하고 [대장 검증]을 눌러 실제 토지대장의 면적 및 지역지구 정보를 불러오세요. 검증 완료된 필지만 총 면적에 합산됩니다.
+                        </p>
+                        <div id="parcel-container">
+                            <!-- JS will inject 7-part parcel rows here -->
+                        </div>
+                        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                            <button type="button" id="add-parcel-btn" class="secondary-btn" style="flex: 1;">
+                                + 수동으로 편입 필지 1개 추가
+                            </button>
+                            <input type="file" id="excel-upload" accept=".xlsx, .xls" style="display: none;">
+                            <button type="button" id="upload-excel-btn" class="secondary-btn" style="flex: 1; background-color: #10b981; color: white; border-color: #059669;">
+                                📊 엑셀 파일로 대량 불러오기
+                            </button>
+                        </div>
+                        <button type="button" id="bulk-verify-btn" class="submit-btn" style="margin-top: 1rem; background-color: #2563eb; color: white; display: none;">
+                            ✅ 등록된 전체 필지 토지이음 일괄 검증
+                        </button>
+                    </div>
+                    
+                    <div class="form-group" style="background: #f1f5f9; padding: 1rem; border-radius: 8px;">
+                        <label>검증된 총 사업 면적 (자동 합산)</label>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #2563eb;">
+                            <span id="total-area">0</span> ㎡
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="description">주요 사업 내용 및 목적</label>
+                        <textarea id="description" rows="3" placeholder="예: 노후 건축물 철거 후 공공도서관 및 지하주차장 건립 등 사업의 구체적인 내용을 적어주세요."></textarea>
+                    </div>
+
+                    <button type="submit" class="submit-btn" id="analyze-btn">
+                        <span id="btn-text">AI 기반 법규 및 지역지구 분석 시작</span>
+                        <div class="spinner hidden" id="spinner"></div>
+                    </button>
+                </form>
+            </section>
+
+            <section class="result-section glass-panel hidden" id="result-section">
+                <h2>📊 AI 분석 결과</h2>
+                <p class="result-disclaimer">입력된 필지의 지역지구 데이터와 법제처 법령을 종합하여 분석된 결과입니다.</p>
+                
+                <div class="result-card warning">
+                    <h3>🚨 핵심 리스크 및 주의사항</h3>
+                    <ul id="risk-list"></ul>
+                </div>
+
+                <div class="result-card info">
+                    <h3>📑 필요 인허가 및 협의 목록</h3>
+                    <ul id="permit-list"></ul>
+                </div>
+
+                <div class="result-card timeline">
+                    <h3>🗓️ 권장 업무 추진 순서</h3>
+                    <ol id="timeline-list"></ol>
+                </div>
+                
+                <div class="result-card laws">
+                    <h3>⚖️ 관련 주요 법령 및 지역지구 근거</h3>
+                    <ul id="law-list"></ul>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    </div>
+
+    <!-- 카카오 주소 검색 API -->
+    <script src="//t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
+    <script src="/static/script.js"></script>
+</body>
+</html>
