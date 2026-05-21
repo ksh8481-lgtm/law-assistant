@@ -168,20 +168,20 @@ def verify_parcel():
     try:
         url_char = f"https://api.vworld.kr/ned/data/getLandCharacteristics?key={VWORLD_KEY.strip()}&domain=http://127.0.0.1&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
         res_char = requests.get(url_char, timeout=10).json()
-            if 'landCharacteristicss' in res_char and 'field' in res_char['landCharacteristicss']:
-                fields = res_char['landCharacteristicss']['field']
-                if fields:
-                    # 보통 최신 연도가 배열의 마지막에 있거나 첫 번째에 있음 (마지막 요소 사용)
-                    latest = sorted(fields, key=lambda x: x.get('stdrYear', '0'))[-1]
-                    jimok = latest.get('lndcgrCodeNm', jimok)
-                    
-                    # 사용자가 면적을 비워뒀거나 0일 경우에만 실제 면적 적용, 
-                    # 아니면 사용자가 입력한 면적(부분 매입 등)을 존중하되 실제 대장 면적도 리턴
-                    real_area = latest.get('lndpclAr', '')
-                    if real_area:
-                        actual_area = str(real_area)
-        except Exception as e:
-            print(f"VWorld 토지특성정보 통신 오류: {e}")
+        if 'landCharacteristicss' in res_char and 'field' in res_char['landCharacteristicss']:
+            fields = res_char['landCharacteristicss']['field']
+            if fields:
+                # 보통 최신 연도가 배열의 마지막에 있거나 첫 번째에 있음 (마지막 요소 사용)
+                latest = sorted(fields, key=lambda x: x.get('stdrYear', '0'))[-1]
+                jimok = latest.get('lndcgrCodeNm', jimok)
+                
+                # 사용자가 면적을 비워뒀거나 0일 경우에만 실제 면적 적용, 
+                # 아니면 사용자가 입력한 면적(부분 매입 등)을 존중하되 실제 대장 면적도 리턴
+                real_area = latest.get('lndpclAr', '')
+                if real_area:
+                    actual_area = str(real_area)
+    except Exception as e:
+        print(f"VWorld 토지특성정보 통신 오류: {e}")
 
     # (2) 토지이용계획(지역지구) 실데이터 조회
     try:
