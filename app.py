@@ -160,12 +160,14 @@ def verify_parcel():
     jimok = "대" if san == '1' else "임"
     zoning_list = []
     
-    # 1. VWorld API 실제 연동 (키가 있을 경우)
-    if VWORLD_KEY:
-        # (1) 토지특성정보 조회 (실제 지목, 면적, 공시지가 확인)
-        try:
-            url_char = f"http://api.vworld.kr/ned/data/getLandCharacteristics?key={VWORLD_KEY}&domain=http://127.0.0.1&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
-            res_char = requests.get(url_char, timeout=5).json()
+    # 1. VWorld API 실제 연동
+    if not VWORLD_KEY:
+        return jsonify({"success": False, "message": "서버에 VWorld API Key가 설정되지 않았습니다."}), 500
+
+    # (1) 토지특성정보 조회 (실제 지목, 면적, 공시지가 확인)
+    try:
+        url_char = f"https://api.vworld.kr/ned/data/getLandCharacteristics?key={VWORLD_KEY}&domain=https://law-assistant.onrender.com&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
+        res_char = requests.get(url_char, timeout=10).json()
             if 'landCharacteristicss' in res_char and 'field' in res_char['landCharacteristicss']:
                 fields = res_char['landCharacteristicss']['field']
                 if fields:
@@ -181,20 +183,20 @@ def verify_parcel():
         except Exception as e:
             print(f"VWorld 토지특성정보 통신 오류: {e}")
 
-        # (2) 토지이용계획(지역지구) 실데이터 조회
-        try:
-            url_zoning = f"http://api.vworld.kr/ned/data/getLandUseAttr?key={VWORLD_KEY}&domain=http://127.0.0.1&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
-            res_zoning = requests.get(url_zoning, timeout=5).json()
+    # (2) 토지이용계획(지역지구) 실데이터 조회
+    try:
+        url_zoning = f"https://api.vworld.kr/ned/data/getLandUseAttr?key={VWORLD_KEY}&domain=https://law-assistant.onrender.com&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
+        res_zoning = requests.get(url_zoning, timeout=10).json()
             
-            if 'landUses' in res_zoning and 'field' in res_zoning['landUses']:
-                fields = res_zoning['landUses']['field']
-                for f in fields:
-                    z_name = f.get('prposAreaDstrcCodeNm')
-                    # '접함', '포함', '저촉' 등 상태에 관계없이 토지이음처럼 모두 표시
-                    if z_name and z_name not in zoning_list:
-                        zoning_list.append(z_name)
-        except Exception as e:
-            print(f"VWorld 토지이용계획 통신 오류: {e}")
+        if 'landUses' in res_zoning and 'field' in res_zoning['landUses']:
+            fields = res_zoning['landUses']['field']
+            for f in fields:
+                z_name = f.get('prposAreaDstrcCodeNm')
+                # '접함', '포함', '저촉' 등 상태에 관계없이 토지이음처럼 모두 표시
+                if z_name and z_name not in zoning_list:
+                    zoning_list.append(z_name)
+    except Exception as e:
+        print(f"VWorld 토지이용계획 통신 오류: {e}")
             
     # 2. 결과 조합 (API가 실패했거나 결과가 없을 경우 대비 Fallback)
     if not zoning_list:
