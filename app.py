@@ -166,7 +166,7 @@ def verify_parcel():
 
     # (1) 토지특성정보 조회 (실제 지목, 면적, 공시지가 확인)
     try:
-        url_char = f"https://api.vworld.kr/ned/data/getLandCharacteristics?key={VWORLD_KEY}&domain=https://law-assistant.onrender.com&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
+        url_char = f"https://api.vworld.kr/ned/data/getLandCharacteristics?key={VWORLD_KEY}&domain=http://127.0.0.1&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
         res_char = requests.get(url_char, timeout=10).json()
             if 'landCharacteristicss' in res_char and 'field' in res_char['landCharacteristicss']:
                 fields = res_char['landCharacteristicss']['field']
@@ -185,7 +185,7 @@ def verify_parcel():
 
     # (2) 토지이용계획(지역지구) 실데이터 조회
     try:
-        url_zoning = f"https://api.vworld.kr/ned/data/getLandUseAttr?key={VWORLD_KEY}&domain=https://law-assistant.onrender.com&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
+        url_zoning = f"https://api.vworld.kr/ned/data/getLandUseAttr?key={VWORLD_KEY}&domain=http://127.0.0.1&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
         res_zoning = requests.get(url_zoning, timeout=10).json()
             
         if 'landUses' in res_zoning and 'field' in res_zoning['landUses']:
