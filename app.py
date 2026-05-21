@@ -106,13 +106,40 @@ def verify_parcel():
     pnu = ""
     san = "1"
     
+    import re
+    
     if full_address and VWORLD_KEY:
         try:
             url_search = f"https://api.vworld.kr/req/search?service=search&request=search&version=2.0&size=10&page=1&query={full_address}&type=address&category=parcel&format=json&errorformat=json&key={VWORLD_KEY}&domain=http://127.0.0.1"
             res_search = requests.get(url_search, timeout=5).json()
             items = res_search.get('response', {}).get('result', {}).get('items', [])
-            if items:
-                pnu = items[0].get('id', '')
+            
+            # 정확한 주소 매칭 (읍/면/리/지번 검증)
+            input_parts = re.split(r'\s+', full_address.strip())
+            for item in items:
+                api_addr = item.get('address', {}).get('parcel', '')
+                if not api_addr:
+                    continue
+                # 마지막 부분(지번)이 일치해야 함
+                if input_parts[-1] != api_addr.split()[-1]:
+                    continue
+                
+                # 다른 부분들도 모두 포함되는지 확인 (경북/경상북도 등 예외 처리)
+                is_match = True
+                for p in input_parts[:-1]:
+                    if p not in api_addr:
+                        if p == '경북' and '경상북도' in api_addr: continue
+                        if p == '경남' and '경상남도' in api_addr: continue
+                        if p == '전북' and '전라북도' in api_addr: continue
+                        if p == '전남' and '전라남도' in api_addr: continue
+                        if p == '충북' and '충청북도' in api_addr: continue
+                        if p == '충남' and '충청남도' in api_addr: continue
+                        is_match = False
+                        break
+                
+                if is_match:
+                    pnu = item.get('id', '')
+                    break
         except Exception as e:
             print(f"VWorld 주소 검색 오류: {e}")
             
@@ -163,9 +190,8 @@ def verify_parcel():
                 fields = res_zoning['landUses']['field']
                 for f in fields:
                     z_name = f.get('prposAreaDstrcCodeNm')
-                    status = f.get('cnflcAtNm', '')
-                    # '접함'은 인접한 지역지구일 뿐 해당 필지에 속하지 않으므로 제외 (토지이음 기준)
-                    if z_name and z_name not in zoning_list and status != '접함':
+                    # '접함', '포함', '저촉' 등 상태에 관계없이 토지이음처럼 모두 표시
+                    if z_name and z_name not in zoning_list:
                         zoning_list.append(z_name)
         except Exception as e:
             print(f"VWorld 토지이용계획 통신 오류: {e}")
