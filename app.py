@@ -164,10 +164,16 @@ def verify_parcel():
     if not VWORLD_KEY:
         return jsonify({"success": False, "message": "서버에 VWorld API Key가 설정되지 않았습니다."}), 500
 
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
+    }
+
     # (1) 토지특성정보 조회
     try:
         url_char = f"https://api.vworld.kr/ned/data/getLandCharacteristics?key={VWORLD_KEY.strip()}&domain=http://127.0.0.1&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
-        res_char = requests.get(url_char, timeout=10).json()
+        res_char = requests.get(url_char, headers=headers, timeout=10).json()
         if 'landCharacteristicss' in res_char and 'field' in res_char['landCharacteristicss']:
             fields = res_char['landCharacteristicss']['field']
             if fields:
@@ -186,7 +192,7 @@ def verify_parcel():
     # (2) 토지이용계획(지역지구) 실데이터 조회
     try:
         url_zoning = f"https://api.vworld.kr/ned/data/getLandUseAttr?key={VWORLD_KEY.strip()}&domain=http://127.0.0.1&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
-        res_zoning = requests.get(url_zoning, timeout=10).json()
+        res_zoning = requests.get(url_zoning, headers=headers, timeout=10).json()
             
         if 'landUses' in res_zoning:
             if 'field' in res_zoning['landUses']:
