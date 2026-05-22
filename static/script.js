@@ -17,6 +17,22 @@ document.addEventListener('DOMContentLoaded', () => {
     
     let totalVerifiedArea = 0;
 
+    const downloadTemplateBtn = document.getElementById('download-template-btn');
+    if (downloadTemplateBtn) {
+        downloadTemplateBtn.addEventListener('click', () => {
+            const ws_data = [
+                ['주소'],
+                ['경남 남해군 상주면 양아리 799-2'],
+                ['서울시 강남구 역삼동 123-4']
+            ];
+            const ws = XLSX.utils.aoa_to_sheet(ws_data);
+            ws['!cols'] = [{ wpx: 300 }];
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "편입필지");
+            XLSX.writeFile(wb, "편입필지_입력양식.xlsx");
+        });
+    }
+
     addParcelBtn.addEventListener('click', () => addParcelRow());
 
     uploadExcelBtn.addEventListener('click', () => {
@@ -299,6 +315,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const requestData = {
             projectName: document.getElementById('projectName').value,
             budget: parseFloat(document.getElementById('budget').value),
+            budgetNational: parseFloat(document.getElementById('budgetNational').value) || 0,
+            budgetProvincial: parseFloat(document.getElementById('budgetProvincial').value) || 0,
+            budgetMunicipal: parseFloat(document.getElementById('budgetMunicipal').value) || 0,
             totalArea: totalVerifiedArea,
             description: document.getElementById('description').value,
             parcels: parcels

@@ -244,11 +244,25 @@ def analyze():
 
         model = genai.GenerativeModel(model_name)
         
-        project_name = data.get('projectName', '')
+        project_name = data.get('projectName', '이름 없음')
         budget = data.get('budget', 0)
-        area = data.get('totalArea', 0)
-        description = data.get('description', '')
+        budget_nat = data.get('budgetNational', 0)
+        budget_prov = data.get('budgetProvincial', 0)
+        budget_mun = data.get('budgetMunicipal', 0)
+        total_area = data.get('totalArea', 0)
+        description = data.get('description', '설명 없음')
         parcels = data.get('parcels', [])
+
+        if not parcels:
+            return jsonify({"error": "검증된 편입 필지가 없습니다."}), 400
+
+        # 1. 수집된 데이터 정리
+        project_info = f"""
+        - 사업명: {project_name}
+        - 총 사업비: {budget}억 원 (재원 비율: 국비 {budget_nat}%, 도비 {budget_prov}%, 시군비 {budget_mun}%)
+        - 편입 필지 총 면적: {total_area} ㎡
+        - 주요 사업 내용: {description}
+        """
         
         # 지역지구를 포함한 동적 프롬프트 구성 (RAG 핵심 로직)
         parcel_str_list = []

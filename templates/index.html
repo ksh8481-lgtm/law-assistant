@@ -25,9 +25,21 @@
                     </div>
                     
                     <div class="form-row">
-                        <div class="form-group">
+                        <div class="form-group" style="flex: 2;">
                             <label for="budget">사업 재원 (단위: 억 원)</label>
                             <input type="number" id="budget" placeholder="예: 150" required>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label for="budgetNational">국비(%)</label>
+                            <input type="number" id="budgetNational" placeholder="0" min="0" max="100">
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label for="budgetProvincial">도비(%)</label>
+                            <input type="number" id="budgetProvincial" placeholder="0" min="0" max="100">
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label for="budgetMunicipal">시군비(%)</label>
+                            <input type="number" id="budgetMunicipal" placeholder="0" min="0" max="100">
                         </div>
                     </div>
 
@@ -43,9 +55,12 @@
                             <button type="button" id="add-parcel-btn" class="secondary-btn" style="flex: 1;">
                                 + 수동으로 편입 필지 1개 추가
                             </button>
+                            <button type="button" id="download-template-btn" class="secondary-btn" style="flex: 1; background-color: #f8fafc; border-color: #cbd5e1; color: #475569;">
+                                📥 엑셀 양식 다운로드
+                            </button>
                             <input type="file" id="excel-upload" accept=".xlsx, .xls" style="display: none;">
-                            <button type="button" id="upload-excel-btn" class="secondary-btn" style="flex: 1; background-color: #10b981; color: white; border-color: #059669;">
-                                📊 엑셀 파일로 대량 불러오기
+                            <button type="button" id="upload-excel-btn" class="secondary-btn" style="flex: 1.5; background-color: #10b981; color: white; border-color: #059669;">
+                                📊 엑셀 파일 대량 불러오기
                             </button>
                         </div>
                         <button type="button" id="bulk-verify-btn" class="submit-btn" style="margin-top: 1rem; background-color: #2563eb; color: white; display: none;">
