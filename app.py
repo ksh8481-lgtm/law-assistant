@@ -155,8 +155,12 @@ def verify_parcel():
             return jsonify({"success": False, "message": "bcode와 bonbeon은 필수입니다."}), 400
         pnu = f"{bcode}{san}{bonbeon.zfill(4)}{bubeon.zfill(4)}"
 
-    area = data.get('area', '0')
-    actual_area = str(area)
+    try:
+        user_area = float(data.get('area', 0))
+    except (ValueError, TypeError):
+        user_area = 0.0
+    
+    actual_area = str(user_area) if user_area > 0 else ""
     jimok = "대" if san == '1' else "임"
     zoning_list = []
     
@@ -180,7 +184,7 @@ def verify_parcel():
                 latest = sorted(fields, key=lambda x: x.get('stdrYear', '0'))[-1]
                 jimok = latest.get('lndcgrCodeNm', jimok)
                 real_area = latest.get('lndpclAr', '')
-                if real_area:
+                if real_area and user_area <= 0:
                     actual_area = str(real_area)
     except Exception as e:
         print(f"VWorld 토지특성정보 통신 오류: {e}")

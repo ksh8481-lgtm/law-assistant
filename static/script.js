@@ -21,12 +21,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (downloadTemplateBtn) {
         downloadTemplateBtn.addEventListener('click', () => {
             const ws_data = [
-                ['주소'],
-                ['경남 남해군 상주면 양아리 799-2'],
-                ['서울시 강남구 역삼동 123-4']
+                ['주소', '면적(㎡)'],
+                ['경남 남해군 상주면 양아리 799-2', ''],
+                ['서울시 강남구 역삼동 123-4', '500']
             ];
             const ws = XLSX.utils.aoa_to_sheet(ws_data);
-            ws['!cols'] = [{ wpx: 300 }];
+            ws['!cols'] = [{ wpx: 300 }, { wpx: 100 }];
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "편입필지");
             XLSX.writeFile(wb, "편입필지_입력양식.xlsx");
@@ -53,8 +53,9 @@ document.addEventListener('DOMContentLoaded', () => {
             let addedCount = 0;
             jsonData.forEach(row => {
                 const address = row['주소'];
+                const area = row['면적(㎡)'] || row['면적'] || '';
                 if (address) {
-                    addParcelRow(address);
+                    addParcelRow(address, area);
                     addedCount++;
                 }
             });
@@ -70,7 +71,7 @@ document.addEventListener('DOMContentLoaded', () => {
         excelUploadInput.value = ''; // Reset
     });
 
-    function addParcelRow(initAddr = null) {
+    function addParcelRow(initAddr = null, initArea = '') {
         const row = document.createElement('div');
         row.className = 'parcel-row';
         row.dataset.bcode = ''; 
@@ -106,7 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
             `}
             <div class="parcel-part" style="flex: 0.5;">
                 <label>면적(㎡)</label>
-                <input type="number" class="p-area" placeholder="${isExcel ? '자동조회' : '예: 500'}" ${isExcel ? 'readonly' : ''}>
+                <input type="number" class="p-area" placeholder="${isExcel ? '자동조회' : '예: 500'}" value="${initArea}" ${isExcel && !initArea ? 'readonly' : ''}>
             </div>
             
             <div class="parcel-actions">
@@ -200,7 +201,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (isExcel) {
             reqData = {
-                address: row.dataset.excelAddress
+                address: row.dataset.excelAddress,
+                area: row.querySelector('.p-area').value || ''
             };
         } else {
             const bcode = row.dataset.bcode;
@@ -257,7 +259,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 resultDiv.innerHTML = `
                     <strong style="color: #059669;">[검증 성공]</strong> 
-                    대장상 면적: ${data.actualArea}㎡ (지목: ${data.jimok})<br>
+                    적용 면적: ${data.actualArea}㎡ (지목: ${data.jimok})<br>
                     <strong>지역지구:</strong> ${data.zoning.join(', ')}
                 `;
             } else {
