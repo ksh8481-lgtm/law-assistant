@@ -16,19 +16,4 @@ jobs:
           token: ${{ secrets.CLOUDTYPE_TOKEN }}
           project: ksh8481/law-assistant
           stage: main
-          yaml: |
-            name: law-assistant
-            app: python@3.12
-            options:
-              ports: "8000"
-              start: gunicorn app:app --bind 0.0.0.0:8000
-              env:
-                - name: VWORLD_KEY
-                  value: ${{ secrets.VWORLD_KEY }}
-                - name: GEMINI_API_KEY
-                  value: ${{ secrets.GEMINI_API_KEY }}
-              buildenv: []
-            context:
-              git:
-                url: https://github.com/${{ github.repository }}.git
-                ref: ${{ github.ref }}
+          app: law-assistant
