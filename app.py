@@ -6,10 +6,7 @@ from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import google.generativeai as genai
 import random
-from dotenv import load_dotenv
-
-# .env 파일 로드
-load_dotenv()
+# dotenv removed
 
 import base64
 
