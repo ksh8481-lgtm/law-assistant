@@ -216,7 +216,7 @@ def verify_parcel():
     return jsonify({
         "success": True,
         "pnu": pnu,
-        "actualArea": area,
+        "actualArea": actual_area,
         "jimok": jimok,
         "zoning": zoning_list
     })
