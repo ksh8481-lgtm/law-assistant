@@ -48,20 +48,29 @@
                         <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 0.8rem;">
                             지번을 7단계로 정확히 입력하고 [대장 검증]을 눌러 실제 토지대장의 면적 및 지역지구 정보를 불러오세요. 검증 완료된 필지만 총 면적에 합산됩니다.
                         </p>
-                        <div id="parcel-container">
-                            <!-- JS will inject 7-part parcel rows here -->
-                        </div>
-                        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
-                            <button type="button" id="add-parcel-btn" class="secondary-btn" style="flex: 1;">
-                                + 수동으로 편입 필지 1개 추가
-                            </button>
-                            <button type="button" id="download-template-btn" class="secondary-btn" style="flex: 1; background-color: #f8fafc; border-color: #cbd5e1; color: #475569;">
-                                📥 엑셀 양식 다운로드
-                            </button>
+                        <div class="parcel-controls" style="display: flex; gap: 0.5rem; margin-bottom: 1rem; align-items: center;">
+                            <button type="button" id="add-parcel-btn" class="secondary-btn" style="padding: 0.5rem; font-size: 0.9rem; flex: 1;">➕ 1개 수동 추가</button>
                             <input type="file" id="excel-upload" accept=".xlsx, .xls" style="display: none;">
-                            <button type="button" id="upload-excel-btn" class="secondary-btn" style="flex: 1.5; background-color: #10b981; color: white; border-color: #059669;">
-                                📊 엑셀 파일 대량 불러오기
-                            </button>
+                            <button type="button" id="upload-excel-btn" class="secondary-btn" style="padding: 0.5rem; font-size: 0.9rem; background-color: #10b981; color: white; border-color: #059669; flex: 1.5;">📊 엑셀 불러오기</button>
+                            <button type="button" id="download-template-btn" class="secondary-btn" style="padding: 0.5rem; font-size: 0.9rem; background-color: #f8fafc; border-color: #cbd5e1; color: #475569; flex: 1;">📥 엑셀 양식</button>
+                            <button type="button" id="clear-parcels-btn" class="secondary-btn" style="padding: 0.5rem; font-size: 0.9rem; margin-left: auto; color: #ef4444; border-color: #fca5a5; flex: 0.8;">🗑️ 전체 삭제</button>
+                        </div>
+
+                        <div style="overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 1rem;">
+                            <table id="parcel-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; min-width: 800px;">
+                                <thead>
+                                    <tr style="background-color: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                                        <th style="padding: 0.75rem; width: 60px; text-align: center;">상태</th>
+                                        <th style="padding: 0.75rem; width: 250px;">주소 (수동 추가시 돋보기)</th>
+                                        <th style="padding: 0.75rem; width: 140px;">상세지번</th>
+                                        <th style="padding: 0.75rem; width: 90px;">면적(㎡)</th>
+                                        <th style="padding: 0.75rem;">지목 및 지역지구 요약</th>
+                                        <th style="padding: 0.75rem; width: 60px; text-align: center;">관리</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="parcel-container">
+                                </tbody>
+                            </table>
                         </div>
                         <button type="button" id="bulk-verify-btn" class="submit-btn" style="margin-top: 1rem; background-color: #2563eb; color: white; display: none;">
                             ✅ 등록된 전체 필지 토지이음 일괄 검증

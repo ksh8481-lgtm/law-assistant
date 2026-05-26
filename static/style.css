@@ -148,67 +148,36 @@ textarea:focus {
     box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
 }
 
-/* Advanced Parcel Row Styles */
-.parcel-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
-    padding: 1.5rem;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    background: #f8fafc;
-    align-items: flex-end;
-    position: relative;
+/* Advanced Parcel Table Styles */
+#parcel-table td {
+    vertical-align: middle;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid #e2e8f0;
 }
 
-.parcel-part {
-    flex: 1 1 12%;
-    min-width: 90px;
-}
-.parcel-part label {
-    font-size: 0.75rem;
-    color: #64748b;
-    margin-bottom: 0.4rem;
-}
-.parcel-part select, .parcel-part input {
-    padding: 0.6rem 0.8rem;
-    font-size: 0.9rem;
+#parcel-table tr.parcel-row:hover {
+    background-color: #f1f5f9;
 }
 
-.parcel-result {
-    flex: 1 1 100%;
-    margin-top: 0.5rem;
-    font-size: 0.9rem;
-    color: #475569;
-    padding: 0.75rem;
-    background: #f1f5f9;
-    border-radius: 8px;
-    display: none;
-}
-.parcel-result.show {
-    display: block;
-}
-
-.parcel-actions {
-    display: flex;
-    gap: 0.5rem;
-    flex: 1 1 100%;
-    justify-content: flex-end;
-    margin-top: 0.5rem;
-    align-items: center;
+.parcel-input-sm {
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.85rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
 }
 
 .verify-btn {
     background: #3b82f6;
     color: white;
     border: none;
-    padding: 0.6rem 1.2rem;
-    border-radius: 8px;
+    padding: 0.4rem 0.8rem;
+    border-radius: 6px;
     cursor: pointer;
-    font-size: 0.95rem;
+    font-size: 0.85rem;
     font-weight: 600;
     transition: background 0.2s;
+    width: 100%;
 }
 .verify-btn:hover { background: #2563eb; }
 .verify-btn:disabled { background: #94a3b8; cursor: not-allowed; }
@@ -217,10 +186,10 @@ textarea:focus {
     background: #fee2e2;
     color: #ef4444;
     border: none;
-    padding: 0.6rem 1.2rem;
-    border-radius: 8px;
+    padding: 0.4rem 0.6rem;
+    border-radius: 6px;
     cursor: pointer;
-    font-size: 0.95rem;
+    font-size: 0.85rem;
     font-weight: 600;
     transition: background 0.2s;
 }
@@ -229,14 +198,25 @@ textarea:focus {
 .verified-tag {
     background: var(--success);
     color: white;
-    padding: 0.4rem 0.8rem;
-    border-radius: 6px;
-    font-size: 0.85rem;
+    padding: 0.3rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
     font-weight: 700;
-    margin-right: auto;
-    display: none;
+    display: inline-block;
+    text-align: center;
+    width: 100%;
 }
-.verified-tag.show { display: inline-block; }
+.error-tag {
+    background: var(--danger);
+    color: white;
+    padding: 0.3rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    display: inline-block;
+    text-align: center;
+    width: 100%;
+}
 
 
 .secondary-btn {
