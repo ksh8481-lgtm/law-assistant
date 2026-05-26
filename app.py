@@ -80,6 +80,14 @@ def get_regions(layer):
 def index():
     return render_template('index.html')
 
+@app.route('/law_review')
+def law_review():
+    return render_template('law_review.html')
+
+@app.route('/supervisor')
+def supervisor():
+    return render_template('supervisor.html')
+
 def fetch_law_data(law_key, search_query="국토의 계획 및 이용에 관한 법률"):
     if not law_key:
         return "법제처 API 키가 제공되지 않아 AI 자체 지식을 기반으로 분석합니다."
