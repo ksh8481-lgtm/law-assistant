@@ -111,10 +111,18 @@ def verify_parcel():
     
     if full_address and VWORLD_KEY:
         try:
-            url_search = f"https://api.vworld.kr/req/search?service=search&request=search&version=2.0&size=10&page=1&query={full_address}&type=address&category=parcel&format=json&errorformat=json&key={VWORLD_KEY}&domain=http://127.0.0.1"
-            res_search = requests.get(url_search, timeout=5).json()
+            params = {
+                "service": "search", "request": "search", "version": "2.0",
+                "size": "10", "page": "1", "query": full_address,
+                "type": "address", "category": "parcel", "format": "json",
+                "errorformat": "json", "key": VWORLD_KEY.strip(), "domain": "http://127.0.0.1"
+            }
+            res_search = requests.get("https://api.vworld.kr/req/search", params=params, timeout=5).json()
             items = res_search.get('response', {}).get('result', {}).get('items', [])
             
+            if not items:
+                return jsonify({"success": False, "message": f"검색 API 결과 없음: {res_search}"}), 400
+                
             # 정확한 주소 매칭 (읍/면/리/지번 검증)
             input_parts = re.split(r'\s+', full_address.strip())
             for item in items:
@@ -141,8 +149,13 @@ def verify_parcel():
                 if is_match:
                     pnu = item.get('id', '')
                     break
+            
+            if not pnu:
+                return jsonify({"success": False, "message": f"주소 불일치 (입력: {full_address}, 첫결과: {items[0].get('address', {}).get('parcel', '')})"}), 400
+                
         except Exception as e:
             print(f"VWorld 주소 검색 오류: {e}")
+            return jsonify({"success": False, "message": f"서버 내부 오류: {str(e)}"}), 500
             
         if not pnu:
             return jsonify({"success": False, "message": "주소에서 고유번호(PNU)를 찾을 수 없습니다."}), 400
