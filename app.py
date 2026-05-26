@@ -117,7 +117,7 @@ def verify_parcel():
                 "type": "address", "category": "parcel", "format": "json",
                 "errorformat": "json", "key": VWORLD_KEY.strip(), "domain": "http://127.0.0.1"
             }
-            res_search = requests.get("https://api.vworld.kr/req/search", params=params, headers=headers, timeout=5).json()
+            res_search = requests.get("https://api.vworld.kr/req/search", params=params, timeout=5).json()
             items = res_search.get('response', {}).get('result', {}).get('items', [])
             
             if not items:
