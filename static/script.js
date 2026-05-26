@@ -197,7 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 resolve(data);
             };
             const script = document.createElement('script');
-            script.src = url + (url.includes('?') ? '&' : '?') + 'format=jsonp&callback=' + callbackName;
+            script.src = url + (url.includes('?') ? '&' : '?') + 'format=json&callback=' + callbackName;
             script.onerror = () => {
                 delete window[callbackName];
                 document.body.removeChild(script);
