@@ -129,7 +129,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         row.querySelector('.remove-parcel-btn').addEventListener('click', function() {
             if (row.dataset.verified === 'true') {
-                const area = parseFloat(row.dataset.actualArea || 0);
+                const areaStr = String(row.dataset.actualArea || '0').replace(/,/g, '');
+                const area = parseFloat(areaStr || 0);
                 totalVerifiedArea -= area;
                 updateTotalArea();
             }
@@ -310,7 +311,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 pnu = reqData.bcode + (reqData.san === '1' ? '2' : '1') + reqData.bonbeon.padStart(4, '0') + reqData.bubeon.padStart(4, '0');
             }
             
-            let actualArea = '';
+            let apiArea = '';
             let jimok = reqData.san === '1' ? '대' : '임야';
             let apiDomainError = false;
             try {
@@ -318,7 +319,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const res_char = await fetchJSONP(url_char);
                 const fields = res_char?.landCharacteristicss?.field || [];
                 if (fields.length > 0) {
-                    actualArea = fields[0].lndpclAr || '';
+                    apiArea = fields[0].lndpclAr || '';
                     const jimok_code = fields[0].lndcgrCodeNm || '';
                     if (jimok_code) jimok = jimok_code;
                 }
@@ -327,8 +328,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 apiDomainError = true;
             }
             
-            if (!actualArea && reqData.area) {
+            // 면적 결정: 사용자가 입력/엑셀로 불러온 값이 있으면 그 값을 최우선으로 사용, 없으면 토지대장 면적 사용
+            let actualArea = '';
+            if (reqData.area && reqData.area.trim() !== '') {
                 actualArea = reqData.area;
+            } else {
+                actualArea = apiArea;
             }
             
             let zoning_list = [];
@@ -372,7 +377,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 zoningCell.innerHTML = `<strong>지목:</strong> ${jimok}<br><strong>지역지구:</strong> ${zoningText}`;
             }
 
-            totalVerifiedArea += parseFloat(actualArea || 0);
+            const cleanArea = String(actualArea || '0').replace(/,/g, '');
+            totalVerifiedArea += parseFloat(cleanArea || 0);
             updateTotalArea();
             
         } catch (error) {
