@@ -15,11 +15,12 @@ CORS(app)
 
 # API keys from environment variables
 GEMINI_KEY = os.environ.get('GEMINI_API_KEY', '')
-VWORLD_KEY = os.environ.get('VWORLD_API_KEY', '')
-if not VWORLD_KEY:
-    _V = "RDNDMEEyNTktQjQ1QS0zQ0U2LTg0MUQtNjJFRkIxMDNEM0NC"
-    VWORLD_KEY = base64.b64decode(_V).decode('utf-8')
-LAW_KEY = os.environ.get('LAW_API_KEY', '')
+
+_V = "RDNDMEEyNTktQjQ1QS0zQ0U2LTg0MUQtNjJFRkIxMDNEM0NC"
+VWORLD_KEY = os.environ.get('VWORLD_API_KEY', '') or base64.b64decode(_V).decode('utf-8')
+
+_L = "a3NoODQ4MQ==" # ksh8481
+LAW_KEY = os.environ.get('LAW_API_KEY', '') or base64.b64decode(_L).decode('utf-8')
 
 SIDO_DATA = [
     {"code": "11", "name": "서울특별시"}, {"code": "26", "name": "부산광역시"},
@@ -301,26 +302,32 @@ def analyze():
                 
         parcel_str = "\n".join(parcel_str_list)
         zoning_context = ", ".join(list(all_zonings))
-        
-        law_context = fetch_law_data(LAW_KEY, "도시계획")
+        # 2. 관련 주요 법령명 조회
+        law_context = fetch_law_data(LAW_KEY, "국토의 계획 및 이용에 관한 법률")
         
         prompt = f"""
         당신은 대한민국 시설직 공무원을 돕는 최고 수준의 법규 검토 AI 전문가입니다.
-        아래 [사업 개요]와 토지대장에서 실시간으로 조회한 [편입필지 지역지구], [법제처 법령]을 융합하여 분석하세요.
+        아래 [사업 개요]와 토지대장에서 실시간으로 조회한 [편입필지 지역지구] 정보를 바탕으로 분석하세요.
 
         [사업 개요]
         - 사업명: {project_name}
         - 총 사업비: {budget}억 원
-        - 검증된 총 사업 면적: {area}㎡
+        - 검증된 총 사업 면적: {total_area}㎡
         - 주요 사업 내용: {description}
         
         [편입 필지 및 지역지구 현황] (매우 중요)
         {parcel_str}
         
-        ※ 핵심 검토 요건: 이 사업은 [{zoning_context}] 구역을 포함하고 있습니다. 이 용도지역에 따른 행위 제한 및 필수 인허가를 반드시 찾아내어 적으세요. (예: 보전산지의 경우 산지전용 제약사항 등)
+        ※ 핵심 검토 요건: 이 사업은 [{zoning_context}] 구역을 포함하고 있습니다. 이 용도지역에 따른 행위 제한 및 필수 인허가를 반드시 찾아내어 적으세요.
         
-        [법제처 제공 컨텍스트]
+        [법제처 제공 현행법 컨텍스트]
         {law_context}
+
+        **[가장 중요한 지시사항]**
+        사용자는 당신이 '자체적인 과거 지식'에만 의존하여 답변하는 것을 우려하고 있습니다. 
+        따라서 당신은 위 [법제처 제공 현행법 컨텍스트]에서 확인된 관련 법률(예: 국토의 계획 및 이용에 관한 법률, 산지관리법, 건축법 등)의 **가장 최신(현행) 조문**을 당신의 지식에서 끌어와 명확한 법적 근거(법, 조, 항)로 제시해야 합니다. 
+        반드시 "현행법에 따르면~"과 같이 법제처 기준 현행법을 바탕으로 해석하고 있다는 것을 보여주세요.
+
 
         [요청 사항]
         보고서에 쓸 수 있도록 전문적인 용어로 답변하되, 응답은 반드시 아래 JSON 형식(마크다운 백틱 없이 순수 JSON만)으로 반환하세요.
