@@ -13,11 +13,12 @@ import base64
 app = Flask(__name__)
 CORS(app)
 
-# Force API keys from base64 to bypass broken environment variables
-_G = "QUl6YVN5Q3I5TXlnVTduQVFoaHRVLVIwVC1NTEdQeTJLUldOeEsw"
-_V = "RDNDMEEyNTktQjQ1QS0zQ0U2LTg0MUQtNjJFRkIxMDNEM0NC"
-GEMINI_KEY = base64.b64decode(_G).decode('utf-8')
-VWORLD_KEY = base64.b64decode(_V).decode('utf-8')
+# API keys from environment variables
+GEMINI_KEY = os.environ.get('GEMINI_API_KEY', '')
+VWORLD_KEY = os.environ.get('VWORLD_API_KEY', '')
+if not VWORLD_KEY:
+    _V = "RDNDMEEyNTktQjQ1QS0zQ0U2LTg0MUQtNjJFRkIxMDNEM0NC"
+    VWORLD_KEY = base64.b64decode(_V).decode('utf-8')
 LAW_KEY = os.environ.get('LAW_API_KEY', '')
 
 SIDO_DATA = [
@@ -247,7 +248,7 @@ def analyze():
     data = request.json
     
     if not GEMINI_KEY:
-        return jsonify({"error": "Google Gemini API Key가 설정되지 않았습니다. 서버 관리자에게 문의하세요."}), 400
+        return jsonify({"error": "Google Gemini API 키가 설정되지 않았거나 만료되었습니다. 클라우드타입(Cloudtype) 설정 -> 환경변수에서 'GEMINI_API_KEY'를 추가한 후 재배포해주세요."}), 400
 
     genai.configure(api_key=GEMINI_KEY)
     
