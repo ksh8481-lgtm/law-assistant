@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 법규 검토 결과 보고서</title>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #f8fafc;
+            --surface-color: #ffffff;
+            --text-primary: #1e293b;
+            --text-secondary: #475569;
+            --primary-color: #3b82f6;
+            --danger-color: #ef4444;
+            --success-color: #10b981;
+            --border-color: #e2e8f0;
+        }
+
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            line-height: 1.6;
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+        }
+
+        .report-container {
+            background: var(--surface-color);
+            width: 100%;
+            max-width: 900px;
+            padding: 3rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+        }
+
+        .report-header {
+            text-align: center;
+            margin-bottom: 3rem;
+            padding-bottom: 2rem;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .report-header h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: var(--primary-color);
+            margin: 0 0 1rem 0;
+            letter-spacing: -0.5px;
+        }
+
+        .report-header p {
+            color: var(--text-secondary);
+            margin: 0;
+            font-size: 1.1rem;
+        }
+
+        .section {
+            margin-bottom: 2.5rem;
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            background: #f8fafc;
+            border: 1px solid var(--border-color);
+        }
+
+        .section h2 {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-top: 0;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .section.danger h2 { color: var(--danger-color); }
+        .section.success h2 { color: var(--success-color); }
+        .section.info h2 { color: var(--primary-color); }
+        .section.law h2 { color: var(--text-primary); }
+
+        ul, ol {
+            margin: 0;
+            padding-left: 1.5rem;
+            color: var(--text-secondary);
+        }
+
+        li {
+            margin-bottom: 0.5rem;
+        }
+
+        li:last-child {
+            margin-bottom: 0;
+        }
+
+        strong {
+            color: var(--text-primary);
+        }
+
+        .error-message {
+            text-align: center;
+            color: var(--danger-color);
+            font-size: 1.2rem;
+            margin-top: 2rem;
+        }
+
+        .btn-print {
+            display: block;
+            margin: 3rem auto 0;
+            padding: 0.75rem 2rem;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn-print:hover {
+            background: #2563eb;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            .report-container {
+                box-shadow: none;
+                padding: 0;
+                max-width: 100%;
+            }
+            .btn-print {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="report-container">
+        <div class="report-header">
+            <h1>📊 AI 법규 검토 종합 보고서</h1>
+            <p id="report-date"></p>
+        </div>
+
+        <div id="report-content">
+            <!-- Data will be injected here -->
+        </div>
+        
+        <button class="btn-print" onclick="window.print()">보고서 인쇄하기 / PDF 저장</button>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const dateStr = new Date().toLocaleDateString('ko-KR', { 
+                year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' 
+            });
+            document.getElementById('report-date').textContent = `분석 일시: ${dateStr}`;
+
+            const rawData = sessionStorage.getItem('aiResult');
+            const contentDiv = document.getElementById('report-content');
+
+            if (!rawData) {
+                contentDiv.innerHTML = '<div class="error-message">데이터를 찾을 수 없습니다. 법규 검토 화면에서 분석을 먼저 진행해 주세요.</div>';
+                return;
+            }
+
+            try {
+                const data = JSON.parse(rawData);
+                let html = '';
+
+                // 1. Risks
+                if (data.risks && data.risks.length > 0) {
+                    html += `
+                    <div class="section danger">
+                        <h2>🚨 핵심 리스크 및 주의사항</h2>
+                        <ul>${data.risks.map(item => `<li><strong>⚠️ 주의:</strong> ${item}</li>`).join('')}</ul>
+                    </div>`;
+                }
+
+                // 2. Permits
+                if (data.permits && data.permits.length > 0) {
+                    html += `
+                    <div class="section success">
+                        <h2>📑 필요 인허가 및 협의 목록</h2>
+                        <ul>${data.permits.map(item => `<li>✅ ${item}</li>`).join('')}</ul>
+                    </div>`;
+                }
+
+                // 3. Timeline
+                if (data.timeline && data.timeline.length > 0) {
+                    html += `
+                    <div class="section info">
+                        <h2>🗓️ 권장 업무 추진 순서</h2>
+                        <ol>${data.timeline.map(item => `<li>${item}</li>`).join('')}</ol>
+                    </div>`;
+                }
+
+                // 4. Laws
+                if (data.laws && data.laws.length > 0) {
+                    html += `
+                    <div class="section law">
+                        <h2>⚖️ 관련 주요 법령 및 지역지구 근거</h2>
+                        <ul>${data.laws.map(item => `<li>📜 ${item}</li>`).join('')}</ul>
+                    </div>`;
+                }
+
+                contentDiv.innerHTML = html;
+
+            } catch (e) {
+                contentDiv.innerHTML = '<div class="error-message">데이터 형식이 잘못되었습니다. 다시 시도해 주세요.</div>';
+            }
+        });
+    </script>
+</body>
+</html>

@@ -3,7 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const analyzeBtn = document.getElementById('analyze-btn');
     const btnText = document.getElementById('btn-text');
     const spinner = document.getElementById('spinner');
-    const resultSection = document.getElementById('result-section');
+
     
     // Parcel dynamic fields
     const addParcelBtn = document.getElementById('add-parcel-btn');
@@ -446,7 +446,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btnText.textContent = 'AI 기반 법규 및 지역지구 분석 중... (최대 2~3분 소요)';
             spinner.classList.remove('hidden');
             analyzeBtn.disabled = true;
-            resultSection.classList.add('hidden');
+
 
             try {
                 // 1. 분석 작업 시작 요청
@@ -477,9 +477,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     const statusData = await statusResponse.json();
                     
                     if (statusData.status === 'completed') {
-                        renderResults(statusData.result);
-                        resultSection.classList.remove('hidden');
-                        resultSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        sessionStorage.setItem('aiResult', JSON.stringify(statusData.result));
+                        window.open('/report', '_blank');
                         break;
                     } else if (statusData.status === 'error') {
                         throw new Error(statusData.message || "알 수 없는 서버 오류");
@@ -498,21 +497,5 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    function renderResults(data) {
-        document.getElementById('risk-list').innerHTML = '';
-        document.getElementById('permit-list').innerHTML = '';
-        document.getElementById('timeline-list').innerHTML = '';
-        document.getElementById('law-list').innerHTML = '';
 
-        if (data.risks) data.risks.forEach(item => appendListItem('risk-list', `<strong>⚠️ 주의:</strong> ${item}`));
-        if (data.permits) data.permits.forEach(item => appendListItem('permit-list', `✅ ${item}`));
-        if (data.timeline) data.timeline.forEach(item => appendListItem('timeline-list', item));
-        if (data.laws) data.laws.forEach(item => appendListItem('law-list', `📜 ${item}`));
-    }
-
-    function appendListItem(listId, htmlContent) {
-        const li = document.createElement('li');
-        li.innerHTML = htmlContent;
-        document.getElementById(listId).appendChild(li);
-    }
 });
