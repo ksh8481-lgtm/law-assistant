@@ -96,13 +96,51 @@
         }
 
         a {
-            color: var(--primary-color);
+            color: #2563eb;
             text-decoration: none;
             font-weight: 500;
         }
 
         a:hover {
             text-decoration: underline;
+        }
+
+        .permit-list-enhanced {
+            list-style: none;
+            padding: 0;
+        }
+
+        .permit-list-enhanced li {
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            padding: 1.2rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .permit-title {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            margin-bottom: 0.5rem;
+            font-size: 1.1rem;
+        }
+
+        .law-link-badge {
+            background: #eff6ff;
+            padding: 0.2rem 0.6rem;
+            border-radius: 0.25rem;
+            font-size: 0.9rem;
+            border: 1px solid #bfdbfe;
+        }
+
+        .permit-reason {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            padding-left: 1.8rem;
+            line-height: 1.5;
         }
 
         strong {
@@ -184,21 +222,24 @@
                 const data = JSON.parse(rawData);
                 let html = '';
 
-                // 1. Risks
-                if (data.risks && data.risks.length > 0) {
-                    html += `
-                    <div class="section danger">
-                        <h2>🚨 핵심 리스크 및 주의사항</h2>
-                        <ul>${data.risks.map(item => `<li><strong>⚠️ 주의:</strong> ${item}</li>`).join('')}</ul>
-                    </div>`;
-                }
-
-                // 2. Permits
+                // 1. Permits
                 if (data.permits && data.permits.length > 0) {
                     html += `
                     <div class="section success">
                         <h2>📑 필요 인허가 및 협의 목록</h2>
-                        <ul>${data.permits.map(item => `<li>✅ ${item}</li>`).join('')}</ul>
+                        <ul class="permit-list-enhanced">
+                            ${data.permits.map(item => `
+                                <li>
+                                    <div class="permit-title">
+                                        <strong>✅ ${item.name || '알 수 없음'}</strong>
+                                        <span class="law-link-badge">${item.law_link || ''}</span>
+                                    </div>
+                                    <div class="permit-reason">
+                                        ${item.reason || ''}
+                                    </div>
+                                </li>
+                            `).join('')}
+                        </ul>
                     </div>`;
                 }
 

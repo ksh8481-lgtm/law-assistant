@@ -343,10 +343,23 @@ def run_analysis(job_id, data):
 
         [요청 사항]
         보고서에 쓸 수 있도록 전문적인 용어로 답변하되, 응답은 반드시 아래 JSON 형식(마크다운 백틱 없이 순수 JSON만)으로 반환하세요.
-        "permits" 항목 작성 시 관련 법령에는 국가법령정보센터 검색 링크(https://www.law.go.kr/LSW/lsSc.do?query=법령명)를 HTML <a> 태그로 작성해 주세요.
+        "permits" 항목 작성 시:
+        - name: 인허가/협의명
+        - law_link: 관련 법령 및 조항 (예: 무슨법 제몇조). 반드시 국가법령정보센터 검색 링크(https://www.law.go.kr/LSW/lsSc.do?query=법령명)를 포함한 HTML <a> 태그로 작성해 주세요.
+        - reason: 이 사업이 왜 해당 인허가 대상이 되는지 구체적인 이유 설명
         {{
-            "risks": ["보전산지 편입으로 인한 행위제한 검토 요망", "수질보전특별대책지역에 따른 오수처리계획 수립 필수"],
-            "permits": ["건축허가 (<a href='https://www.law.go.kr/LSW/lsSc.do?query=건축법' target='_blank'>건축법 제11조</a>)", "산지전용허가 (<a href='https://www.law.go.kr/LSW/lsSc.do?query=산지관리법' target='_blank'>산지관리법 제14조</a>)"]
+            "permits": [
+                {{
+                    "name": "건축허가",
+                    "law_link": "<a href='https://www.law.go.kr/LSW/lsSc.do?query=건축법' target='_blank'>건축법 제11조</a>",
+                    "reason": "해당 사업은 계획관리지역 내 새로운 건축물을 축조하는 사업이므로 건축허가가 필요함."
+                }},
+                {{
+                    "name": "산지전용허가",
+                    "law_link": "<a href='https://www.law.go.kr/LSW/lsSc.do?query=산지관리법' target='_blank'>산지관리법 제14조</a>",
+                    "reason": "사업 부지에 보전산지(임야)가 편입되어 있어 산지의 형질변경을 수반함."
+                }}
+            ]
         }}
         """
         
