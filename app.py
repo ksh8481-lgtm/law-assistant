@@ -261,7 +261,7 @@ def analyze():
             return jsonify({"error": f"API 키가 유효하지 않거나 권한이 없습니다. (상세 에러: {list_e})"}), 500
             
         model_name = None
-        for preferred in ['models/gemini-1.5-pro-latest', 'models/gemini-1.5-pro', 'models/gemini-1.5-flash-latest', 'models/gemini-1.5-flash', 'models/gemini-pro', 'models/gemini-1.0-pro']:
+        for preferred in ['models/gemini-1.5-flash-latest', 'models/gemini-1.5-flash', 'models/gemini-1.5-pro-latest', 'models/gemini-1.5-pro', 'models/gemini-pro', 'models/gemini-1.0-pro']:
             if preferred in available_models:
                 model_name = preferred
                 break
