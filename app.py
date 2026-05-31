@@ -11,7 +11,7 @@ import random
 import base64
 import threading
 import uuid
-from rule_engine import get_scale_based_permits
+from rule_engine import evaluate_knowledge_base
 
 app = Flask(__name__)
 CORS(app)
@@ -304,12 +304,52 @@ def run_analysis(job_id, data):
         
         law_context = fetch_law_data(LAW_KEY, "국토의 계획 및 이용에 관한 법률")
         
-        # 룰 엔진을 통한 기계적 필수 인허가 목록 추출
-        scale_permits = get_scale_based_permits(budget, budget_nat, total_area)
+        # --- 에이전트 1: 파라미터 추출기 (Extractor Agent) ---
+        extractor_prompt = f"""
+        당신은 건설공사 내역 분석 에이전트입니다.
+        아래 [사업 개요] 및 [편입필지 지역지구] 정보를 바탕으로 JSON 데이터를 추출하세요.
+        응답은 순수 JSON 형식만 반환하세요 (마크다운 백틱 제외).
+        
+        [사업 개요] 사업명: {project_name}, 총 사업비: {budget}억, 면적: {total_area}㎡, 주요 내용: {description}
+        [지역지구] {zoning_context}
+        
+        {{
+            "has_mountain": true/false (임야, 보전산지, 준보전산지 등 산지 포함 여부),
+            "has_farmland": true/false (농지, 전, 답, 과수원 등 포함 여부),
+            "is_construction": true/false (순수 용역이나 구매가 아닌 시설물 건축/토목/굴착 등 건설공사 여부),
+            "excavation_depth": 숫자 (주요 사업 내용에 명시된 굴착 깊이 m. 없으면 0),
+            "floors": 숫자 (건축물의 최고 층수. 없으면 0)
+        }}
+        """
+        flash_model = genai.GenerativeModel('gemini-1.5-flash')
+        extractor_resp = flash_model.generate_content(extractor_prompt)
+        ext_text = extractor_resp.text.strip().replace('```json', '').replace('```', '').strip()
+        
+        try:
+            extracted_params = json.loads(ext_text)
+        except:
+            extracted_params = {}
+            
+        # 파라미터 합성
+        kb_params = {
+            'budget': budget,
+            'budget_nat': budget_nat,
+            'total_area': total_area,
+            'has_mountain': extracted_params.get('has_mountain', False) or ('임야' in zoning_context or '산지' in zoning_context),
+            'has_farmland': extracted_params.get('has_farmland', False) or ('농지' in zoning_context or '전' in zoning_context or '답' in zoning_context),
+            'is_public': True,
+            'is_construction': extracted_params.get('is_construction', True),
+            'excavation_depth': extracted_params.get('excavation_depth', 0),
+            'floors': extracted_params.get('floors', 0)
+        }
+
+        # --- Rule Engine (Knowledge Base 결정론적 매칭) ---
+        matched_laws = evaluate_knowledge_base(kb_params)
         scale_permits_str = ""
-        if scale_permits:
-            scale_permits_str = "\n".join([f"        - {p}" for p in scale_permits])
-            scale_permits_str = f"\n        **[시스템 자동 판별: 규모 기반 필수 인허가]**\n        서버의 룰 엔진이 면적과 사업비 규정을 바탕으로 도출한 절대 누락되어서는 안 될 목록입니다. 보고서 작성 시 반드시 포함하고 관련 근거 조항을 설명하세요:\n{scale_permits_str}\n"
+        if matched_laws:
+            law_lines = [f"        - {law['name']} (Phase: {law['phase']}) : {law['desc']} (근거: {law['law_link']})" for law in matched_laws]
+            scale_permits_str = "\n".join(law_lines)
+            scale_permits_str = f"\n        **[지식 기반(Knowledge Base) 강제 적용 목록]**\n        서버의 룰 엔진이 매칭한 절대 누락되어서는 안 될 필수 목록입니다. 이 항목들은 반드시 최종 보고서 JSON의 적절한 phase 배열에 포함시키세요:\n{scale_permits_str}\n"
 
         prompt = f"""
         당신은 대한민국 시설직 공무원을 돕는 최고 수준의 법규 검토 AI 전문가입니다.

@@ -1,0 +1,82 @@
+[
+    {
+        "id": "LAW_MOUNTAIN",
+        "name": "산지전용허가",
+        "law_link": "<a href='https://www.law.go.kr/LSW/lsSc.do?query=산지관리법' target='_blank'>산지관리법 제14조</a>",
+        "phase": "design",
+        "condition": "has_mountain == True",
+        "desc": "사업 부지에 산지(보전산지, 준보전산지 등 임야)가 편입되어 있어 산지전용이 필요함."
+    },
+    {
+        "id": "LAW_FARMLAND",
+        "name": "농지전용허가",
+        "law_link": "<a href='https://www.law.go.kr/LSW/lsSc.do?query=농지법' target='_blank'>농지법 제34조</a>",
+        "phase": "design",
+        "condition": "has_farmland == True",
+        "desc": "사업 부지에 농지(전, 답, 과수원)가 편입되어 있어 농지전용이 필요함."
+    },
+    {
+        "id": "LAW_DISASTER",
+        "name": "재해영향평가",
+        "law_link": "<a href='https://www.law.go.kr/LSW/lsSc.do?query=자연재해대책법' target='_blank'>자연재해대책법 제4조</a>",
+        "phase": "design",
+        "condition": "total_area >= 5000",
+        "desc": "개발사업 면적이 5,000㎡ 이상이므로 재해영향평가(또는 소규모) 대상 여부 검토 필수."
+    },
+    {
+        "id": "LAW_ENVIRONMENT",
+        "name": "소규모 환경영향평가",
+        "law_link": "<a href='https://www.law.go.kr/LSW/lsSc.do?query=환경영향평가법' target='_blank'>환경영향평가법 제43조</a>",
+        "phase": "design",
+        "condition": "total_area >= 5000 and total_area < 100000",
+        "desc": "사업 면적이 5,000㎡ 이상이므로 용도지역에 따른 소규모 환경영향평가 대상 검토 요망."
+    },
+    {
+        "id": "LAW_ENVIRONMENT_LARGE",
+        "name": "환경영향평가",
+        "law_link": "<a href='https://www.law.go.kr/LSW/lsSc.do?query=환경영향평가법' target='_blank'>환경영향평가법 제22조</a>",
+        "phase": "design",
+        "condition": "total_area >= 100000",
+        "desc": "사업 면적이 100,000㎡ 이상이므로 대규모 환경영향평가 대상 여부 검토 필수."
+    },
+    {
+        "id": "LAW_CM",
+        "name": "건설사업관리계획 수립",
+        "law_link": "<a href='https://www.law.go.kr/LSW/lsSc.do?query=건설기술진흥법' target='_blank'>건설기술 진흥법 제39조의2</a>",
+        "phase": "construction",
+        "condition": "is_public == True and is_construction == True",
+        "desc": "공공 발주청의 건설공사로서 시공단계 착공 전 건설사업관리계획 수립 의무."
+    },
+    {
+        "id": "LAW_SAFETY_REVIEW",
+        "name": "설계안전성검토 (DFS)",
+        "law_link": "<a href='https://www.law.go.kr/LSW/lsSc.do?query=건설기술진흥법' target='_blank'>건설기술 진흥법 제62조</a>",
+        "phase": "design",
+        "condition": "is_construction == True and (excavation_depth >= 10 or floors >= 10)",
+        "desc": "10m 이상 깊이 굴착 또는 10층 이상 건축물 등 위험 요소가 포함된 공사로 설계안전성 사전 검토 대상."
+    },
+    {
+        "id": "LAW_SAFETY_PLAN",
+        "name": "안전관리계획서 수립",
+        "law_link": "<a href='https://www.law.go.kr/LSW/lsSc.do?query=건설기술진흥법' target='_blank'>건설기술 진흥법 제62조</a>",
+        "phase": "construction",
+        "condition": "is_construction == True and (excavation_depth >= 10 or floors >= 10)",
+        "desc": "위험 요소가 포함된 1·2종 시설물 등으로 착공 전 안전관리계획서 제출 및 승인 필요."
+    },
+    {
+        "id": "LAW_CULTURAL",
+        "name": "문화재 지표조사",
+        "law_link": "<a href='https://www.law.go.kr/LSW/lsSc.do?query=매장유산' target='_blank'>매장유산법</a>",
+        "phase": "design",
+        "condition": "total_area >= 30000",
+        "desc": "사업 면적이 3만㎡ 이상이므로 공사 전 문화재(매장유산) 지표조사 필수."
+    },
+    {
+        "id": "LAW_VE",
+        "name": "설계경제성검토 (VE)",
+        "law_link": "<a href='https://www.law.go.kr/LSW/lsSc.do?query=건설기술진흥법시행령' target='_blank'>건진법 시행령 제75조</a>",
+        "phase": "design",
+        "condition": "budget >= 100 and is_public == True",
+        "desc": "총사업비 100억원 이상인 공공 건설공사로서 설계단계 예산 절감 등을 위한 VE 수행 대상."
+    }
+]

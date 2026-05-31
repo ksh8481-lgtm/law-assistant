@@ -1,50 +1,43 @@
-def get_scale_based_permits(budget, budget_nat, total_area):
+import json
+import os
+
+def evaluate_knowledge_base(params):
     """
-    사업비(budget: 억원), 국비(budget_nat: %), 총면적(total_area: ㎡)을 입력받아
-    규모 기반으로 강제되는 필수 인허가/행정절차 목록을 반환합니다.
+    params 딕셔너리를 받아서 law_knowledge_base.json의 조건식(condition)을 평가한 뒤,
+    참(True)인 법령 목록을 반환합니다.
     """
-    permits = []
-    
-    # 예산은 백분율에서 절대 금액(억원)으로 계산
-    national_budget_amount = budget * (budget_nat / 100.0)
-    
-    # 1. 예비타당성조사 (국가재정법 제38조)
-    # 총사업비 500억원 이상이고 국가의 재정지원 규모가 300억원 이상인 신규 사업
-    if budget >= 500 and national_budget_amount >= 300:
-        permits.append("예비타당성조사 (국가재정법 제38조: 총사업비 500억 및 국비 300억 이상)")
-
-    # 2. 타당성조사 (지방재정법 제37조)
-    # 지방자치단체 총사업비 500억원 이상 신규 사업 (LIMAC 등)
-    if budget >= 500:
-        permits.append("타당성조사 (지방재정법 제37조: 총사업비 500억 이상)")
-
-    # 3. 지방재정 투자심사 (중앙/시도)
-    # 시도 300억 이상, 시군구 200억 이상 중앙투자심사 (여기서는 200억 이상을 기본 경고로)
-    if budget >= 200:
-        permits.append("지방재정 투자심사 (지방재정법 제37조: 중앙투자심사 대상 여부 확인 요망)")
-
-    # 4. 재해영향평가 (자연재해대책법)
-    # 개발사업 5,000㎡ 이상 등 (사업유형에 따라 다르나 5,000㎡ 이상이면 검토 필수)
-    if total_area >= 5000:
-        permits.append("재해영향평가 (자연재해대책법: 개발사업 면적 5,000㎡ 이상 검토)")
-
-    # 5. 소규모 환경영향평가 (환경영향평가법)
-    # 보전관리지역 5,000㎡, 생산관리지역 7,500㎡, 계획관리지역 10,000㎡ 등
-    if total_area >= 5000:
-        permits.append("소규모 환경영향평가 (환경영향평가법: 용도지역별 5,000~10,000㎡ 이상 대상 여부 검토)")
-
-    # 6. 환경영향평가 (환경영향평가법)
-    # 도시개발 250,000㎡ 이상 등 대규모
-    if total_area >= 100000:
-        permits.append("환경영향평가 (환경영향평가법: 대규모 개발사업 대상 여부 검토)")
-
-    # 7. 문화재 지표조사 (매장유산 보호 및 조사에 관한 법률)
-    # 건설공사 면적 30,000㎡ 이상
-    if total_area >= 30000:
-        permits.append("문화재 지표조사 (매장유산 보호 및 조사에 관한 법률: 건설공사 면적 3만㎡ 이상)")
-
-    # 8. 설계 적정성 검토 / 맞춤형 서비스 (조달사업법)
-    if budget >= 200:
-        permits.append("설계적정성 검토 (조달청: 총사업비 200억 이상 건축공사 등)")
+    kb_path = os.path.join(os.path.dirname(__file__), 'law_knowledge_base.json')
+    if not os.path.exists(kb_path):
+        return []
         
-    return permits
+    with open(kb_path, 'r', encoding='utf-8') as f:
+        laws = json.load(f)
+        
+    matched_laws = []
+    
+    # 안전한 eval 환경 (허용된 변수만)
+    # params: {'budget': 150, 'budget_nat': 0, 'total_area': 12000, 'has_mountain': True, 'has_farmland': False, 'is_public': True, 'is_construction': True, 'excavation_depth': 12, 'floors': 3}
+    safe_env = {
+        'budget': float(params.get('budget', 0)),
+        'budget_nat': float(params.get('budget_nat', 0)),
+        'total_area': float(params.get('total_area', 0)),
+        'has_mountain': bool(params.get('has_mountain', False)),
+        'has_farmland': bool(params.get('has_farmland', False)),
+        'is_public': bool(params.get('is_public', True)), # 발주청 기본값 True
+        'is_construction': bool(params.get('is_construction', True)),
+        'excavation_depth': float(params.get('excavation_depth', 0)),
+        'floors': int(params.get('floors', 0)),
+        'True': True,
+        'False': False
+    }
+    
+    for law in laws:
+        condition_str = law.get('condition', 'False')
+        try:
+            # 보안: 빌트인 함수 등 사용 차단
+            if eval(condition_str, {"__builtins__": {}}, safe_env):
+                matched_laws.append(law)
+        except Exception as e:
+            print(f"Rule evaluation error for {law.get('id')}: {e}")
+            
+    return matched_laws
