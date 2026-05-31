@@ -334,11 +334,10 @@ def run_analysis(job_id, data):
 
         [요청 사항]
         보고서에 쓸 수 있도록 전문적인 용어로 답변하되, 응답은 반드시 아래 JSON 형식(마크다운 백틱 없이 순수 JSON만)으로 반환하세요.
+        "permits" 항목 작성 시 관련 법령에는 국가법령정보센터 검색 링크(https://www.law.go.kr/LSW/lsSc.do?query=법령명)를 HTML <a> 태그로 작성해 주세요.
         {{
             "risks": ["보전산지 편입으로 인한 행위제한 검토 요망", "수질보전특별대책지역에 따른 오수처리계획 수립 필수"],
-            "permits": ["건축허가 (건축법 제11조)", "산지전용허가 (산지관리법 제14조)"],
-            "timeline": ["1단계: 기본계획", "2단계: 투자심사"],
-            "laws": ["국토의 계획 및 이용에 관한 법률", "산지관리법"]
+            "permits": ["건축허가 (<a href='https://www.law.go.kr/LSW/lsSc.do?query=건축법' target='_blank'>건축법 제11조</a>)", "산지전용허가 (<a href='https://www.law.go.kr/LSW/lsSc.do?query=산지관리법' target='_blank'>산지관리법 제14조</a>)"]
         }}
         """
         

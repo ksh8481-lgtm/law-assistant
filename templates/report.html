@@ -95,6 +95,16 @@
             margin-bottom: 0;
         }
 
+        a {
+            color: var(--primary-color);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
         strong {
             color: var(--text-primary);
         }
@@ -189,24 +199,6 @@
                     <div class="section success">
                         <h2>📑 필요 인허가 및 협의 목록</h2>
                         <ul>${data.permits.map(item => `<li>✅ ${item}</li>`).join('')}</ul>
-                    </div>`;
-                }
-
-                // 3. Timeline
-                if (data.timeline && data.timeline.length > 0) {
-                    html += `
-                    <div class="section info">
-                        <h2>🗓️ 권장 업무 추진 순서</h2>
-                        <ol>${data.timeline.map(item => `<li>${item}</li>`).join('')}</ol>
-                    </div>`;
-                }
-
-                // 4. Laws
-                if (data.laws && data.laws.length > 0) {
-                    html += `
-                    <div class="section law">
-                        <h2>⚖️ 관련 주요 법령 및 지역지구 근거</h2>
-                        <ul>${data.laws.map(item => `<li>📜 ${item}</li>`).join('')}</ul>
                     </div>`;
                 }
 
