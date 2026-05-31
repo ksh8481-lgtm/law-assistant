@@ -1,0 +1,15 @@
+name: Keep-Alive Cloudtype Server
+
+on:
+  schedule:
+    # 매 15분마다 실행 (UTC 기준)
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Cloudtype App
+        run: |
+          curl -s -o /dev/null -w "%{http_code}" https://port-0-law-assistant-mpgbhts4cec2050f.sel3.cloudtype.app/
