@@ -321,8 +321,7 @@ def run_analysis(job_id, data):
             "floors": 숫자 (건축물의 최고 층수. 없으면 0)
         }}
         """
-        extractor_model = genai.GenerativeModel('gemini-1.5-pro-latest')
-        extractor_resp = extractor_model.generate_content(extractor_prompt)
+        extractor_resp = model.generate_content(extractor_prompt)
         ext_text = extractor_resp.text.strip().replace('```json', '').replace('```', '').strip()
         
         try:
