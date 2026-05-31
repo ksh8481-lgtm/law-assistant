@@ -100,6 +100,15 @@ def supervisor():
 def report():
     return render_template('report.html')
 
+@app.route('/api/debug')
+def debug_env():
+    key = os.environ.get('GEMINI_API_KEY', '')
+    masked_key = key[:10] + "..." + key[-5:] if len(key) > 15 else "EMPTY_OR_TOO_SHORT"
+    return jsonify({
+        "gemini_key_in_server": masked_key,
+        "message": "서버에 현재 등록된 API 키의 앞/뒷부분입니다. 발급받으신 새 키와 일치하는지 확인해주세요."
+    })
+
 def fetch_law_data(law_key, search_query="국토의 계획 및 이용에 관한 법률"):
     if not law_key:
         return "법제처 API 키가 제공되지 않아 AI 자체 지식을 기반으로 분석합니다."
