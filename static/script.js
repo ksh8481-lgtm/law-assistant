@@ -443,28 +443,49 @@ document.addEventListener('DOMContentLoaded', () => {
                 parcels: parcels
             };
 
-            btnText.textContent = '지역지구 및 법령 융합 분석 중...';
+            btnText.textContent = 'AI 기반 법규 및 지역지구 분석 중... (최대 2~3분 소요)';
             spinner.classList.remove('hidden');
             analyzeBtn.disabled = true;
             resultSection.classList.add('hidden');
 
             try {
-                const response = await fetch('/api/analyze', {
+                // 1. 분석 작업 시작 요청
+                const startResponse = await fetch('/api/analyze/start', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(requestData)
                 });
 
-                if (!response.ok) {
-                    const errorText = await response.text();
+                if (!startResponse.ok) {
+                    const errorText = await startResponse.text();
                     throw new Error(errorText);
                 }
 
-                const data = await response.json();
-                renderResults(data);
+                const startData = await startResponse.json();
+                const jobId = startData.job_id;
                 
-                resultSection.classList.remove('hidden');
-                resultSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                // 2. 3초 간격으로 폴링
+                while (true) {
+                    await new Promise(r => setTimeout(r, 3000));
+                    
+                    const statusResponse = await fetch(`/api/analyze/status/${jobId}`);
+                    if (!statusResponse.ok) {
+                        const errorText = await statusResponse.text();
+                        throw new Error(errorText);
+                    }
+                    
+                    const statusData = await statusResponse.json();
+                    
+                    if (statusData.status === 'completed') {
+                        renderResults(statusData.result);
+                        resultSection.classList.remove('hidden');
+                        resultSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        break;
+                    } else if (statusData.status === 'error') {
+                        throw new Error(statusData.message || "알 수 없는 서버 오류");
+                    }
+                    // status === 'processing' 인 경우 계속 대기
+                }
 
             } catch (error) {
                 console.error(error);

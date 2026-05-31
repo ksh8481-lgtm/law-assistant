@@ -9,9 +9,14 @@ import random
 # dotenv removed
 
 import base64
+import threading
+import uuid
 
 app = Flask(__name__)
 CORS(app)
+
+JOBS = {}
+
 
 # API keys from environment variables
 GEMINI_KEY = os.environ.get('GEMINI_API_KEY', '')
@@ -244,31 +249,20 @@ def verify_parcel():
         "zoning": zoning_list
     })
 
-@app.route('/api/analyze', methods=['POST'])
-def analyze():
-    data = request.json
-    
-    if not GEMINI_KEY:
-        return jsonify({"error": "Google Gemini API 키가 설정되지 않았거나 만료되었습니다. 클라우드타입(Cloudtype) 설정 -> 환경변수에서 'GEMINI_API_KEY'를 추가한 후 재배포해주세요."}), 400
-
-    genai.configure(api_key=GEMINI_KEY)
-    
+def run_analysis(job_id, data):
     try:
-        available_models = []
-        try:
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        except Exception as list_e:
-            return jsonify({"error": f"API 키가 유효하지 않거나 권한이 없습니다. (상세 에러: {list_e})"}), 500
-            
+        genai.configure(api_key=GEMINI_KEY)
+        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        
         model_name = None
-        for preferred in ['models/gemini-1.5-flash-latest', 'models/gemini-1.5-flash', 'models/gemini-1.5-pro-latest', 'models/gemini-1.5-pro', 'models/gemini-pro', 'models/gemini-1.0-pro']:
+        for preferred in ['models/gemini-1.5-pro-latest', 'models/gemini-1.5-pro', 'models/gemini-1.5-flash-latest', 'models/gemini-1.5-flash', 'models/gemini-pro', 'models/gemini-1.0-pro']:
             if preferred in available_models:
                 model_name = preferred
                 break
         if not model_name and available_models:
             model_name = available_models[0]
         if not model_name:
-            return jsonify({"error": f"텍스트 생성을 지원하는 모델이 없습니다. (검색된 모델: {available_models})"}), 500
+            raise Exception(f"텍스트 생성을 지원하는 모델이 없습니다. (검색된 모델: {available_models})")
 
         model = genai.GenerativeModel(model_name)
         
@@ -282,17 +276,8 @@ def analyze():
         parcels = data.get('parcels', [])
 
         if not parcels:
-            return jsonify({"error": "검증된 편입 필지가 없습니다."}), 400
+            raise Exception("검증된 편입 필지가 없습니다.")
 
-        # 1. 수집된 데이터 정리
-        project_info = f"""
-        - 사업명: {project_name}
-        - 총 사업비: {budget}억 원 (재원 비율: 국비 {budget_nat}%, 도비 {budget_prov}%, 시군비 {budget_mun}%)
-        - 편입 필지 총 면적: {total_area} ㎡
-        - 주요 사업 내용: {description}
-        """
-        
-        # 지역지구를 포함한 동적 프롬프트 구성 (RAG 핵심 로직)
         parcel_str_list = []
         all_zonings = set()
         for p in parcels:
@@ -302,7 +287,7 @@ def analyze():
                 
         parcel_str = "\n".join(parcel_str_list)
         zoning_context = ", ".join(list(all_zonings))
-        # 2. 관련 주요 법령명 조회
+        
         law_context = fetch_law_data(LAW_KEY, "국토의 계획 및 이용에 관한 법률")
         
         prompt = f"""
@@ -350,12 +335,46 @@ def analyze():
             text_resp = text_resp[:-3]
             
         result = json.loads(text_resp.strip())
-        return jsonify(result)
+        JOBS[job_id] = {"status": "completed", "result": result}
         
     except json.JSONDecodeError as e:
-        return jsonify({"error": "AI가 반환한 데이터를 파싱할 수 없습니다."}), 500
+        JOBS[job_id] = {"status": "error", "message": "AI가 반환한 데이터를 파싱할 수 없습니다."}
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        JOBS[job_id] = {"status": "error", "message": str(e)}
+
+@app.route('/api/analyze/start', methods=['POST'])
+def analyze_start():
+    if not GEMINI_KEY:
+        return jsonify({"error": "Google Gemini API 키가 설정되지 않았거나 만료되었습니다. 클라우드타입(Cloudtype) 설정 -> 환경변수에서 'GEMINI_API_KEY'를 추가한 후 재배포해주세요."}), 400
+
+    data = request.json
+    job_id = str(uuid.uuid4())
+    JOBS[job_id] = {"status": "processing"}
+    
+    thread = threading.Thread(target=run_analysis, args=(job_id, data))
+    thread.start()
+    
+    return jsonify({"success": True, "job_id": job_id})
+
+@app.route('/api/analyze/status/<job_id>', methods=['GET'])
+def analyze_status(job_id):
+    if job_id not in JOBS:
+        return jsonify({"status": "error", "message": "존재하지 않는 작업입니다."}), 404
+        
+    job_info = JOBS[job_id]
+    
+    if job_info["status"] == "completed":
+        result = job_info.get("result", {})
+        # 메모리 정리를 위해 완료된 작업은 삭제
+        del JOBS[job_id]
+        return jsonify({"status": "completed", "result": result})
+        
+    elif job_info["status"] == "error":
+        error_msg = job_info.get("message", "알 수 없는 오류")
+        del JOBS[job_id]
+        return jsonify({"status": "error", "message": error_msg})
+        
+    return jsonify({"status": "processing"})
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
