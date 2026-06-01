@@ -11,7 +11,7 @@ import random
 import base64
 import threading
 import uuid
-from rule_engine import evaluate_knowledge_base
+from rule_engine import evaluate_knowledge_base, get_all_variables
 
 app = Flask(__name__)
 CORS(app)
@@ -303,6 +303,9 @@ def run_analysis(job_id, data):
         zoning_context = ", ".join(list(all_zonings))
         
         law_context = fetch_law_data(LAW_KEY, "국토의 계획 및 이용에 관한 법률")
+        # 모든 DB 변수 추출
+        all_rule_vars = get_all_variables()
+        vars_instruction = ", ".join(all_rule_vars)
         
         # --- 에이전트 1: 파라미터 추출기 (Extractor Agent) ---
         extractor_prompt = f"""
@@ -313,13 +316,10 @@ def run_analysis(job_id, data):
         [사업 개요] 사업명: {project_name}, 총 사업비: {budget}억, 면적: {total_area}㎡, 주요 내용: {description}
         [지역지구] {zoning_context}
         
-        {{
-            "has_mountain": true/false (임야, 보전산지, 준보전산지 등 산지 포함 여부),
-            "has_farmland": true/false (농지, 전, 답, 과수원 등 포함 여부),
-            "is_construction": true/false (순수 용역이나 구매가 아닌 시설물 건축/토목/굴착 등 건설공사 여부),
-            "excavation_depth": 숫자 (주요 사업 내용에 명시된 굴착 깊이 m. 없으면 0),
-            "floors": 숫자 (건축물의 최고 층수. 없으면 0)
-        }}
+        당신은 다음 변수 목록 중에서 사업 개요에 명확히 해당되는(True 또는 숫자값이 존재하는) 변수들만 골라내어 JSON 키-값 쌍으로 만들어야 합니다:
+        [변수 목록]: {vars_instruction}
+        
+        (주의: 정보가 부족하거나 해당되지 않는 변수는 아예 JSON 키를 생성하지 마세요. 불확실한 경우에도 제외하세요. "budget", "total_area", "floors", "excavation_depth"와 같은 숫자 변수는 숫자로 추출하세요. "has_", "is_" 로 시작하는 것은 true/false로 출력하세요.)
         """
         extractor_resp = model.generate_content(extractor_prompt)
         ext_text = extractor_resp.text.strip().replace('```json', '').replace('```', '').strip()
@@ -330,17 +330,16 @@ def run_analysis(job_id, data):
             extracted_params = {}
             
         # 파라미터 합성
-        kb_params = {
+        kb_params = extracted_params.copy()
+        kb_params.update({
             'budget': budget,
             'budget_nat': budget_nat,
             'total_area': total_area,
-            'has_mountain': extracted_params.get('has_mountain', False) or ('임야' in zoning_context or '산지' in zoning_context),
-            'has_farmland': extracted_params.get('has_farmland', False) or ('농지' in zoning_context or '전' in zoning_context or '답' in zoning_context),
-            'is_public': True,
-            'is_construction': extracted_params.get('is_construction', True),
-            'excavation_depth': extracted_params.get('excavation_depth', 0),
-            'floors': extracted_params.get('floors', 0)
-        }
+            'is_public': True
+        })
+        
+        if '임야' in zoning_context or '산지' in zoning_context: kb_params['has_mountain'] = True
+        if '농지' in zoning_context or '전' in zoning_context or '답' in zoning_context: kb_params['has_farmland'] = True
 
         # --- Rule Engine (Knowledge Base 결정론적 매칭) ---
         matched_laws = evaluate_knowledge_base(kb_params)

@@ -1,43 +1,58 @@
 import json
 import os
+import ast
 
-def evaluate_knowledge_base(params):
-    """
-    params 딕셔너리를 받아서 law_knowledge_base.json의 조건식(condition)을 평가한 뒤,
-    참(True)인 법령 목록을 반환합니다.
-    """
-    kb_path = os.path.join(os.path.dirname(__file__), 'law_knowledge_base.json')
-    if not os.path.exists(kb_path):
+class SafeDict(dict):
+    def __missing__(self, key):
+        return False
+
+def get_all_variables():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(base_dir, 'law_knowledge_base.json')
+    if not os.path.exists(file_path):
+        return []
+    
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            kb = json.load(f)
+    except:
         return []
         
-    with open(kb_path, 'r', encoding='utf-8') as f:
-        laws = json.load(f)
+    vars_set = set()
+    for rule in kb:
+        condition = rule.get('condition', '')
+        if condition and condition != 'True':
+            try:
+                vars_set.update([n.id for n in ast.walk(ast.parse(condition)) if isinstance(n, ast.Name)])
+            except:
+                pass
+    return sorted(list(vars_set))
+
+def evaluate_knowledge_base(params):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(base_dir, 'law_knowledge_base.json')
+    
+    if not os.path.exists(file_path):
+        return []
         
-    matched_laws = []
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            kb = json.load(f)
+    except Exception as e:
+        print("Error loading Knowledge Base:", e)
+        return []
+        
+    matched_rules = []
+    safe_params = SafeDict(params)
     
-    # 안전한 eval 환경 (허용된 변수만)
-    # params: {'budget': 150, 'budget_nat': 0, 'total_area': 12000, 'has_mountain': True, 'has_farmland': False, 'is_public': True, 'is_construction': True, 'excavation_depth': 12, 'floors': 3}
-    safe_env = {
-        'budget': float(params.get('budget', 0)),
-        'budget_nat': float(params.get('budget_nat', 0)),
-        'total_area': float(params.get('total_area', 0)),
-        'has_mountain': bool(params.get('has_mountain', False)),
-        'has_farmland': bool(params.get('has_farmland', False)),
-        'is_public': bool(params.get('is_public', True)), # 발주청 기본값 True
-        'is_construction': bool(params.get('is_construction', True)),
-        'excavation_depth': float(params.get('excavation_depth', 0)),
-        'floors': int(params.get('floors', 0)),
-        'True': True,
-        'False': False
-    }
-    
-    for law in laws:
-        condition_str = law.get('condition', 'False')
+    for rule in kb:
+        condition = rule.get('condition', 'False')
         try:
-            # 보안: 빌트인 함수 등 사용 차단
-            if eval(condition_str, {"__builtins__": {}}, safe_env):
-                matched_laws.append(law)
+            # 안전하게 eval 실행 (내장 함수 사용 불가)
+            if eval(condition, {"__builtins__": {}}, safe_params):
+                matched_rules.append(rule)
         except Exception as e:
-            print(f"Rule evaluation error for {law.get('id')}: {e}")
+            # 조건식 오류 시 무시
+            pass
             
-    return matched_laws
+    return matched_rules

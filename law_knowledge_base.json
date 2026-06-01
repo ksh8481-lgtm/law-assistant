@@ -78,5 +78,965 @@
         "phase": "design",
         "condition": "budget >= 100 and is_public == True",
         "desc": "총사업비 100억원 이상인 공공 건설공사로서 설계단계 예산 절감 등을 위한 VE 수행 대상."
+    },
+    {
+        "id": "BASIC_PLANNING_SERVICE",
+        "name": "기본구상용역, 기본계획용역",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=251675&efYd=2023110200000&ancYn=N#0000\" target=\"_blank\">건설기술진흥법 시행령 제68조</a>, <a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=278018&efYd=2023010100000&ancYn=N#0000\" target=\"_blank\">건축서비스산업 진흥법 제22조의2</a>",
+        "phase": "design",
+        "condition": "True",
+        "desc": "건설공사의 기본적인 개요 마련 및 사업의 방향 설정을 위한 용역으로, 모든 건설 프로젝트의 초기 계획 단계에 해당합니다. 건축서비스산업 진흥법 제22조의2는 공공건축심의위원회 구성/운영에 관한 조항으로, 관련 사업의 심의 근거를 제공합니다."
+    },
+    {
+        "id": "SAFETY_HEALTH_LOG_PLANNING",
+        "name": "안전보건대장 작성(계획단계)",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=247346&efYd=2022081800000&ancYn=N#0000\" target=\"_blank\">산업안전보건법 제67조</a>, <a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=247346&efYd=2023110200000&ancYn=N#0000\" target=\"_blank\">시행령 제55조</a>",
+        "phase": "design",
+        "condition": "total_construction_cost >= 5000000000",
+        "desc": "총공사금액이 50억원 이상인 건설공사의 경우 계획단계에서 안전보건대장을 작성해야 합니다. 이는 건설공사계획의 개요, 공사기간, 공사금액 등을 포함합니다."
+    },
+    {
+        "id": "LOCAL_FINANCE_IMPACT_ASSESSMENT",
+        "name": "지방재정영향평가",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=245239&efYd=2023010100000&ancYn=N#0000\" target=\"_blank\">지방재정법 제27조의6</a>",
+        "phase": "design",
+        "condition": "total_project_cost >= 10000000000 and local_subsidy >= 5000000000 and is_contest_project",
+        "desc": "공모사업 신청 전, 총사업비 100억원 이상이면서 도비 포함 지방비 금액이 50억원 이상인 사업에 대해 지방재정영향평가를 실시해야 합니다. 해당 지자체(군)에서 평가를 실시합니다."
+    },
+    {
+        "id": "PRE_FEASIBILITY_STUDY",
+        "name": "예비타당성조사",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=245217&efYd=2022061000000&ancYn=N#0000\" target=\"_blank\">국가재정법 제38조</a>",
+        "phase": "design",
+        "condition": "total_project_cost >= 50000000000 and national_subsidy >= 30000000000",
+        "desc": "총사업비 500억원 이상, 그리고 국가의 재정지원 규모가 300억원 이상인 신규사업에 대해 기획재정부에서 예비타당성조사를 실시합니다."
+    },
+    {
+        "id": "FEASIBILITY_STUDY_SERVICE",
+        "name": "타당성조사용역",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=278033&efYd=2024042300000&ancYn=N#0000\" target=\"_blank\">건설기술진흥법 제47조</a>, <a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=245239&efYd=2023010100000&ancYn=N#0000\" target=\"_blank\">지방재정법 제37조</a>",
+        "phase": "design",
+        "condition": "total_construction_cost >= 50000000000",
+        "desc": "총공사비가 500억원 이상인 건설공사에 대해 타당성조사를 실시하며, 타당성조사 용역과 기본계획 용역은 분리하여 발주해야 합니다. 국가통합교통체계효율화법에 따른 타당성평가를 실시한 경우 건설기술진흥법에 따른 타당성조사를 시행한 것으로 간주하며, 예비타당성조사 결과는 투자심사의 판단 자료로 활용됩니다."
+    },
+    {
+        "id": "TRANSPORTATION_FEASIBILITY_EVALUATION",
+        "name": "타당성평가",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=243171&efYd=2022011100000&ancYn=N#0000\" target=\"_blank\">국가통합교통체계효율화법 제18조</a>",
+        "phase": "design",
+        "condition": "total_project_cost >= 30000000000 and is_transportation_facility",
+        "desc": "총사업비 300억원 이상인 신규 교통시설투자사업(도로, 철도 등 기반시설)에 대해 타당성평가를 실시합니다."
+    },
+    {
+        "id": "MID_TERM_LOCAL_FINANCIAL_PLAN",
+        "name": "중기지방재정계획(남해군)",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=245239&efYd=2023010100000&ancYn=N#0000\" target=\"_blank\">지방재정법 제33조</a>",
+        "phase": "design",
+        "condition": "total_project_cost >= 2000000000",
+        "desc": "남해군에서 총사업비 20억원 이상인 투자사업은 중기지방재정계획에 반영되어야 하며, 이후 투자심사가 이행됩니다."
+    },
+    {
+        "id": "INVESTMENT_REVIEW",
+        "name": "투자심사",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=245239&efYd=2023010100000&ancYn=N#0000\" target=\"_blank\">지방재정법 제37조</a>, <a href=\"https://www.law.go.kr/LSW//admRulInfoP.do?admRulSeq=2000000109919\" target=\"_blank\">지방재정 투자사업 심사규정</a>",
+        "phase": "design",
+        "condition": "(total_project_cost >= 2000000000 and location_type == 'county') or (total_project_cost >= 4000000000 and location_type == 'province') and not is_full_national_budget_project and not is_disaster_recovery_project",
+        "desc": "총사업비 20억원 이상(도 단위 40억원 이상)의 신규 투자사업은 투자심사 대상입니다. 군 단위 사업 중 200억원 이상은 행정안전부에 심사를 의뢰해야 합니다. 최초 심사 당시보다 30% 이상 증액 시 재심사 대상이 되며, 전액 국비사업 및 재해복구사업은 제외됩니다."
+    },
+    {
+        "id": "NAMHAE_PROPERTY_REVIEW",
+        "name": "공유재산심의(남해군)",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=249216&efYd=2023121200000&ancYn=N#0000\" target=\"_blank\">공유재산 및 물품 관리법 제16조</a>, <a href=\"https://www.law.go.kr/ordinInfoP.do?efYd=20231124&lsiSeq=222383\" target=\"_blank\">남해군 공유재산 관리 조례 제4조</a>",
+        "phase": "design",
+        "condition": "(property_transaction_value >= 1000000000) or (land_acquisition_area >= 1000 and is_acquisition) or (land_disposal_area >= 2000 and is_disposal) or (plan_change_type in ['usage_change', 'location_change'] or area_change_percentage >= 0.3) and not (is_gratuitous_vesting or is_land_rearrangement or is_public_land_acquisition_for_infrastructure)",
+        "desc": "재산의 취득 및 처분 시 예정가격이 10억원 이상, 또는 취득 면적이 1천㎡ 이상, 처분 면적이 2천㎡ 이상인 경우 심의 대상입니다. 공유재산관리계획 변경(용도변경, 위치변경, 면적 30% 이상 증감)도 해당됩니다. 다른 법률에 따른 무상귀속, 도시개발법 환지, 공공토지 취득(도로, 주차장, 공원 등)은 심의에서 제외됩니다."
+    },
+    {
+        "id": "CONSTRUCTION_MANAGEMENT_PLAN",
+        "name": "건설사업관리계획 수립 및 제출",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=278033&efYd=2024042300000&ancYn=N#0000\" target=\"_blank\">건설기술진흥법 제39조의2</a>, <a href=\"https://www.law.go.kr/LSW//admRulInfoP.do?admRulSeq=2000000109914\" target=\"_blank\">건설공사 사업관리방식 검토기준 및 업무수행지침 제5조</a>",
+        "phase": "design",
+        "condition": "((total_construction_cost >= 500000000 and project_type_category == 'civil_engineering') or (total_floor_area >= 660 and project_type_category == 'building') or (total_construction_cost >= 200000000 and project_type_category == 'specialized_construction')) and not is_exempt_by_moef_notice",
+        "desc": "총공사비 5억원 이상 토목공사, 연면적 660m2 이상 건축공사, 총공사비 2억원 이상 전문공사는 건설사업관리계획 수립 대상입니다. 안전관리계획 수립 대상 공사 중 총공사비 100억원 이상으로서 구조물이 포함된 공사는 건설기술심의회 심의를 거쳐야 합니다. 국가계약법에 따라 기획재정부장관이 고시하는 금액 미만인 건설공사는 건설사업관리계획 수립 대상에서 제외됩니다."
+    },
+    {
+        "id": "CONSTRUCTION_METHOD_DECISION",
+        "name": "공사수행방식 결정",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=251675&efYd=2023110200000&ancYn=N#0000\" target=\"_blank\">건설기술진흥법 시행령 제70조</a>, <a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=252345&efYd=2024010100000&ancYn=N#0000\" target=\"_blank\">지방계약법 시행령 제95조</a>, <a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=252345&efYd=2024010100000&ancYn=N#0000\" target=\"_blank\">제127조</a>",
+        "phase": "design",
+        "condition": "estimated_contract_value >= 30000000000",
+        "desc": "추정가격 300억원 이상인 공사는 일괄입찰 또는 대안입찰 방식으로 집행할 수 있습니다. 추정가격 300억원 미만인 공사는 설계-시공 분리 발주가 원칙입니다."
+    },
+    {
+        "id": "PUBLIC_ARCHITECTURE_PRE_REVIEW",
+        "name": "공공건축사업계획사전검토(경상남도 공공건축지원센터)",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=278018&efYd=2024012500000&ancYn=N#0000\" target=\"_blank\">건축서비스산업 진흥법 제23조</a>, <a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=278018&efYd=2024012500000&ancYn=N#0000\" target=\"_blank\">시행령 제20조</a>",
+        "phase": "design",
+        "condition": "(total_project_cost >= 1000000000) or (total_project_cost < 1000000000 and design_cost >= 100000000) or is_public_facility",
+        "desc": "총사업비 10억원 이상이거나, 총사업비 10억원 미만인 경우라도 설계비 1억원 이상인 공공건축사업은 사전 검토 대상입니다. 지역자치센터, 유치원, 노유자시설 등 다수의 주민이 이용하는 시설도 포함됩니다."
+    },
+    {
+        "id": "NAMHAE_PUBLIC_ARCHITECTURE_REVIEW",
+        "name": "공공건축심의(남해군)",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=278018&efYd=2023010100000&ancYn=N#0000\" target=\"_blank\">건축서비스산업 진흥법 제22조의3</a>, <a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=278018&efYd=2023010100000&ancYn=N#0000\" target=\"_blank\">시행령 제19조의2</a>",
+        "phase": "design",
+        "condition": "estimated_design_cost >= 50000000",
+        "desc": "설계비 추정가격 5천만원 이상인 공공건축사업은 공공건축심의 대상입니다. 이는 건축기획, 설계 등에 관한 사항을 심의합니다."
+    },
+    {
+        "id": "ARCHITECTURAL_DESIGN_COMPETITION",
+        "name": "건축설계공모",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=278018&efYd=2023010100000&ancYn=N#0000\" target=\"_blank\">건축서비스산업 진흥법 제21조</a>, <a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=278018&efYd=2023010100000&ancYn=N#0000\" target=\"_blank\">시행령 제18조</a>",
+        "phase": "design",
+        "condition": "estimated_design_cost >= 100000000",
+        "desc": "설계비 추정가격 1억원 이상인 공공건축물의 설계용역은 설계공모 방식으로 발주해야 합니다. 이 외에도 건축 기획 심의 결과 또는 건축 관련 위원회에서 필요하다고 인정한 경우도 대상이 됩니다."
+    },
+    {
+        "id": "DESIGN_INTENT_IMPLEMENTATION",
+        "name": "설계의도 구현 용역",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=278018&efYd=2023010100000&ancYn=N#0000\" target=\"_blank\">건축서비스산업 진흥법 제22조</a>, <a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=278018&efYd=2023010100000&ancYn=N#0000\" target=\"_blank\">시행령 제19조</a>",
+        "phase": "design",
+        "condition": "is_architectural_design_competition_method_project",
+        "desc": "건축서비스산업 진흥법 제21조에 따라 설계공모 방식으로 공공건축물 설계를 발주하는 경우, 해당 건축물의 설계자가 설계의도 구현에 참여할 수 있도록 해야 합니다."
+    },
+    {
+        "id": "NAMHAE_DAILY_AUDIT",
+        "name": "일상감사",
+        "law_link": "<a href=\"https://www.law.go.kr/flvInfoP.do?flvId=204272\" target=\"_blank\">남해군 일상감사 규정</a>",
+        "phase": "design",
+        "condition": "((project_type_category == 'general_construction' and estimated_contract_value >= 70000000 and estimated_contract_value < 300000000) or (project_type_category == 'specialized_construction' and estimated_contract_value >= 50000000 and estimated_contract_value < 200000000) or (project_type_category == 'technical_service' and estimated_contract_value >= 20000000 and estimated_contract_value < 70000000) or (project_type_category == 'academic_service' and estimated_contract_value >= 20000000 and estimated_contract_value < 50000000) or (project_type_category == 'goods_procurement' and estimated_contract_value >= 10000000 and estimated_contract_value < 20000000)) or (is_design_change_event and percentage_increase >= 0.1 and was_daily_audited_before)",
+        "desc": "남해군 일상감사 대상은 종합공사 7천만원 이상 3억원 미만, 전문공사 5천만원 이상 2억원 미만, 기술용역 2천만원 이상 7천만원 미만, 학술용역 2천만원 이상 5천만원 미만, 물품 제조구매 1천만원 이상 2천만원 미만입니다. 일상감사를 거친 사업이 계약금액 10% 이상 증액되는 설계변경 시 재감사 대상이 됩니다."
+    },
+    {
+        "id": "CONTRACT_REVIEW",
+        "name": "계약심사",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=246608&efYd=2023032300000&ancYn=N#0000\" target=\"_blank\">공공감사에관한법률 제22조</a>, <a href=\"https://www.law.go.kr/ordinInfoP.do?efYd=20240425&lsiSeq=222384\" target=\"_blank\">경상남도 계약심사업무 처리 규칙</a>, <a href=\"https://www.law.go.kr/flvInfoP.do?flvId=204273\" target=\"_blank\">남해군 계약심사 업무처리 규칙</a>",
+        "phase": "design",
+        "condition": "(location_type == 'province' and ((project_type_category == 'general_construction' and estimated_contract_value >= 500000000) or (project_type_category == 'specialized_construction' and estimated_contract_value >= 300000000) or (project_type_category == 'technical_service' and estimated_contract_value >= 200000000) or (project_type_category == 'academic_service' and estimated_contract_value >= 100000000) or (project_type_category == 'goods_procurement' and estimated_contract_value >= 20000000) or (total_project_cost >= 2000000000 and is_design_change_event and percentage_increase >= 0.1))) or (location_type == 'county' and ((project_type_category == 'general_construction' and estimated_contract_value >= 300000000 and estimated_contract_value < 500000000) or (project_type_category == 'specialized_construction' and estimated_contract_value >= 200000000 and estimated_contract_value < 300000000) or (project_type_category == 'technical_service' and estimated_contract_value >= 70000000 and estimated_contract_value < 200000000) or (project_type_category == 'academic_service' and estimated_contract_value >= 50000000 and estimated_contract_value < 100000000) or (project_type_category == 'goods_procurement' and estimated_contract_value >= 20000000) or (contract_amount >= 50000000 and is_design_change_event and percentage_increase >= 0.1)))",
+        "desc": "계약심사 대상은 지역에 따라 상이합니다. 경상남도의 경우 일반공사 5억 이상, 전문공사 3억 이상, 기술용역 2억 이상, 학술용역 1억 이상, 물품 2천만원 이상입니다. 총사업비 20억 이상으로 10% 이상 증액 시 재심사 대상입니다. 남해군의 경우 일반공사 3억~5억 미만, 전문공사 2억~3억 미만, 기술용역 7천만원~2억 미만, 학술용역 5천만원~1억 미만, 물품 2천만원 이상입니다. 계약금액 5천만원 이상으로 10% 이상 증액 시 재심사 대상입니다."
+    },
+    {
+        "id": "CONTRACT_REVIEW_COMMITTEE",
+        "name": "계약심의(재무과)",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=252345&efYd=2024010100000&ancYn=N#0000\" target=\"_blank\">지방계약법 제32조</a>, <a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=252345&efYd=2024010100000&ancYn=N#0000\" target=\"_blank\">시행령 제108조</a>",
+        "phase": "design",
+        "condition": "(estimated_contract_value >= 5000000000 and project_type_category == 'construction') or (estimated_contract_value >= 1000000000 and project_type_category == 'service') or (estimated_contract_value >= 500000000 and project_type_category == 'goods_procurement')",
+        "desc": "추정가격 50억원 이상인 공사, 10억원 이상인 용역, 또는 5억원 이상인 물품 제조·구매 계약은 계약심의 대상입니다."
+    },
+    {
+        "id": "CONSTRUCTION_TECHNOLOGY_REVIEW_PQ",
+        "name": "건설기술 심의(설계PQ)",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=278033&efYd=2024042300000&ancYn=N#0000\" target=\"_blank\">건설기술진흥법 제5조</a>, <a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=278033&efYd=2024042300000&ancYn=N#0000\" target=\"_blank\">시행령 제17조</a>, <a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=252345&efYd=2024010100000&ancYn=N#0000\" target=\"_blank\">지방자치단체를 당사자로 하는 계약에 관한 법률 시행령 제96조</a>",
+        "phase": "design",
+        "condition": "(total_construction_cost >= 30000000000) or (total_service_cost >= 2200000000 and not is_design_competition_method_project)",
+        "desc": "총공사비 300억원 이상인 건설공사 또는 총용역비 22억원 이상인 건설기술용역사업은 건설기술심의 대상입니다. 설계공모 방식의 용역은 심의를 생략할 수 있습니다. 감리용역 선정을 위한 사업수행능력 평가기준 및 입찰공고안의 적정성 심의 등을 포함합니다 (경상남도 심의)."
+    },
+    {
+        "id": "SAFETY_HEALTH_LOG_DESIGN",
+        "name": "안전보건대장 작성(설계단계)",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=247346&efYd=2022081800000&ancYn=N#0000\" target=\"_blank\">산업안전보건법 제67조</a>, <a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=247346&efYd=2023110200000&ancYn=N#0000\" target=\"_blank\">시행령 제55조</a>",
+        "phase": "design",
+        "condition": "total_construction_cost >= 5000000000",
+        "desc": "총공사금액이 50억원 이상인 건설공사의 경우 설계단계에서 안전보건대장을 작성해야 합니다. 이는 계획단계 대장에 설계도면 및 시방서 등을 고려한 예상 위험요소와 저감대책을 추가한 것입니다."
+    },
+    {
+        "id": "DISASTER_PREVENTION_DESIGN_REVIEW",
+        "name": "재해예방사업 사전설계검토",
+        "law_link": "<a href=\"https://www.law.go.kr/admRulLsInfoP.do?admRulSeq=2000000216698\" target=\"_blank\">자연재해대책법 재해예방사업 추진지침</a>",
+        "phase": "design",
+        "condition": "(is_dangerous_zone and total_budget >= 100) or (is_dangerous_reservoir and total_budget >= 20) or (is_steep_slope and total_budget >= 50) or is_typhoon_flood_living_area or (is_small_river and total_budget >= 70) or is_underground_reservoir or (total_budget >= 200) or (is_dangerous_zone and total_budget < 100) or (is_dangerous_reservoir and 5 <= total_budget < 20) or (is_steep_slope and 10 <= total_budget < 50) or (is_small_river and 20 <= total_budget < 70)",
+        "desc": "2026년 기준, 자연재해대책법 재해예방사업 추진지침에 따라 재해예방사업 추진 시 총사업비 200억원 이상(기본/실시설계 각 1회), 재해위험개선지구 100억원 이상, 재해위험저수지 20억원 이상, 급경사지 50억원 이상, 풍수해생활권 정비사업 전수, 소하천 정비사업 70억원 이상, 우수저류시설 설치사업 전수에 대해 중앙심의를 받습니다. 도심의 경우 재해위험개선지구 100억원 미만, 재해위험저수지 5억원 이상 20억원 미만, 급경사지 10억원 이상 50억원 미만, 소하천 20억원 이상 70억원 미만의 사업에 대해 시·도 심의를 받습니다."
+    },
+    {
+        "id": "DESIGN_SAFETY_REVIEW",
+        "name": "설계안전성검토",
+        "law_link": "<a href=\"https://www.law.go.kr/lsInfoP.do?lsiSeq=246377&efYd=20240223#0000\" target=\"_blank\">건설기술진흥법 시행령 제75조의2</a>, <a href=\"https://www.law.go.kr/admRulLsInfoP.do?admRulSeq=2100000181514\" target=\"_blank\">건설공사 안전관리 업무수행 지침</a>",
+        "phase": "design",
+        "condition": "is_type1_2_facility or (depth_of_excavation >= 10) or is_explosion_site or (10 <= number_of_stories < 16) or (number_of_stories >= 10 and is_remodeling_or_demolition) or (height_of_formwork >= 5) or (height_of_scaffolding >= 31) or (depth_of_shoring >= 2)",
+        "desc": "2026년 기준, 건설기술진흥법 시행령 제75조의2에 따라 다음 건설공사는 설계 안전성 검토 대상입니다: 시설물안전법 상 1종 또는 2종 시설물, 굴착 깊이 10m 이상 굴착 공사, 폭발물 사용 공사, 10층 이상 16층 미만 건축 공사, 10층 이상 리모델링 또는 해체 공사, 높이 5m 이상 거푸집 동바리, 높이 31m 이상 비계, 깊이 2m 이상 흙막이 지보공 설치 공사."
+    },
+    {
+        "id": "CONSTRUCTION_PROJECT_MANAGEMENT",
+        "name": "건설사업관리대상",
+        "law_link": "<a href=\"https://www.law.go.kr/lsInfoP.do?lsiSeq=246377&efYd=20240223#0000\" target=\"_blank\">건설기술진흥법 시행령 제57조</a>",
+        "phase": "design, construction",
+        "condition": "(is_type1_2_facility) or (total_budget >= 300) or (total_budget >= 200)",
+        "desc": "2026년 기준, 건설기술진흥법 시행령 제57조에 따라 건설사업관리 대상은 다음과 같습니다. 설계 단계에서는 1종 또는 2종 시설물 건설공사 또는 총공사비 300억원 이상 건설공사입니다. 공사 단계에서는 1종 또는 2종 시설물 건설공사 또는 총공사비 200억원 이상 건설공사입니다."
+    },
+    {
+        "id": "CONSTRUCTION_PERIOD_REVIEW",
+        "name": "공사(건설)기간 적정성 검토",
+        "law_link": "<a href=\"https://www.law.go.kr/lsInfoP.do?lsiSeq=246377&efYd=20240223#0000\" target=\"_blank\">건설기술진흥법 시행규칙 제3조</a>, <a href=\"https://www.law.go.kr/admRulLsInfoP.do?admRulSeq=2100000212328\" target=\"_blank\">공공 건설공사의 공사기간 산정기준</a>",
+        "phase": "design",
+        "condition": "total_budget >= 50",
+        "desc": "2026년 기준, 건설기술진흥법 시행규칙 제3조 및 공공 건설공사의 공사기간 산정기준에 따라 총공사비 50억원 이상인 공공 건설공사는 공사기간 적정성 검토를 건설기술심의위원회에서 받아야 합니다."
+    },
+    {
+        "id": "PUBLIC_PROPERTY_TRANSFER_CONSULT",
+        "name": "행정재산 무상귀속 사전협의",
+        "law_link": "<a href=\"https://www.law.go.kr/lsInfoP.do?lsiSeq=246599&efYd=20231221#0000\" target=\"_blank\">국유재산법 제73조의2</a>, <a href=\"https://www.law.go.kr/lsInfoP.do?lsiSeq=246375&efYd=20240125#0000\" target=\"_blank\">국토의 계획 및 이용에 관한 법률 제65조</a>",
+        "phase": "design",
+        "condition": "is_admin_property_transfer",
+        "desc": "2026년 기준, 국유재산법 제73조의2 및 국토계획법 제65조에 따라 건설사업으로 인해 행정재산의 용도가 폐지되고 새로운 공공시설로 대체되어 해당 재산의 소유권을 사업시행자에게 무상으로 귀속시키고자 할 경우 사전협의가 필요합니다."
+    },
+    {
+        "id": "URBAN_PLANNING_FACILITY_APPROVAL",
+        "name": "도시계획시설 지정 및 실시계획인가",
+        "law_link": "<a href=\"https://www.law.go.kr/lsInfoP.do?lsiSeq=246375&efYd=20240125#0000\" target=\"_blank\">국토의 계획 및 이용에 관한 법률 제43조</a>, <a href=\"https://www.law.go.kr/lsInfoP.do?lsiSeq=246376&efYd=20240125#0000\" target=\"_blank\">국토의 계획 및 이용에 관한 법률 시행령 제35조</a>",
+        "phase": "design",
+        "condition": "is_urban_planning_facility",
+        "desc": "2026년 기준, 국토의 계획 및 이용에 관한 법률 제43조 및 시행령 제35조에 따라 기반시설 중 도시·군관리계획으로 결정된 도시계획시설을 설치하는 공사 계획 시 군관리계획 협의 및 사업시행인가 절차를 거쳐야 합니다. 일부 기반시설은 군관리계획 결정 없이 설치 가능합니다."
+    },
+    {
+        "id": "BUSINESS_APPROVAL_NOTIFICATION",
+        "name": "사업인정 및 고시",
+        "law_link": "<a href=\"https://www.law.go.kr/lsInfoP.do?lsiSeq=246370&efYd=20240125#0000\" target=\"_blank\">공익사업을 위한 토지 등의 취득 및 보상에 관한 법률 제20조</a>",
+        "phase": "design",
+        "condition": "is_land_acquisition_needed",
+        "desc": "2026년 기준, 공익사업을 위한 토지 등의 취득 및 보상에 관한 법률 제20조 및 제22조에 따라 국토계획법, 하천법, 도로법 등 개별법에 따라 수행하는 사업 중 토지 수용이 필요한 부분이 있으면 사업인정을 받아야 하며 이를 고시해야 합니다."
+    },
+    {
+        "id": "DISTRICT_UNIT_PLAN_DETERMINATION",
+        "name": "지구단위계획구역 결정(남해군)",
+        "law_link": "<a href=\"https://www.law.go.kr/lsInfoP.do?lsiSeq=246376&efYd=20240125#0000\" target=\"_blank\">국토의 계획 및 이용에 관한 법률 시행령 제43조</a>",
+        "phase": "design",
+        "condition": "(is_urban_area) or (is_non_urban_area and land_area >= 30000) or (is_non_urban_area and is_housing and land_area >= 10000)",
+        "desc": "2026년 기준, 국토의 계획 및 이용에 관한 법률 시행령 제43조에 따라 지구단위계획구역은 도시지역의 경우 면적 제한 없이 지정 가능하며, 비도시지역(계획관리지역)의 경우 3만㎡ 이상, 공동주택 건설 시 1만㎡ 이상인 경우에 지정이 필요합니다. (건폐율, 용적률, 용도지역 등 개발 제한 포함)."
+    },
+    {
+        "id": "COUNTY_MANAGEMENT_PLAN_CHANGE",
+        "name": "군관리계획변경결정(경남도)",
+        "law_link": "<a href=\"https://www.law.go.kr/lsInfoP.do?lsiSeq=246375&efYd=20240125#0000\" target=\"_blank\">국토의 계획 및 이용에 관한 법률 제24조</a>",
+        "phase": "design",
+        "condition": "is_urban_management_plan_change",
+        "desc": "2026년 기준, 국토의 계획 및 이용에 관한 법률 제24조에 따라 용도지역·지구 변경, 지구단위계획구역 결정, 도시·군계획시설 결정 등 남해군 도시계획시설에 대한 변경이 필요한 경우 군관리계획 변경 결정을 받아야 합니다. 광역적 영향이 있는 경우 경남도에서 결정합니다."
+    },
+    {
+        "id": "LANDSCAPE_COMMITTEE_REVIEW",
+        "name": "경관위원회 심의",
+        "law_link": "<a href=\"https://www.law.go.kr/lsInfoP.do?lsiSeq=246371&efYd=20240125#0000\" target=\"_blank\">경관법 시행령 제19조</a>, <a href=\"https://www.law.go.kr/ordinLsInfoP.do?lsiSeq=218610&efYd=20230726\" target=\"_blank\">남해군 경관 조례 제22조</a>",
+        "phase": "design",
+        "condition": "(total_budget >= 500 and (facility_type == 'road' or facility_type == 'traffic_facility')) or (total_budget >= 300 and facility_type == 'river') or (is_public_building and building_area >= 1000) or (total_budget >= 50 and is_public_agency_project and is_design_required) or (is_next_to_national_road and (building_area >= 2000 or number_of_stories >= 5)) or (is_next_to_urban_area and (building_area >= 1000 or number_of_stories >= 3))",
+        "desc": "2026년 기준, 경관법 시행령 제19조 및 남해군 경관조례 제22조에 따라 다음 사업은 경관위원회 심의 대상입니다. 총사업비 500억원 이상 도로·철도 등 교통시설, 300억원 이상 하천시설, 연면적 1천㎡ 이상 공공건축물. 또한, 남해군 조례에 따라 총사업비 50억원 이상 공공사업 중 군수가 필요하다고 인정하는 사업 및 시설물, 국도에 접하는 연면적 2천㎡ 이상 또는 5층 이상 건축물, 도시지역에 접하는 연면적 1천㎡ 이상 또는 3층 이상 건축물 등이 포함됩니다."
+    },
+    {
+        "id": "GOVT_SUPPLIED_MATERIAL_REVIEW",
+        "name": "관급자재 선정심의",
+        "law_link": "<a href=\"https://www.law.go.kr/admRulLsInfoP.do?admRulSeq=2100000214227\" target=\"_blank\">지방자치단체 입찰 및 계약 집행기준</a> (참고)",
+        "phase": "design, construction",
+        "condition": "(estimated_price_material >= 2000 and is_single_contract_material) or (estimated_price_material >= 2000 and is_narajangteo_material)",
+        "desc": "2026년 기준, 추정가격 2천만원 이상의 자재(물품)를 수의계약으로 구매하거나, 추정가격 2천만원 이상 나라장터에 등록된 제3자 단가계약자재를 설계에 반영하거나 구매할 경우, 해당 선정의 적정성에 대한 내부 심의가 필요할 수 있습니다. (지방자치단체 입찰 및 계약 집행기준 등 관련 규정 참조)"
+    },
+    {
+        "id": "SEWERAGE_MATERIAL_COMPLIANCE",
+        "name": "하수도용 자재 기준 부합",
+        "law_link": "<a href=\"https://www.law.go.kr/lsInfoP.do?lsiSeq=246220&efYd=20230103#0000\" target=\"_blank\">하수도법 시행령 제10조</a>, <a href=\"https://www.law.go.kr/admRulLsInfoP.do?admRulSeq=2100000208153\" target=\"_blank\">하수도용으로 사용 가능한 자재에 관한 고시</a>",
+        "phase": "design, construction",
+        "condition": "is_wastewater_material",
+        "desc": "2026년 기준, 하수도법 시행령 제10조 및 하수도용으로 사용 가능한 자재에 관한 고시에 따라 하수도용 자재는 한국물기술인증원에서 하수도용 자재나 제품으로 사용하기에 적합하다고 인증 또는 검증받은 것을 사용해야 합니다."
+    },
+    {
+        "id": "PUBLIC_DESIGN_COMMITTEE_REVIEW",
+        "name": "공공디자인진흥위원회 심의",
+        "law_link": "<a href=\"https://www.law.go.kr/ordinLsInfoP.do?lsiSeq=219760&efYd=20240223\" target=\"_blank\">남해군 공공디자인 진흥 조례 제11조</a>",
+        "phase": "design",
+        "condition": "(is_public_agency_project and total_budget >= 10) or (is_public_agency_project and is_design_required)",
+        "desc": "2026년 기준, 남해군 공공디자인 진흥 조례 제11조에 따라 군수가 시행하는 공공사업 중 총사업비 10억원 이상인 사업 또는 해당 시설물의 디자인에 대한 심의가 필요하다고 군수가 인정하는 사업은 공공디자인진흥위원회 심의를 받아야 합니다."
+    },
+    {
+        "id": "GREEN_BUILDING_CERTIFICATION",
+        "name": "녹색건축인증",
+        "law_link": "<a href=\"https://www.law.go.kr/lsInfoP.do?lsiSeq=246367&efYd=20240125#0000\" target=\"_blank\">녹색건축물 조성 지원법 시행령 제11조</a>",
+        "phase": "design",
+        "condition": "is_public_agency and building_area >= 1000",
+        "desc": "2026년 기준, 녹색건축물 조성 지원법 시행령 제11조에 따라 공공기관이 신축하거나 용도변경하는 연면적 1천제곱미터 이상인 건축물은 녹색건축인증 의무 대상입니다."
+    },
+    {
+        "id": "ZERO_ENERGY_BUILDING_CERTIFICATION",
+        "name": "제로에너지 등급인정",
+        "law_link": "<a href=\"https://www.law.go.kr/lsInfoP.do?lsiSeq=246367&efYd=20240125#0000\" target=\"_blank\">녹색건축물 조성 지원법 시행령 제12조</a>",
+        "phase": "design",
+        "condition": "(is_public_building and building_area >= 1000) or (is_housing and number_of_households >= 500)",
+        "desc": "2026년 기준, 녹색건축물 조성 지원법 시행령 제12조에 따라 공공건축물의 경우 연면적 1천제곱미터 이상, 공동주택의 경우 전체세대수 500세대 이상은 제로에너지 건축물 인증 의무 대상입니다."
+    },
+    {
+        "id": "ENERGY_SAVING_PLAN_SUBMISSION",
+        "name": "에너지절약계획서 제출",
+        "law_link": "<a href=\"https://www.law.go.kr/admRulLsInfoP.do?admRulSeq=2100000209638\" target=\"_blank\">건축물의 에너지절약설계기준</a>",
+        "phase": "design",
+        "condition": "(building_area >= 500) or (is_public_agency and building_area >= 500) or ((building_use == '업무시설' or building_use == '교육연구시설') and building_area >= 3000)",
+        "desc": "2026년 기준, 건축물의 에너지절약설계기준에 따라 연면적 합계 500제곱미터 이상인 건축물(단독주택 제외), 공공기관 건축물 중 연면적 합계 500제곱미터 이상인 건축물, 그리고 연면적 합계 3,000제곱미터 이상인 업무시설 및 교육연구시설은 에너지절약계획서를 제출해야 합니다. (업무시설 및 교육연구시설 3,000㎡ 이상은 에너지소요량 평가서도 제출)"
+    },
+    {
+        "id": "ECO_FRIENDLY_CONSULTING",
+        "name": "친환경컨설팅용역(취득시 까지)",
+        "law_link": "<a href=\"https://www.law.go.kr/lsInfoP.do?lsiSeq=246366&efYd=20240125#0000\" target=\"_blank\">녹색건축물 조성 지원법</a> (참고)",
+        "phase": "design, construction",
+        "condition": "needs_green_building_cert or needs_energy_efficiency_cert or needs_zero_energy_cert",
+        "desc": "2026년 기준, 녹색건축물 조성 지원법에 따라 녹색건축물 인증, 건축물 에너지효율등급 인증, 제로에너지 건축물 인증 취득이 의무화되거나 필요한 경우, 이를 위한 친환경 컨설팅 용역을 고려할 수 있습니다. 소규모 건축허가 대상 건축물은 건축설계사가 컨설팅을 겸하는 경우가 있습니다."
+    },
+    {
+        "id": "BF_PRE_CERTIFICATION",
+        "name": "BF예비인증(준공 전 인증)(건축허가 전 인증)",
+        "law_link": "<a href=\"https://www.law.go.kr/lsInfoP.do?lsiSeq=246369&efYd=20240125#0000\" target=\"_blank\">장애인·노인·임산부 등의 편의증진 보장에 관한 법률 시행령 제3조의2</a>",
+        "phase": "design, construction",
+        "condition": "is_public_building or is_public_facility or is_transport_facility or is_road_improvement or is_park_facility",
+        "desc": "2026년 기준, 장애인·노인·임산부 등의 편의증진 보장에 관한 법률 시행령 제3조의2에 따라 국가 또는 지방자치단체가 신축하는 시설(공공건축물, 공공청사, 공원 등), 교통약자 이동편의 증진법상 이동편의시설, 도시공원 및 녹지 등에 관한 법률상 공원시설 등은 '장애물 없는 생활환경(BF)' 인증을 의무적으로 받아야 합니다. 건축허가 전 예비인증을, 준공 전 본인증을 받아야 합니다."
+    },
+    {
+        "id": "CONSTRUCTION_COST_REVIEW",
+        "name": "공사원가 사전검토",
+        "law_link": "<a href=\"https://www.law.go.kr/lsInfoP.do?lsiSeq=246399&efYd=20230914#0000\" target=\"_blank\">조달사업에 관한 법률 시행령 제28조</a>",
+        "phase": "design",
+        "condition": "total_budget >= 100",
+        "desc": "2026년 기준, 조달사업에 관한 법률 시행령 제28조에 따라 총사업비가 100억원 이상인 건설공사에 대해서는 조달청장에게 공사원가의 사전 검토를 요청해야 합니다."
+    },
+    {
+        "id": "BUILDING_REVIEW",
+        "name": "건축심의",
+        "law_link": "<a href=\"https://www.law.go.kr/lsInfoP.do?lsiSeq=246374&efYd=20240223#0000\" target=\"_blank\">건축법 시행령 제5조의5</a>, <a href=\"https://www.law.go.kr/ordinLsInfoP.do?lsiSeq=219717&efYd=20231229\" target=\"_blank\">남해군 건축 조례 제7조</a>",
+        "phase": "design",
+        "condition": "is_multi_use_building or is_special_structure_building or (is_for_sale and floor_area >= 3000) or (is_housing and number_of_households >= 50) or (is_office_tel and number_of_rooms >= 50)",
+        "desc": "2026년 기준, 건축법 시행령 제5조의5 및 남해군 건축 조례 제7조에 따라 다음 건축물은 건축심의 대상입니다. 다중이용건축물(바닥면적 합계 5천㎡ 이상), 특수구조 건축물, 분양하는 부분의 바닥면적 합계 3천㎡ 이상인 건축물, 50세대 이상 공동주택, 일반업무시설 중 오피스텔로서 50실 이상인 건축물."
+    },
+    {
+        "id": "RECYCLED_AGGREGATE_MANDATE",
+        "name": "순환골재 및 순환골재 재활용제품의 사용 의무",
+        "law_link": "<a href=\"https://law.go.kr/법령/건설폐기물의재활용촉진에관한법률\" target=\"_blank\">건설폐기물의 재활용촉진에 관한 법률 제38조</a>, <a href=\"https://www.law.go.kr/LSW/admRulLsInfoP.do?admRulSeq=2000000000100\" target=\"_blank\">순환골재 등 의무사용건설공사의 순환골재ㆍ순환골재 재활용제품 사용용도 및 의무사용량에 관한 고시</a>",
+        "phase": "construction",
+        "condition": "is_public_works_project and project_type in ['국도', '지방도', '군도', '농어촌도로', '관리계획도로', '산업단지', '하수도공사', '가축분뇨공공처리시설', '공공폐수처리시설', '물류터미널', '노상및노외주차장', '매립시설의복토']",
+        "desc": "국도, 지방도, 군도, 농어촌도로, 관리계획도로, 산업단지, 하수도공사, 가축분뇨공공처리시설, 공공폐수처리시설, 물류터미널, 노상 및 노외주차장, 매립시설 복토 등 특정 공사는 순환골재 및 순환골재 재활용제품의 사용 의무 대상입니다."
+    },
+    {
+        "id": "AGRICULTURAL_LAND_CONVERSION_PERMIT",
+        "name": "농지전용허가",
+        "law_link": "<a href=\"https://law.go.kr/법령/농지법\" target=\"_blank\">농지법 제34조, 제51조</a>, <a href=\"https://law.go.kr/법령/농지법시행령\" target=\"_blank\">같은 법 시행령 제71조</a>",
+        "phase": "design",
+        "condition": "True",
+        "desc": "농지전용허가는 농업진흥지역 여부 및 면적에 따라 허가권자가 달라집니다. 시장·군수·구청장 (진흥지역 3천㎡ 이하, 진흥지역 밖 3만㎡ 이하), 시·도지사 (진흥지역 3천㎡ 초과 3만㎡ 이하, 진흥지역 밖 3만㎡ 초과 20만㎡ 이하), 농림축산식품부장관 (진흥지역 3만㎡ 초과, 진흥지역 밖 20만㎡ 초과)."
+    },
+    {
+        "id": "FOREST_LAND_CONVERSION_PERMIT",
+        "name": "산지전용허가",
+        "law_link": "<a href=\"https://law.go.kr/법령/산지관리법시행령\" target=\"_blank\">산지관리법 시행령 제15조, 제18조</a>",
+        "phase": "design",
+        "condition": "True",
+        "desc": "산지전용허가는 산지의 종류(보전산지, 준보전산지) 및 면적에 따라 허가권자가 달라집니다. 시장·군수·구청장 (보전산지 3만㎡ 이하, 준보전산지 50만㎡ 이하), 시·도지사 (보전산지 3만㎡ 초과 100만㎡ 미만, 준보전산지 50만㎡ 초과 200만㎡ 미만), 산림청장 (보전산지 100만㎡ 이상, 준보전산지 200만㎡ 이상)."
+    },
+    {
+        "id": "UNDERGROUND_SAFETY_ASSESSMENT",
+        "name": "지하안전평가",
+        "law_link": "<a href=\"https://law.go.kr/법령/지하안전관리에관한특별법\" target=\"_blank\">지하안전관리에 관한 특별법 제14조</a>",
+        "phase": "design",
+        "condition": "excavation_depth_m >= 10",
+        "desc": "지하 20m 이상 굴착공사는 지하안전영향평가 대상이며, 지하 10m 이상 20m 미만 굴착공사는 소규모지하안전영향평가 대상입니다."
+    },
+    {
+        "id": "DISASTER_IMPACT_REVIEW",
+        "name": "재해영향성검토",
+        "law_link": "<a href=\"https://law.go.kr/법령/자연재해대책법시행령\" target=\"_blank\">자연재해대책법 시행령 별표1</a>",
+        "phase": "design",
+        "condition": "is_administrative_plan or is_district_unit_plan or is_basic_plan",
+        "desc": "행정계획, 지구단위계획 수립 및 각종 기본계획 수립 시 해당 계획이 재해에 미치는 영향을 사전에 검토하여 재해 예방 및 저감 방안을 마련해야 합니다."
+    },
+    {
+        "id": "SMALL_SCALE_DISASTER_IMPACT_ASSESSMENT",
+        "name": "소규모재해영향평가",
+        "law_link": "<a href=\"https://law.go.kr/법령/자연재해대책법시행령\" target=\"_blank\">자연재해대책법 시행령 별표1</a>",
+        "phase": "design",
+        "condition": "(total_area_sqm >= 5000 and total_area_sqm < 50000) or (is_road_or_rail_project and project_length_km >= 2 and project_length_km < 10)",
+        "desc": "개발사업 면적 5천㎡ 이상 5만㎡ 미만 또는 도로 및 철도 건설사업 중 길이가 2km 이상 10km 미만인 경우 소규모재해영향평가를 실시해야 합니다."
+    },
+    {
+        "id": "DISASTER_IMPACT_ASSESSMENT",
+        "name": "재해영향평가",
+        "law_link": "<a href=\"https://law.go.kr/법령/자연재해대책법시행령\" target=\"_blank\">자연재해대책법 시행령 별표1</a>",
+        "phase": "design",
+        "condition": "total_area_sqm >= 50000 or (is_road_or_rail_project and project_length_km >= 10)",
+        "desc": "개발사업 면적 5만㎡ 이상 또는 도로 및 철도 건설사업 중 길이가 10km 이상인 경우 재해영향평가를 실시해야 합니다."
+    },
+    {
+        "id": "STRATEGIC_EIA",
+        "name": "전략환경영향평가",
+        "law_link": "<a href=\"https://law.go.kr/법령/환경영향평가법시행령\" target=\"_blank\">환경영향평가법 시행령 별표2</a>",
+        "phase": "design",
+        "condition": "is_administrative_plan or is_district_unit_plan or is_basic_plan_for_major_development",
+        "desc": "각종 행정계획 및 개발기본계획 수립 시 환경에 미치는 영향을 사전에 예측·평가하는 전략환경영향평가 대상입니다. 구체적인 대상 계획은 환경영향평가법 시행령 별표2에 명시되어 있습니다."
+    },
+    {
+        "id": "SMALL_SCALE_EIA",
+        "name": "소규모환경영향평가",
+        "law_link": "<a href=\"https://law.go.kr/법령/환경영향평가법시행령\" target=\"_blank\">환경영향평가법 시행령 별표4</a>",
+        "phase": "design",
+        "condition": "(is_river_project and total_area_sqm >= 10000) or (is_small_river_project and total_area_sqm >= 7500) or (land_use_zone == '도시지역' and total_area_sqm >= 60000) or (land_use_zone == '녹지지역' and total_area_sqm >= 10000) or (land_use_zone == '보전관리지역' and total_area_sqm >= 5000) or (land_use_zone == '생산관리지역' and total_area_sqm >= 7500) or (land_use_zone == '계획관리지역' and total_area_sqm >= 10000) or (land_use_zone == '농림지역' and total_area_sqm >= 7500) or (land_use_zone == '자연환경보전지역' and total_area_sqm >= 5000) or (mountain_type == '공익용산지' and total_area_sqm >= 10000) or (mountain_type in ['임업용산지', '준보전산지'] and total_area_sqm >= 30000)",
+        "desc": "하천 개수사업 1만㎡ 이상, 소하천 정비사업 7,500㎡ 이상, 또는 토지이용계획 및 산지 종류에 따른 일정 면적 이상의 개발사업(예: 도시지역 6만㎡ 이상, 녹지지역 1만㎡ 이상, 공익용산지 1만㎡ 이상)은 소규모환경영향평가 대상입니다. (상세 기준은 환경영향평가법 시행령 별표4 참조)"
+    },
+    {
+        "id": "ENVIRONMENTAL_IMPACT_ASSESSMENT",
+        "name": "환경영향평가",
+        "law_link": "<a href=\"https://law.go.kr/법령/환경영향평가법시행령\" target=\"_blank\">환경영향평가법 시행령 별표3</a>",
+        "phase": "design",
+        "condition": "(is_urban_development_project and total_area_sqm >= 250000) or (is_urban_renewal_project and total_area_sqm >= 300000) or (sewage_treatment_capacity_tons_per_day >= 100000) or (is_housing_or_land_creation_project and total_area_sqm >= 300000)",
+        "desc": "도시개발사업 25만㎡ 이상, 도시 및 주거환경정비사업 30만㎡ 이상, 10만톤/일 이상 하수처리장, 주택건설 및 대지조성사업 30만㎡ 이상 등 대규모 개발사업은 환경영향평가를 실시해야 합니다. (상세 기준은 환경영향평가법 시행령 별표3 참조)"
+    },
+    {
+        "id": "POST_EIA_SURVEY",
+        "name": "사후환경영향조사",
+        "law_link": "<a href=\"https://law.go.kr/법령/환경영향평가법\" target=\"_blank\">환경영향평가법 제36조</a>, <a href=\"https://law.go.kr/법령/환경영향평가법시행규칙\" target=\"_blank\">시행규칙 별표1</a>",
+        "phase": "construction",
+        "condition": "is_environmental_impact_assessment_project_finalized",
+        "desc": "환경영향평가를 실시한 사업 중 환경영향평가법 시행규칙 별표1에 해당하는 사업은 착공 후에 그 사업이 주변 환경에 미치는 영향을 조사하고 그 결과를 관계 기관에 통보해야 합니다."
+    },
+    {
+        "id": "ECOSYSTEM_CONSERVATION_FEE",
+        "name": "생태계보전부담금",
+        "law_link": "<a href=\"https://law.go.kr/법령/자연환경보전법\" target=\"_blank\">자연환경보전법 제46조</a>, <a href=\"https://law.go.kr/법령/자연환경보전법시행령\" target=\"_blank\">같은 법 시행령 제40조</a>",
+        "phase": "design",
+        "condition": "is_environmental_impact_assessment_project or (is_small_scale_eia_project and total_area_sqm >= 30000) or (is_strategic_eia_development_plan and total_area_sqm >= 30000)",
+        "desc": "환경영향평가 대상사업, 소규모환경영향평가 대상사업 중 3만㎡ 이상인 사업, 또는 전략환경영향평가 대상 개발기본계획 중 3만㎡ 이상인 사업은 생태계보전협력금(과거 생태계보전부담금) 부과 대상이 됩니다."
+    },
+    {
+        "id": "CLIMATE_CHANGE_IMPACT_ASSESSMENT",
+        "name": "기후변화영향평가",
+        "law_link": "<a href=\"https://law.go.kr/법령/기후위기대응을위한탄소중립녹색성장기본법\" target=\"_blank\">기후위기 대응을 위한 탄소중립ㆍ녹색성장 기본법 제23조</a>, <a href=\"https://law.go.kr/법령/기후위기대응을위한탄소중립녹색성장기본법시행령\" target=\"_blank\">시행령 별표2</a>",
+        "phase": "design",
+        "condition": "is_strategic_eia_target_policy_plan_climate_assess or is_strategic_eia_development_plan_climate_assess or is_eia_target_project_climate_assess",
+        "desc": "전략환경영향평가 또는 환경영향평가 대상 사업 중 기후위기 대응을 위한 탄소중립·녹색성장 기본법 시행령 별표2에 명시된 특정 사업(예: 일정 규모 이상의 도시개발, 산업입지 조성, 도로·하천 건설, 에너지 개발, 폐기물 처리시설 설치 등)은 기후변화영향평가를 실시해야 합니다. (별표2의 상세 기준을 따름)"
+    },
+    {
+        "id": "STORMWATER_RUNOFF_REDUCTION_PLAN",
+        "name": "우수유출저감대책 수립",
+        "law_link": "<a href=\"https://law.go.kr/법령/자연재해대책법시행령\" target=\"_blank\">자연재해대책법 시행령 제16조의2</a>",
+        "phase": "design",
+        "condition": "is_local_government_building and (total_floor_area_sqm >= 3000 or land_area_sqm >= 2000) or is_school_establishment_project or is_public_housing_project or is_tourism_development_project or is_urban_planning_facility_project or is_urban_park_project or is_urban_development_project or is_housing_redevelopment_project or is_urban_environment_improvement_project or is_urban_rail_project or is_logistics_terminal_project or is_logistics_complex_project or is_youth_training_project or is_recreational_facility_project or is_industrial_complex_project or is_factory_establishment_project or is_stone_quarrying_project or is_new_airport_project or is_hot_spring_development_project or is_joint_delivery_center_project or is_mountain_village_development_project or is_public_cemetery_project or is_housing_complex_project or is_housing_construction_approval_project or is_land_creation_project or is_small_town_development_project or is_development_promotion_zone_project or is_golf_course_project or is_residential_land_development_project or is_airport_development_project",
+        "desc": "지방자치단체 건축물(연면적 3천㎡ 이상 또는 대지면적 2천㎡ 이상) 및 학교 설립, 공공주택지구 조성, 관광지 개발, 도시계획시설사업, 도시개발사업, 산업단지 조성, 주택단지 조성, 골프장 등 다양한 개발사업은 우수유출저감대책을 수립해야 합니다."
+    },
+    {
+        "id": "SMALL_SCALE_STORMWATER_RUNOFF_PLAN",
+        "name": "소규모 개발사업 우수유출저감대책",
+        "law_link": "<a href=\"https://law.go.kr/법령/자연재해대책법시행령\" target=\"_blank\">자연재해대책법 시행령 제16조의2</a>",
+        "phase": "design",
+        "condition": "is_stormwater_runoff_reduction_plan_target and not is_disaster_impact_assessment_project and not is_small_scale_disaster_impact_assessment_project",
+        "desc": "우수유출저감대책 수립 대상 사업 중 재해영향평가 또는 소규모 재해영향평가 대상에 해당하지 않는 사업이라도 자연재해대책법 시행령 제16조의2에 따라 우수유출저감대책을 수립해야 합니다."
+    },
+    {
+        "id": "UNDERGROUND_FLOOD_PREVENTION_STANDARD",
+        "name": "지하공간 침수 방지 수방기준 적용",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW/admRulLsInfoP.do?admRulSeq=2100000236048\" target=\"_blank\">국토교통부고시 제2023-747호 (지하공간 침수 방지를 위한 수방기준)</a>",
+        "phase": "design",
+        "condition": "has_underground_road or has_underground_plaza or has_common_duct or has_underground_shopping_mall or has_underground_railway_or_metro or has_underground_substation or has_building_with_basement_floor",
+        "desc": "지하도로, 지하광장, 공동구, 지하도상가, 지하철도 및 철도, 지하 변전소, 바닥이 지표면 아래에 있는 건축물 등 지하공간을 설치하는 경우 침수 방지를 위한 계획 및 설계 시 국토교통부의 '지하공간 침수 방지를 위한 수방기준'을 적용해야 합니다."
+    },
+    {
+        "id": "RAINWATER_HARVESTING_FACILITY",
+        "name": "빗물이용시설의 설치대상",
+        "law_link": "<a href=\"https://law.go.kr/법령/물의재이용촉진및지원에관한법률\" target=\"_blank\">물의 재이용 촉진 및 지원에 관한 법률 제8조</a>, <a href=\"https://law.go.kr/법령/물의재이용촉진및지원에관한법률시행령\" target=\"_blank\">같은 법 시행령 제11조</a>",
+        "phase": "design",
+        "condition": "((is_sports_facility_with_roof or is_public_office_facility or is_public_institution_office) and roof_area_sqm_cumulative >= 1000) or (is_apartment_or_multi_family_housing and building_area_sqm_cumulative >= 10000) or (is_school and building_area_sqm_cumulative >= 5000) or (is_golf_course and site_area_sqm_cumulative >= 100000) or (is_large_scale_retail_store and store_area_sqm_cumulative >= 3000)",
+        "desc": "지붕면적 1천㎡ 이상인 운동장(지붕 있는 경우), 체육관, 공공업무시설, 공공기관 청사, 건축면적 1만㎡ 이상인 공동주택, 건축면적 5천㎡ 이상인 학교, 부지면적 10만㎡ 이상인 골프장, 매장면적 3천㎡ 이상인 대규모점포의 신축, 증축, 개축 또는 재축 시 빗물이용시설을 설치해야 합니다."
+    },
+    {
+        "id": "GREYWATER_SYSTEM_INSTALLATION",
+        "name": "중수도의 설치",
+        "law_link": "<a href=\"https://law.go.kr/법령/물의재이용촉진및지원에관한법률\" target=\"_blank\">물의 재이용 촉진 및 지원에 관한 법률 제9조</a>",
+        "phase": "design",
+        "condition": "((is_lodging_or_bathhouse_facility and total_floor_area_sqm_cumulative >= 60000) or (is_factory and wastewater_discharge_cubic_m_per_day >= 1500) or (is_power_plant and wastewater_discharge_cubic_m_per_day >= 1500) or (is_large_scale_retail_store and total_floor_area_sqm_cumulative >= 60000) or (is_logistics_facility and total_floor_area_sqm_cumulative >= 60000) or (is_transportation_facility and total_floor_area_sqm_cumulative >= 60000) or (is_office_facility and total_floor_area_sqm_cumulative >= 60000) or (is_correctional_facility and total_floor_area_sqm_cumulative >= 60000) or (is_broadcasting_or_telecom_facility and total_floor_area_sqm_cumulative >= 60000)) or (is_tourism_complex_development_project or is_urban_development_project or is_industrial_complex_development_project or is_residential_land_development_project)",
+        "desc": "연면적 6만㎡ 이상 숙박업/목욕장업 시설, 1일 폐수배출량 1,500㎥ 이상 공장/발전시설, 대규모점포 등 특정 시설물 및 관광단지, 도시개발, 산업단지, 택지개발 사업 등은 물 사용량의 10% 이상을 재이용할 수 있도록 중수도를 설치·운영해야 합니다. (상세 기준은 물의 재이용 촉진 및 지원에 관한 법률 제9조 참조)"
+    },
+    {
+        "id": "TRAFFIC_IMPACT_ASSESSMENT",
+        "name": "교통영향평가",
+        "law_link": "<a href=\"https://law.go.kr/법령/도시교통정비촉진법시행령\" target=\"_blank\">도시교통정비 촉진법 시행령 별표1</a>",
+        "phase": "design",
+        "condition": "is_urban_development_project or is_industrial_complex_project or is_energy_development_project or is_port_construction_project or is_road_construction_project or is_railway_construction_project or is_airport_construction_project or is_tourism_complex_development_project",
+        "desc": "도시개발, 산업단지 조성, 에너지 개발, 항만 건설, 도로·철도·공항 건설, 관광단지 개발 등 「도시교통정비 촉진법 시행령」 별표1에 규정된 일정 규모 이상의 개발사업은 교통영향평가 대상입니다."
+    },
+    {
+        "id": "EDUCATIONAL_FACILITY_SAFETY_ASSESSMENT",
+        "name": "교육시설 안전성평가",
+        "law_link": "<a href=\"https://law.go.kr/법령/교육시설등의안전및유지관리등에관한법률\" target=\"_blank\">교육시설 등의 안전 및 유지관리 등에 관한 법률 제19조</a>, <a href=\"https://law.go.kr/법령/교육시설등의안전및유지관리등에관한법률시행령\" target=\"_blank\">같은 법 시행령 제20조</a>",
+        "phase": "design",
+        "condition": "is_on_campus_construction_permit_or_approval or (distance_to_school_m <= 4) or (4 < distance_to_school_m <= 50 and ((excavation_depth_m >= 2 and distance_to_school_m < (1.5 * excavation_depth_m + 4)) or (num_floors >= 3 or structure_height_m >= 10) or is_tunneling_project or is_blasting_project or is_demolition_project))",
+        "desc": "교육시설 내 건축허가·승인 공사, 학교경계로부터 4미터 이내의 건설공사, 또는 학교경계로부터 4미터 초과 50미터 이내의 일정 깊이 굴착, 높이 건축물, 터널, 발파, 해체 공사 등은 교육시설 안전성평가를 실시해야 합니다. (자세한 굴착영향거리 산정 등은 법령 참조)"
+    },
+    {
+        "id": "MARINE_USE_CONSULTATION",
+        "name": "해양이용협의",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=246473&efYd=20231017#0000\">해양이용영향평가법 시행령 별표 1</a>",
+        "phase": "design",
+        "condition": "is_general_marine_use_project",
+        "desc": "해양이용영향평가법 시행령 별표 1에 따른 일반해양이용협의 대상 사업. 골재채취, 공유수면 점용·사용, 항만/어항/마리나항만 시설 설치(길이 150m 또는 면적 3천㎡ 이상, 준설 5만㎡/10만㎥ 이상), 공유수면 매립면허 또는 협의·승인 대상 사업 등 해양 이용·개발사업에 해당될 경우 필요."
+    },
+    {
+        "id": "SIMPLIFIED_MARINE_USE_CONSULTATION",
+        "name": "간이해양이용협의",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=246473&efYd=20231017#0000\">해양이용영향평가법 시행령 별표 1</a>",
+        "phase": "design",
+        "condition": "is_simplified_marine_use_project",
+        "desc": "해양환경관리법상 특별관리해역 내 어업/양식업 면허, 일반해양이용협의 대상 미만 사업, 육상해수양식업/수산종자생산업 관련 사업, 부선 설치를 위한 60일 이내 공유수면 점용·사용, 해양자원 이용·개발 사업 중 특정 범위 미만 사업, 기존 허가 기간 연장 사업에 해당될 경우 필요."
+    },
+    {
+        "id": "MARINE_USE_IMPACT_ASSESSMENT",
+        "name": "해양이용영향평가",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=246473&efYd=20231017#0000\">해양이용영향평가법 시행령 별표 2</a>",
+        "phase": "design",
+        "condition": "is_marine_use_impact_assessment_project",
+        "desc": "해양이용영향평가법 시행령 별표 2에 따른 해양이용영향평가 대상 사업. 바다골재채취 20만㎥(영해)/40만㎥(배타적 경제수역) 이상, 공유수면 준설/굴착 10만㎡/20만㎥ 이상, 공유수면에서 흙/모래/돌 채취 20만㎥(영해)/40만㎥(배타적 경제수역) 이상, 신재생에너지 설비 10만㎡ 이상 등 대규모 해양 이용·개발 사업에 해당될 경우 필요."
+    },
+    {
+        "id": "MARINE_ENVIRONMENTAL_SURVEY",
+        "name": "해양환경영향조사",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=246473&efYd=20231017#0000\">해양이용영향평가법 시행령 제18조</a>",
+        "phase": "design",
+        "condition": "is_general_marine_use_project or is_marine_use_impact_assessment_project",
+        "desc": "해양이용영향평가법 시행령 별표 1 제1호에 따른 일반해양이용협의 대상사업 및 별표 2에 따른 해양이용영향평가 대상사업. 다만, 일반해양이용협의 대상 사업 중 공유수면 매립면적이 1만5천㎡ 미만인 경우는 제외함."
+    },
+    {
+        "id": "MARINE_SPATIAL_SUITABILITY",
+        "name": "해양공간적합성협의",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=246067&efYd=20230103#0000\">해양공간계획 및 관리에 관한 법률 시행령 별표</a>",
+        "phase": "design",
+        "condition": "is_marine_space_development_plan",
+        "desc": "해양관광단지 개발, 해양 석유/광물/골재 채취, 항만/어항 개발, 해양 수자원/에너지/어장 개발 등 해양공간에서 이용 및 개발 계획을 승인·수립·변경하거나 지구·구역 등을 지정·변경지정하려는 경우 해양수산부장관과 협의 또는 승인을 받아야 함."
+    },
+    {
+        "id": "PUBLIC_WATERS_OCCUPATION_PERMIT",
+        "name": "공유수면점용허가",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=247265&efYd=20230328#0000\">공유수면 관리 및 매립에 관한 법률 제8조</a>",
+        "phase": "design",
+        "condition": "is_occupying_public_waters",
+        "desc": "공유수면에 건축물 설치, 토지 굴착, 바닥 준설 등 공유수면을 점용하거나 사용하려는 자는 공유수면관리청의 허가를 받아야 함."
+    },
+    {
+        "id": "PUBLIC_WATERS_RECLAMATION",
+        "name": "공유수면매립",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=247265&efYd=20230328#0000\">공유수면 관리 및 매립에 관한 법률 제28조</a>",
+        "phase": "design",
+        "condition": "is_reclaiming_public_waters",
+        "desc": "공유수면을 매립하려는 경우 공유수면관리청의 매립면허를 받아야 함. 공유수면매립기본계획에 반영되지 않은 매립면허는 대규모 매립의 경우(2만㎡ 이상) 원칙적으로 불가하며, 매립기본계획에 반영되어야 함. 매립면적에 따라 면허권자가 달라질 수 있음."
+    },
+    {
+        "id": "NATURAL_PARK_ACTIVITY_PERMIT",
+        "name": "행위허가",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=253818&efYd=20240402#0000\">자연공원법 제23조</a>",
+        "phase": "design",
+        "condition": "is_activity_in_natural_park_area",
+        "desc": "공원구역에서 공원사업 외 건축물 신축·증축, 광물 채굴, 토지 형질 변경, 수면 매립·간척, 야생동식물 채취 등 대통령령으로 정하는 행위를 하려는 경우 공원관리청의 허가를 받아야 함. 경미한 행위는 신고 또는 허가/신고 없이 가능."
+    },
+    {
+        "id": "NATURAL_PARK_PROJECT_IMPLEMENTATION",
+        "name": "공원사업 시행",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=253818&efYd=20240402#0000\">자연공원법 제20조</a>",
+        "phase": "design",
+        "condition": "not is_park_management_authority_project",
+        "desc": "공원관리청이 아닌 자가 공원사업을 하거나 공원시설을 관리하려는 경우 공원관리청의 허가를 받아야 함. 타인 토지 사용 시 소유자의 사용 승낙 필요."
+    },
+    {
+        "id": "PUBLIC_PROPERTY_USE_PERMIT",
+        "name": "공유재산사용허가",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=252373&efYd=20240213#0000\">공유재산 및 물품 관리법 제20조</a>",
+        "phase": "design",
+        "condition": "is_using_public_property_for_project",
+        "desc": "행정재산에 대하여 그 목적 또는 용도에 장애가 되지 않는 범위에서 사용허가를 신청할 수 있으며, 행정재산 담당 부서와 협의가 필요함."
+    },
+    {
+        "id": "ROAD_OCCUPATION_PERMIT",
+        "name": "도로점용허가",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=252701&efYd=20240213#0000\">도로법 제61조</a>",
+        "phase": "design",
+        "condition": "is_occupying_road",
+        "desc": "도로(국도, 지방도, 군도, 농어촌도로 등)를 점용하려는 경우 도로관리청의 허가를 받아야 함. 관할 도로관리청(예: 국도유지관리사무소, 지자체 도로팀)에 확인 후 신청."
+    },
+    {
+        "id": "PRELIMINARY_HERITAGE_CONSULTATION",
+        "name": "사전영향협의",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=256191&efYd=20240517#0000\">국가유산영향진단법 제7조</a>, <a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=256196&efYd=20240517#0000\">시행령 제2조</a>",
+        "phase": "design",
+        "condition": "development_area >= 30000 and (is_historical_cultural_area_included or is_buried_heritage_area_included or is_specific_development_plan)",
+        "desc": "개발계획부지 내에 역사문화환경 보존지역 또는 매장유산 유존지역이 포함되거나, 개발계획부지 면적이 3만㎡ 이상인 토지/내수면/연안 개발계획(대통령령으로 정하는 특정 개발계획 포함)의 경우, 계획 확정 전에 국가유산청장에게 사전영향협의를 요청해야 함."
+    },
+    {
+        "id": "HERITAGE_IMPACT_ASSESSMENT",
+        "name": "영향진단",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=256191&efYd=20240517#0000\">국가유산영향진단법 제9조</a>",
+        "phase": "design",
+        "condition": "(construction_area >= 30000 and not is_heritage_exclusion_area) or is_buried_heritage_area or (is_inland_water_aggregate_extraction and construction_area >= 150000) or (is_coastal_aggregate_extraction and construction_area >= 150000) or is_high_potential_heritage_area",
+        "desc": "건설공사의 사업 면적이 3만㎡ 이상인 경우(매장유산 유존지역 등 특정 지역 제외), 매장유산 유존지역에서 시행하는 건설공사, 내수면/연안 골재 채취 사업 면적이 15만㎡ 이상인 경우, 또는 국가유산이 매장되어 있을 가능성이 높은 지역의 건설공사는 사업계획 수립 완료 전에 영향진단을 실시해야 함."
+    },
+    {
+        "id": "SIMPLIFIED_HERITAGE_IMPACT_ASSESSMENT",
+        "name": "약식영향진단",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=256191&efYd=20240517#0000\">국가유산영향진단법 제17조</a>, <a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=256196&efYd=20240517#0000\">시행령 제5조</a>",
+        "phase": "design",
+        "condition": "is_in_historical_cultural_conservation_area and not is_heritage_impact_assessment_target",
+        "desc": "역사문화환경 보존지역에서 시행하는 건설공사가 영향진단 대상에 해당하지 않는 경우 약식영향진단을 실시해야 함. 구체적인 행위기준이 고시된 지역에서 그 기준 범위 내 행위는 약식영향진단이 생략됨."
+    },
+    {
+        "id": "BURIED_HERITAGE_SURFACE_SURVEY",
+        "name": "문화재 지표조사",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=256198&efYd=20240517#0000\">매장문화재 보호 및 조사에 관한 법률 시행령 제4조</a>",
+        "phase": "design",
+        "condition": "development_area >= 30000",
+        "desc": "건설공사를 시행하려는 자는 개발면적이 3만㎡ 이상인 경우 건설공사 착수 전에 매장문화재에 대한 지표조사를 실시해야 함. 이는 국가유산영향진단법에 따른 사전영향협의 및 영향진단 절차와 연계하여 매장유산 유무를 확인하는 과정임."
+    },
+    {
+        "id": "CULTURAL_HERITAGE_CHANGE_PERMIT",
+        "name": "문화재 현상변경허가",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=256194&efYd=20240517#0000\">문화유산의 보존 및 활용에 관한 법률 제13조</a>, <a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=256197&efYd=20240517#0000\">시행령 제16조</a>",
+        "phase": "design",
+        "condition": "(is_residential_commercial_industrial_area and distance_to_heritage_boundary <= 200) or (is_other_area and distance_to_heritage_boundary <= 500)",
+        "desc": "지정문화유산의 역사문화환경 보존지역에서 건설공사 등 현상변경 행위를 하려는 경우 허가를 받아야 함. 주거/상업/공업지역은 문화유산 외곽경계 200m 이내, 그 외 지역은 500m 이내에 해당할 경우 적용됨."
+    },
+    {
+        "id": "GEOTECHNICAL_DATA_DIGITALIZATION",
+        "name": "지반조사결과 전산화",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//admRulInfoP.do?admRulSeq=2100000216124\">지반조사결과 전산화 및 활용에 관한 지침</a>",
+        "phase": "design",
+        "condition": "has_geotechnical_investigation_results",
+        "desc": "발주청은 지반조사를 실시한 후 그 결과를 지반정보통합관리시스템(지반정보 DB)에 전산화하여 제출하고 활용해야 함."
+    },
+    {
+        "id": "DISASTER_PREVENTION_TECHNICAL_GUIDANCE",
+        "name": "재해예방기술지도용역",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=251641&efYd=20240126#0000\">산업안전보건법 제73조</a>, <a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=251642&efYd=20240126#0000\">시행령 제59조</a>",
+        "phase": "construction",
+        "condition": "(total_construction_cost >= 100000000 and total_construction_cost < 12000000000 and not is_civil_engineering) or (is_civil_engineering and total_construction_cost >= 100000000 and total_construction_cost < 15000000000) or (is_electrical_or_fire_or_telecom_work and total_construction_cost >= 100000000 and total_construction_cost < 1000000000)",
+        "desc": "총 공사금액 1억 원 이상 120억 원(토목공사는 150억 원) 미만의 건설공사 또는 총 공사금액 1억 원 이상 10억 원 미만의 전기/정보통신/소방시설 공사는 재해예방 전문지도기관과 기술지도 계약을 체결해야 함. 착공 전 계약 완료 및 15일마다 1회 이상 기술지도 의무."
+    },
+    {
+        "id": "FUNDING_CONSULTATION",
+        "name": "재원협의",
+        "law_link": null,
+        "phase": "design",
+        "condition": "is_total_project_cost_changed_after_design",
+        "desc": "기본 및 실시설계가 완료된 후 총사업비의 변경 결정을 할 때 (특히 증액) 재원협의를 실시해야 함. 감액 협의는 신중히 검토."
+    },
+    {
+        "id": "BUILDING_DEMOLITION_NOTIFICATION",
+        "name": "건축물 해체 신고",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=251590&efYd=20240126#0000\">건축물관리법 제30조</a>, <a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=251591&efYd=20240126#0000\">시행규칙 제12조</a>",
+        "phase": "construction",
+        "condition": "total_area < 500 and height < 12 and num_floors_including_basement <= 3",
+        "desc": "연면적 500㎡ 미만, 높이 12m 미만, 지하층을 포함한 3개 층 이하인 건축물을 해체하려는 경우 특별자치시장/특별자치도지사/시장/군수/구청장에게 해체신고를 해야 함."
+    },
+    {
+        "id": "LAW_DEMOLITION_PERMIT",
+        "name": "건축물 해체 허가",
+        "law_link": "<a href=\"https://www.law.go.kr/법령/건축물관리법\">건축물관리법 제30조</a>",
+        "phase": "construction",
+        "condition": "is_major_structure_demolition_involved or total_floor_area_to_demolish > 500 or building_height_to_demolish > 12 or stories_including_basement_to_demolish > 3",
+        "desc": "건축물의 주요 구조부 해체를 수반하거나, 해체하려는 부분의 연면적이 500제곱미터를 초과하는 경우, 또는 높이가 12미터를 초과하는 경우, 또는 지하층을 포함한 층수가 3개 층을 초과하는 해체공사는 건축물 해체 허가를 받아야 합니다. (신고 대상 외)"
+    },
+    {
+        "id": "LAW_VE_CONSTRUCTION_REVIEW",
+        "name": "VE(경제성검토) 후 건설기술심의",
+        "law_link": "<a href=\"https://www.law.go.kr/법령/건설기술진흥법시행령\">건설기술진흥법 시행령 제75조</a>",
+        "phase": "design",
+        "condition": "total_project_cost >= 10000000000 or (total_project_cost_increase_percentage >= 10 and not is_private_investment_soc_project)",
+        "desc": "총사업비 100억원 이상인 건설공사 또는 총사업비가 10% 이상 증액되는 건설공사(「사회기반시설에 대한 민간투자법」에 따른 민간투자사업의 총사업비 증액은 제외)는 경제성 검토(VE)를 실시해야 하며, 필요시 건설기술심의가 이뤄집니다."
+    },
+    {
+        "id": "LAW_CONSTRUCTION_TECH_REVIEW_CONST",
+        "name": "건설기술심의(공사)",
+        "law_link": "<a href=\"https://www.law.go.kr/법령/건설기술진흥법\">건설기술진흥법 제5조</a>, <a href=\"https://www.law.go.kr/법령/건설기술진흥법시행령\">같은법 시행령 제17조</a>, <a href=\"https://www.law.go.kr/법령/지방자치단체를당사자로하는계약에관한법률시행령\">지방자치단체를 당사자로 하는 계약에 관한 법률 시행령 제96조</a>",
+        "phase": "construction",
+        "condition": "total_construction_cost >= 10000000000 or (is_construction_management_project_for_design_service and total_project_cost >= 10000000000 and not is_disaster_recovery_project) or ((total_construction_cost >= 10000000000 and not is_county_project) or (total_construction_cost >= 5000000000 and is_county_project))",
+        "desc": "총공사비 100억원 이상인 건설공사, 또는 총사업비 100억원 이상 건설공사에 대한 건설사업관리를 한 공사(재해복구공사 등 긴급공사 제외), 또는 총공사비 100억원(군의 경우 50억원) 이상인 건설공사의 공사기간 산정 적정성에 대해 건설기술심의를 받아야 합니다."
+    },
+    {
+        "id": "LAW_ASBESTOS_SURVEY",
+        "name": "석면조사",
+        "law_link": "<a href=\"https://www.law.go.kr/법령/산업안전보건법\">산업안전보건법 제119조</a>",
+        "phase": "construction",
+        "condition": "demolition_target_building_area >= 50 and total_building_area >= 50 or (demolition_target_house_area >= 200 and total_house_area >= 200) or (demolition_target_equipment_material_area >= 15 or demolition_target_equipment_material_volume >= 1) or (demolition_target_pipe_insulation_length >= 80 and total_pipe_length >= 80)",
+        "desc": "건축물이나 설비를 철거ㆍ해체하려는 경우 석면조사를 해야 합니다. 특히, 일반건축물 해체 면적 및 연면적 50㎡ 이상, 주택 해체 면적 및 연면적 200㎡ 이상, 설비 해체 시 석면자재 면적 15㎡ 또는 부피 1㎥ 이상, 파이프 보온재 해체 길이 및 총 길이 80m 이상인 경우 기관조사 대상입니다. 석면 비함유 명백, 석면 함유 명백 등 특정 사유에 해당하면 기관조사 생략이 가능합니다."
+    },
+    {
+        "id": "LAW_ASBESTOS_DEMOLITION_SUPERVISION",
+        "name": "석면해체감리 대상",
+        "law_link": "<a href=\"https://www.law.go.kr/법령/석면안전관리법시행령\">석면안전관리법 시행령 제31조</a>",
+        "phase": "construction",
+        "condition": "has_asbestos_spray_or_fireproofing_material_for_demolition or asbestos_building_material_total_area_for_demolition >= 800",
+        "desc": "석면이 함유된 분무재 또는 내화피복재가 사용된 건축물이나 설비의 철거ㆍ해체작업, 또는 그 외 석면건축자재 사용 면적이 800제곱미터 이상인 건축물이나 설비의 철거ㆍ해체작업은 석면해체감리 대상입니다."
+    },
+    {
+        "id": "LAW_HAZARD_PREVENTION_PLAN",
+        "name": "건설업 유해 · 위험방지계획서 제출 대상",
+        "law_link": "<a href=\"https://www.law.go.kr/법령/산업안전보건법\">산업안전보건법 제42조</a>, <a href=\"https://www.law.go.kr/법령/산업안전보건법시행령\">동법 시행령 제42조</a>",
+        "phase": "construction",
+        "condition": "building_height_above_ground >= 31 or total_building_area >= 30000 or (total_building_area >= 5000 and (is_culture_assembly_facility or is_sales_facility or is_transport_facility or is_religious_facility or is_general_hospital or is_tourism_accommodation or is_underground_shopping_mall or is_refrigerated_warehouse)) or (is_refrigerated_warehouse_equipment_insulation_work and total_building_area >= 5000) or bridge_max_span_length >= 50 or is_tunnel_construction or is_dam_construction or excavation_depth >= 10",
+        "desc": "지상높이 31m 이상 건축물, 연면적 3만㎡ 이상 건축물, 연면적 5천㎡ 이상 특정시설(문화 및 집회시설, 판매시설, 운수시설, 종교시설, 종합병원, 관광숙박시설, 지하도상가, 냉동ㆍ냉장 창고시설), 연면적 5천㎡ 이상 냉동ㆍ냉장 창고시설의 설비ㆍ단열 공사, 지간길이 50m 이상 다리, 터널, 다목적댐 등 특정 댐, 깊이 10m 이상 굴착 공사 시 유해ㆍ위험방지계획서를 착공 전에 제출해야 합니다."
+    },
+    {
+        "id": "LAW_SERVICE_PRELIM_INSPECTION",
+        "name": "용역예비준공검사",
+        "law_link": "<a href=\"https://www.molit.go.kr/USR/policyTarget/m_24066/dtl.jsp?idx=731\">설계공모, 기본설계 등의 시행 및 설계의 경제성 등 검토에 관한 지침 제43조</a>",
+        "phase": "design",
+        "condition": "service_contract_duration > 0",
+        "desc": "발주청은 용역계약 만료 전, 용역기간에 따라 100일 초과 시 계약 만료 30일 이내, 100일 이하 시 계약 만료 15일 이내, 60일 이하 시 계약 만료 7일 이내에 예비준공검사를 실시하여야 합니다."
+    },
+    {
+        "id": "LAW_LAND_DEVELOPMENT_REPORT",
+        "name": "토지개발사업 등의 신고",
+        "law_link": "<a href=\"https://www.law.go.kr/법령/공간정보의구축및관리등에관한법률\">공간정보의 구축 및 관리등에 관한 법률 제86조</a>, <a href=\"https://www.law.go.kr/법령/공간정보의구축및관리등에관한법률시행령\">시행령 제83조</a>",
+        "phase": "design",
+        "condition": "is_urban_development_project or is_rural_area_redevelopment_project or is_housing_construction_project or is_land_development_project or is_industrial_complex_development_project or is_urban_residential_environment_improvement_project or is_regional_development_project or is_sports_facility_land_development_project or is_tourism_complex_development_project or is_public_waters_reclamation_project or is_port_development_project or is_public_housing_district_project or is_logistics_facility_development_project or is_railway_construction_project or is_road_construction_project or is_cadastral_confirmation_survey_target_project",
+        "desc": "「공간정보의 구축 및 관리 등에 관한 법률 시행령」 제83조에 명시된 도시개발사업, 주택건설사업 등 토지개발사업 시행자는 사업의 착수ㆍ변경 및 완료 사실을 지적소관청에 신고해야 합니다. 해당 사업은 지적확정측량 대상이며 예정지적좌표 작성이 필요합니다."
+    },
+    {
+        "id": "LAW_BID_PREQUALIFICATION",
+        "name": "입찰참가자격 사전심사",
+        "law_link": "<a href=\"https://www.law.go.kr/법령/지방자치단체를당사자로하는계약에관한법률시행령\">지방자치단체를 당사자로 하는 계약에 관한 법률 시행령 제14조</a>, <a href=\"https://www.mois.go.kr/frt/bbs/type001/commonSelectBoardArticle.do?bbsId=BBSMSTR_000000000010&nttId=106950\">지방자치단체 입찰 및 계약 집행기준</a>",
+        "phase": "design",
+        "condition": "estimated_price >= 30000000000 or (estimated_price >= 20000000000 and estimated_price < 30000000000 and requires_pq_by_agency_head)",
+        "desc": "추정가격 300억원 이상인 공사는 입찰참가자격 사전심사(PQ)가 필수이며, 200억원 이상 300억원 미만인 공사는 발주관서의 장이 필요하다고 인정하는 경우 PQ 심사를 실시할 수 있습니다."
+    },
+    {
+        "id": "LAW_SAFETY_HEALTH_PLAN_CONST",
+        "name": "안전보건대장 작성(시공단계)",
+        "law_link": "<a href=\"https://www.law.go.kr/법령/산업안전보건법\">산업안전보건법 제67조</a>, <a href=\"https://www.law.go.kr/법령/산업안전보건법시행령\">시행령 제55조</a>",
+        "phase": "construction",
+        "condition": "total_construction_cost >= 5000000000",
+        "desc": "총공사금액 50억원 이상인 건설공사는 시공단계에서 안전보건대장을 작성해야 합니다."
+    },
+    {
+        "id": "LAW_SOIL_INFO_SYSTEM",
+        "name": "토석정보공유시스템 이용",
+        "law_link": "<a href=\"https://www.molit.go.kr/USR/policyTarget/m_24066/dtl.jsp?idx=703\">토석정보공유시스템 이용요령</a>",
+        "phase": "construction",
+        "condition": "soil_and_fill_volume >= 1000",
+        "desc": "사토 및 순성토 발생량이 1,000㎥ 이상인 건설공사는 토석정보공유시스템을 이용해야 합니다."
+    },
+    {
+        "id": "LAW_CONSTRUCTION_PLAN_SUBMISSION",
+        "name": "공사수행계획 및 세부계획 제출",
+        "law_link": "<a href=\"https://www.mois.go.kr/frt/bbs/type001/commonSelectBoardArticle.do?bbsId=BBSMSTR_000000000010&nttId=106950\">지방자치단체 입찰 및 계약 집행기준 제11장 제3절</a>",
+        "phase": "construction",
+        "condition": "is_construction_contract_signed",
+        "desc": "계약상대자는 착공신고서 제출 시 공사예정표, 건설기술인 배치 계획, 안전관리계획, 환경관리계획, 품질시험계획 또는 품질관리계획 등을 포함한 공사수행계획 및 세부계획을 작성하여 공사감독관의 승인을 받아야 합니다."
+    },
+    {
+        "id": "LAW_CITIZEN_PARTICIPATION_SUPERVISION",
+        "name": "주민참여감독",
+        "law_link": "<a href=\"https://www.law.go.kr/법령/지방자치단체를당사자로하는계약에관한법률\">지방자치단체를 당사자로 하는 계약에 관한 법률 제16조</a>, <a href=\"https://www.law.go.kr/법령/지방자치단체를당사자로하는계약에관한법률시행령\">시행령 제60조</a>",
+        "phase": "construction",
+        "condition": "is_village_road_expansion_project or is_drainage_system_installation_project or is_simple_water_sewage_installation_project or is_security_light_project or is_pavement_block_project or is_urban_planning_road_project or is_village_hall_project or is_public_restroom_project or (is_disaster_recovery_project and is_closely_related_to_daily_life_by_mayor) or is_park_project or is_other_project_deemed_necessary_by_mayor",
+        "desc": "지방자치단체는 마을 진입로 확장ㆍ포장공사, 배수로 설치공사, 간이 상하수도 설치공사, 보안등 공사, 보도블록 설치공사, 도시ㆍ군계획도로 개설공사, 마을회관 공사, 공중화장실 공사, 주민생활과 밀접한 수해복구 공사, 공원 공사 및 그 밖에 지방자치단체의 장이 필요하다고 판단하는 공사에 대해 주민대표자 등을 감독자로 위촉하여 주민참여감독을 실시해야 합니다."
+    },
+    {
+        "id": "LAW_ELECTRICAL_WORK_SUPERVISION",
+        "name": "전기공사 감리",
+        "law_link": "<a href=\"https://www.law.go.kr/법령/전력기술관리법\">전력기술관리법 제12조</a>, <a href=\"https://www.law.go.kr/법령/전력기술관리법시행령\">시행령 제20조</a>",
+        "phase": "construction",
+        "condition": "is_electrical_work and not (is_general_electrical_facility_work or is_temporary_power_facility_work or is_military_facility_work or is_fire_facility_emergency_power_work or is_electric_business_inlet_low_voltage_work or (is_electric_business_work and electric_business_employee_has_supervision_license) or (is_self_supervised_by_electrical_safety_manager and ((is_emergency_generator_work and total_cost < 100000000) or (is_electric_supply_expansion_work and total_cost < 50000000) or (is_renewable_energy_expansion_work and total_cost < 50000000))) or (is_electric_business_supervised_by_internal_engineer and total_cost < 50000000) or is_civil_architectural_mechanical_electrical_facility_work or (is_maintenance_without_capacity_change and not (is_maintenance_requiring_approval_or_report or (is_low_voltage_maintenance and is_part_of_self_use_electrical_facility_maintenance_over_50M))))",
+        "desc": "모든 전력시설물 공사는 공사감리가 필수이나, 일반용 전기설비, 임시전력 시설물, 군사시설 내 시설, 소방시설 비상전원 등 특정 공사, 또는 소규모 비상용 예비발전설비(1억원 미만), 전기수용설비 및 신재생에너지 설비 증설·변경(5천만원 미만) 공사 등은 예외적으로 감리가 불필요합니다. 전력시설물 보수공사도 용량 변경을 가져오지 않는 경우 감리가 불필요할 수 있으나, 공사계획 인가·신고 대상이거나 5천만원 이상인 자가용 전기설비의 저압부 보수공사와 함께 시행되는 경우에는 감리가 필요합니다."
+    },
+    {
+        "id": "LAW_FIRE_FIGHTING_WORK_SUPERVISION",
+        "name": "소방공사 감리",
+        "law_link": "<a href=\"https://www.law.go.kr/법령/소방시설공사업법\">소방시설공사업법 제17조</a>, <a href=\"https://www.law.go.kr/법령/소방시설공사업법시행령\">시행령 제10조</a>",
+        "phase": "construction",
+        "condition": "is_fire_facility_work",
+        "desc": "소방시설공사는 감리가 필수입니다. 연면적 3만㎡ 이상 특정소방대상물(아파트 제외), 또는 지하층 포함 16층 이상 500세대 이상 아파트의 소방시설 공사는 상주 공사감리 대상이며, 그 외 소방시설 공사는 비상주 공사감리 대상입니다."
+    },
+    {
+        "id": "LAW_ARCHITECTURAL_WORK_SUPERVISION",
+        "name": "건축공사 감리",
+        "law_link": "<a href=\"https://www.law.go.kr/법령/건축법\">건축법 제25조</a>, <a href=\"https://www.law.go.kr/법령/건축법시행령\">시행령 제19조</a>",
+        "phase": "construction",
+        "condition": "requires_building_permit_and_not_reportable or is_multi_use_building",
+        "desc": "건축법 제11조에 따라 건축허가를 받아야 하는 건축물(신고대상은 제외) 또는 건축법 시행령 제2조제17호에 따른 다중이용 건축물을 건축하는 경우 공사감리자를 지정하여 공사감리를 해야 합니다."
+    },
+    {
+        "id": "LAW_CONSTRUCTION_ENGINEER_PLACEMENT",
+        "name": "건설기술인의 배치",
+        "law_link": "<a href=\"https://www.law.go.kr/법령/건설산업기본법\">건설산업기본법 제40조</a>, <a href=\"https://www.law.go.kr/법령/건설산업기본법시행령\">시행령 제35조</a>, <a href=\"https://www.law.go.kr/법령/건설산업기본법시행규칙\">시행규칙 별표 5</a>",
+        "phase": "construction",
+        "condition": "is_construction_project",
+        "desc": "건설공사 현장에는 총공사비에 따라 적정한 등급 및 경력의 건설기술인을 배치해야 합니다.\n- 총공사비 30억원 미만: 해당 직무분야 중급기술인 이상 (또는 초급기술인으로 같은 종류 공사 3년 이상 종사)\n- 총공사비 30억원 이상 100억원 미만: 해당 직무분야 고급기술인 이상 (또는 중급기술인으로 같은 종류 공사 3년 이상 종사)\n- 총공사비 100억원 이상 300억원 미만: 해당 직무분야 특급기술인 이상 (또는 고급기술인으로 같은 종류 공사 3년 이상 종사)\n- 총공사비 300억원 이상 700억원 미만: 해당 직무분야 특급기술인으로 같은 종류 공사 3년 이상 종사\n- 총공사비 700억원 이상: 해당 직무분야 기술사"
+    },
+    {
+        "id": "LAW_QUALITY_MANAGEMENT_PLAN",
+        "name": "품질관리계획 수립",
+        "law_link": "<a href=\"https://www.law.go.kr/법령/건설기술진흥법\">건설기술진흥법 제55조</a>, <a href=\"https://www.law.go.kr/법령/건설기술진흥법시행령\">같은법 시행령 제89조</a>",
+        "phase": "construction",
+        "condition": "(is_construction_management_project_with_resident_engineer and total_construction_cost >= 50000000000) or (is_multi_use_building_construction and total_building_area >= 30000) or requires_quality_management_plan_by_contract",
+        "desc": "다음 중 어느 하나에 해당하는 건설공사는 품질관리계획을 수립해야 합니다: 건설사업관리기술인이 상주하여 건설사업관리를 하는 건설공사로서 총공사비 500억원 이상인 건설공사, 연면적 3만㎡ 이상인 다중이용 건축물의 건설공사, 또는 계약에 품질관리계획 수립이 명시된 건설공사. 발주청은 제출된 계획을 심사하고 결과를 통보해야 합니다."
+    },
+    {
+        "id": "LAW_QUALITY_TESTING_PLAN",
+        "name": "품질시험계획 수립",
+        "law_link": "<a href=\"https://www.law.go.kr/법령/건설기술진흥법\">건설기술진흥법 제55조</a>, <a href=\"https://www.law.go.kr/법령/건설기술진흥법시행령\">같은법 시행령 제89조</a>",
+        "phase": "construction",
+        "condition": "(is_civil_engineering_work and total_construction_cost >= 500000000) or (is_building_construction and total_building_area >= 660) or (is_specialized_work and total_construction_cost >= 200000000)",
+        "desc": "다음 중 어느 하나에 해당하는 건설공사는 품질시험계획을 수립해야 합니다: 총공사비 5억원 이상 토목공사, 연면적 660㎡ 이상 건축물 건축공사, 또는 총공사비 2억원 이상 전문공사. 발주청은 제출된 계획을 심사하고 결과를 통보해야 합니다."
+    },
+    {
+        "id": "LAW_QUALITY_TESTING_STANDARDS",
+        "name": "품질시험기준",
+        "law_link": "<a href=\"https://www.molit.go.kr/USR/policyTarget/m_24066/dtl.jsp?idx=731\">건설공사 품질관리 업무지침 제8조</a>, <a href=\"https://www.molit.go.kr/USR/policyTarget/m_24066/dtl.jsp?idx=731#view_table_02\">별표2</a>",
+        "phase": "construction",
+        "condition": "is_construction_project_requiring_quality_testing",
+        "desc": "건설공사의 품질시험 및 검사는 「건설공사 품질관리 업무지침」 별표 2에 따른 종류별, 공종별 시험종목ㆍ방법 및 빈도 기준을 따릅니다. 별표 2에 명시되지 않은 공종이나 자재는 시방서 등 설계도서에 제시된 기준에 따르며, 발주자는 공사의 종류, 규모, 중요성 등을 감안하여 필요시 시험 빈도를 조정할 수 있습니다."
+    },
+    {
+        "id": "QUALITY_MANAGER_PLACEMENT",
+        "name": "건설공사 품질관리 시설 및 건설기술인 배치 기준",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=265696&ancYd=20241023&ancNo=016259#0000\" target=\"_blank\">건설기술 진흥법 시행규칙 제50조, 별표 5</a>",
+        "phase": "construction",
+        "condition": "True",
+        "desc": "건설공사 품질관리 시설 및 건설기술인 배치 기준은 공사 규모 및 특성에 따라 상이합니다. 초급은 품질시험계획 대상 공사(시험실 20m2 이상, 초급기술인 1명 이상), 중급은 총공사비 100억 원 이상 또는 연면적 5,000m2 이상 다중이용 건축물 공사(시험실 20m2 이상, 품질경력 1년 이상 중급기술인 1명 및 초급기술인 1명 이상), 고급은 품질관리계획 대상 공사(시험실 50m2 이상, 품질경력 2년 고급기술인 1명, 중급기술인 1명 및 초급기술인 1명 이상), 특급은 품질관리계획 대상 중 총공사비 1,500억 원 이상 공사(시험실 50m2 이상, 품질경력 3년 특급기술인 1명, 중급기술인 1명 및 초급기술인 1명 이상)에 적용됩니다."
+    },
+    {
+        "id": "QUALITY_TEST_RESULT_INPUT",
+        "name": "품질시험 및 검사 결과 입력",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=259253&ancYd=20240213&ancNo=014493#0000\" target=\"_blank\">건설기술진흥법 제55조</a>",
+        "phase": "construction",
+        "condition": "quality_test_completed",
+        "desc": "품질시험 및 검사를 완료한 경우, 그 결과와 실시대장 등 증빙자료를 완료일로부터 7일 이내에 건설공사안전관리 종합정보망(CSI)에 입력해야 합니다."
+    },
+    {
+        "id": "SAFETY_PLAN_ESTABLISHMENT",
+        "name": "안전관리계획 수립 및 안전점검",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=259253&ancYd=20240213&ancNo=014493#0000\" target=\"_blank\">건설기술진흥법 제62조, 시행령 제98조</a>",
+        "phase": "construction",
+        "condition": "is_facility_grade_1_2 or excavation_depth >= 10 or (use_explosives and (distance_to_facility <= 20 or distance_to_livestock_farm <= 100) and continuous_explosives_over_20m) or building_stories >= 10 or is_housing_act_remodeling_demolition or (uses_drilling_piling_equipment and excavation_depth >= 10) or scaffold_height >= 31 or formwork_shoring_height >= 5 or tunnel_underpass_construction or (earth_retaining_shoring_construction and earth_retaining_shoring_depth >= 2) or (uses_powered_temporary_structure and temporary_structure_height >= 10)",
+        "desc": "안전관리계획 수립 및 안전점검 대상은 다음과 같습니다: 1, 2종 시설물의 건설공사; 굴착 깊이 10m 이상인 굴착 공사; 20m 이내에 시설물이 있거나 100m 이내에 가축을 사육하는 시설이 있는 장소에서 20m를 초과하여 계속적으로 폭발물을 사용하는 건설공사; 10층 이상인 건축물의 건설공사 또는 주택법에 따른 리모델링 및 해체 공사; 천공기, 항타기 또는 항발기를 사용하는 건설공사 중 깊이 10m 이상의 굴착공사; 높이 31m 이상 비계, 높이 5m 이상 거푸집 및 동바리, 터널 및 지하차도 건설공사, 흙막이 지보공 공사 중 깊이 2m 이상인 흙막이 지보공, 높이 10m 이상인 동력 이용 가설구조물 등."
+    },
+    {
+        "id": "SMALL_CONSTRUCTION_SAFETY_PLAN",
+        "name": "소규모 건설공사의 안전관리계획 수립",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=259253&ancYd=20240213&ancNo=014493#0000\" target=\"_blank\">건설기술진흥법 제62조의2, 시행령 제101조의5</a>",
+        "phase": "construction",
+        "condition": "(building_type == \"apartment\" and total_area >= 1000 and 2 <= building_stories < 10) or (building_type in [\"1st_neighborhood_facility\", \"2nd_neighborhood_facility\"] and total_area >= 1000 and 2 <= building_stories < 10) or (building_type == \"factory\" and ((is_industrial_complex and total_area >= 2000) or (not is_industrial_complex and total_area >= 1000)) and 2 <= building_stories < 10) or (building_type == \"warehouse\" and total_area >= 5000 and 2 <= building_stories < 10)",
+        "desc": "소규모 건설공사의 안전관리계획 수립 대상은 다음과 같습니다: 연면적 1,000m2 이상인 2층 이상 10층 미만 공동주택; 연면적 1,000m2 이상인 2층 이상 10층 미만 제1종 및 제2종 근린생활시설; 연면적 1,000m2 이상(산업단지 내 공장은 2,000m2 이상)인 2층 이상 10층 미만 공장; 연면적 5,000m2 이상인 2층 이상 10층 미만 창고."
+    },
+    {
+        "id": "SAFETY_HEALTH_MANAGER_APPOINTMENT",
+        "name": "안전보건관리책임자 선임 대상",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=259275&ancYd=20240213&ancNo=014521#0000\" target=\"_blank\">산업안전보건법 제15조, 시행령 별표 2</a>",
+        "phase": "construction",
+        "condition": "total_construction_cost >= 2000000000",
+        "desc": "안전보건관리책임자는 공사금액이 20억 원 이상인 건설공사에 선임해야 합니다."
+    },
+    {
+        "id": "SAFETY_MANAGER_APPOINTMENT",
+        "name": "안전관리자 선임 대상",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=259275&ancYd=20240213&ancNo=014521#0000\" target=\"_blank\">산업안전보건법 제17조, 시행령 별표 3</a>",
+        "phase": "construction",
+        "condition": "total_construction_cost >= 5000000000",
+        "desc": "안전관리자는 공사금액 50억 원 이상 건설공사에 선임해야 합니다. 구체적인 선임 인원은 공사금액에 따라 다음과 같습니다: 50억 원 이상 120억 원 미만은 1명, 120억 원 이상 800억 원 미만은 1명, 800억 원 이상 1,500억 원 미만은 2명, 1,500억 원 이상 2,200억 원 미만은 3명, 2,200억 원 이상 3,000억 원 미만은 4명, 3,000억 원 이상 3,800억 원 미만은 5명, 3,800억 원 이상 4,600억 원 미만은 6명, 4,600억 원 이상 5,400억 원 미만은 7명, 5,400억 원 이상 6,200억 원 미만은 8명, 6,200억 원 이상은 8명에 6,200억 원을 초과하는 매 800억 원마다 1명씩 추가 선임해야 합니다."
+    },
+    {
+        "id": "HEALTH_MANAGER_APPOINTMENT",
+        "name": "보건관리자 선임 대상",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=259275&ancYd=20240213&ancNo=014521#0000\" target=\"_blank\">산업안전보건법 제18조, 시행령 별표 5</a>",
+        "phase": "construction",
+        "condition": "total_construction_cost >= 80000000000 or permanent_workers >= 600",
+        "desc": "보건관리자는 공사금액이 800억 원 이상인 건설공사 또는 상시근로자가 600명 이상인 건설공사에 선임해야 합니다."
+    },
+    {
+        "id": "SAFETY_HEALTH_COORDINATOR_APPOINTMENT",
+        "name": "안전보건조정자 선임",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=259275&ancYd=20240213&ancNo=014521#0000\" target=\"_blank\">산업안전보건법 제68조, 시행령 제55조</a>",
+        "phase": "construction",
+        "condition": "num_of_construction_projects_at_same_site >= 2 and sum_of_construction_costs_at_same_site >= 5000000000",
+        "desc": "2개 이상의 건설공사가 같은 장소에서 동시에 시행되고, 각 건설공사의 공사금액을 합산한 금액이 50억 원 이상인 경우 발주자는 해당 건설공사의 시공을 총괄하는 자를 안전보건조정자로 지정해야 합니다."
+    },
+    {
+        "id": "ENVIRONMENTAL_MANAGEMENT_PLAN",
+        "name": "환경관리비사용계획",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=259253&ancYd=20240213&ancNo=014493#0000\" target=\"_blank\">건설기술진흥법 제66조, 시행규칙 제62조</a>",
+        "phase": "construction",
+        "condition": "True",
+        "desc": "도급사는 공사 시행계획서 접수 시 환경관리비 사용계획을 함께 제출해야 합니다. 환경관리비는 건설기술진흥법 제66조 및 관련 지침에 따라 산출 및 관리되어야 하며, 착공 전에 발주청에 제출해야 합니다."
+    },
+    {
+        "id": "TOTAL_PROJECT_COST_MANAGEMENT_TARGET",
+        "name": "총사업비 관리 대상",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=259367&ancYd=20240213&ancNo=014526#0000\" target=\"_blank\">국가재정법 제50조, 시행령 제21조</a>",
+        "phase": "design",
+        "condition": "(total_project_cost >= 50000000000 and national_funding >= 30000000000) or (project_type in [\"architecture\", \"R&D\"] and total_project_cost >= 20000000000)",
+        "desc": "총사업비 관리 대상은 다음과 같습니다: 총사업비 500억 원 이상, 국비 300억 원 이상 신규 사업 중 건설공사 등 특정 분야 사업; 또는 건축사업이나 연구개발사업으로서 총사업비가 200억 원 이상인 사업(사업추진 과정에서 증액되어 200억 원 이상이 되는 경우 포함)."
+    },
+    {
+        "id": "TOTAL_PROJECT_COST_CHANGE_CONSULTATION",
+        "name": "총사업비 변경 협의",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=259367&ancYd=20240213&ancNo=014526#0000\" target=\"_blank\">국가재정법 시행령 제22조</a>",
+        "phase": "design",
+        "condition": "total_project_cost_changed",
+        "desc": "사업 시행 중 총사업비의 증감이 필요한 경우 주무관서의 장은 기획재정부장관에게 총사업비 변경 협의를 요청해야 합니다. 특히 증액 협의 시에는 다음 회계연도 반영을 위해 사업기간 1년 전 3월 이전에 협의를 완료해야 합니다."
+    },
+    {
+        "id": "UNDERGROUND_SPACE_MAP_CREATION",
+        "name": "지하공간통합지도의 제작",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=259250&ancYd=20240213&ancNo=014490#0000\" target=\"_blank\">지하안전관리에 관한 특별법 제33조</a>",
+        "phase": "construction",
+        "condition": "underground_information_changed",
+        "desc": "지하정보의 변동이 발생한 경우(수도, 하수도, 전기, 통신, 가스, 집단에너지, 공동구, 지하도로, 지하광장, 도로, 도시철도시설, 철도시설, 주차장, 건축물, 지하도상가, 고압가스배관, 위험물 제조소등, 유해화학물질 이송배관 등) 해당 변동일로부터 30일 이내에 지하정보관리기관의 장에게 전자문서 형태로 제출해야 합니다."
+    },
+    {
+        "id": "CONTRACT_AMOUNT_ADJUSTMENT_ES",
+        "name": "물가상승에 따른 계약금액조정(ES)",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=259276&ancYd=20240213&ancNo=014524#0000\" target=\"_blank\">국가를 당사자로 하는 계약에 관한 법률 제19조, 시행령 제64조</a>",
+        "phase": "construction",
+        "condition": "(price_change_rate >= 0.03 or price_change_rate <= -0.03) and days_since_contract_signing >= 90",
+        "desc": "국가를 당사자로 하는 계약에서 물가변동으로 인한 계약금액 조정(ES)은 계약 체결일로부터 90일 이상 경과하고, 품목조정률 또는 지수조정률이 3% 이상 증감된 경우에 적용됩니다. 다만, 특정 품목에 대한 조정은 3% 미만이라도 가능합니다."
+    },
+    {
+        "id": "PRELIMINARY_COMPLETION_INSPECTION",
+        "name": "예비준공검사",
+        "law_link": "<a href=\"https://www.molit.go.kr/USR/policyTarget/m_24066/dtl.jsp?idx=1460\" target=\"_blank\">건설사업관리 업무지침서 (참조)</a>",
+        "phase": "construction",
+        "condition": "days_until_completion_date <= 60",
+        "desc": "공사 준공 2개월 전 발주 부서와 관련 부서의 합동으로 예비준공검사를 실시해야 합니다. 이는 준공 전 하자 및 미비점을 보완하여 준공검사를 원활하게 진행하기 위함입니다."
+    },
+    {
+        "id": "COMPLETION_DOCUMENTS",
+        "name": "준공서류",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//admRulInfoP.do?admRulSeq=2000000030562&ancYd=20231229&ancNo=00085#0000\" target=\"_blank\">지방자치단체 입찰 및 계약 집행기준 (참조)</a>",
+        "phase": "construction",
+        "condition": "project_completed",
+        "desc": "공사 준공 시 다음 서류들을 제출해야 합니다: 준공 공문, 준공계(준공신고서), 준공검사원, 준공내역서, 준공사진대지(공사중 사진 포함), 선금 사용내역 및 증빙서류, 안전관리비 사용내역 및 증빙서류, 환경보전비 사용내역 및 증빙서류, 공사근로자 노무비 청구 및 지급확인서류, 폐기물처리확인서 및 신고필증·실적보고서류, 건설기계(장비) 사용내역서 및 증빙서류, 산재·고용·건강·연금 완납증명서, 건설기계대여대금 영수증, 국세·지방세 완납증명서, 하자이행증권 또는 하자이행각서, 작업일보, 정산서류(건강, 연금, 퇴직공제), 준공정산합의서, 관급자재 수불내역서(해당시), 그 밖의 감독관이 요구하는 서류."
+    },
+    {
+        "id": "COMPLETION_SIGN_INSTALLATION",
+        "name": "준공표지 설치",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=259267&ancYd=20240213&ancNo=014510#0000\" target=\"_blank\">건설산업기본법 제42조, 시행령 제37조</a>",
+        "phase": "construction",
+        "condition": "total_construction_cost >= 100000000 or excavation_depth >= 10 or total_building_area >= 1000",
+        "desc": "건설공사 현장표지 설치 대상은 총공사금액이 1억 원 이상인 건설공사, 굴착깊이 10m 이상인 굴착공사, 총면적 1,000m2 이상인 건축물 건설공사 등입니다. 이 현장표지에는 발주자, 설계자, 감리자, 시공자, 공사기간 등 주요 정보를 기재해야 하며, 준공 시에도 그 내용이 유지되거나 준공 정보가 반영될 수 있습니다."
+    },
+    {
+        "id": "DESIGN_DOCS_SUBMISSION",
+        "name": "설계도서 등의 제출 등",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=259252&ancYd=20240213&ancNo=014492#0000\" target=\"_blank\">시설물의 안전 및 유지관리에 관한 특별법 제9조, 시행령 제8조</a>",
+        "phase": "construction",
+        "condition": "is_facility_grade_1_2_3 and project_completed",
+        "desc": "제1종 및 제2종 시설물을 건설·공급하는 사업주체는 준공 도면, 준공 내역서 및 시방서, 구조계산서, 특기 사항 보고서, 시설물관리대장, 최종감리보고서 등을 관리주체와 국토교통부장관에게 제출해야 합니다. 제3종시설물의 관리주체는 준공 도면, 시설물관리대장을 제출하며, 지정 고시된 경우 1개월 이내 국토교통부장관에게 제출해야 합니다. 또한, 중요한 보수·보강(철근콘크리트구조부, 철골구조부, 건축법상 주요구조부 등) 실시 시에도 관련 서류를 제출해야 합니다. 관계 행정기관의 장은 1, 2종 시설물의 준공·사용승인 시 서류 제출 여부를 확인하고, 준공·사용승인 후 1개월 이내에 그 사실을 국토교통부장관에게 통보해야 합니다."
+    },
+    {
+        "id": "OPERATION_MAINTENANCE_PLAN",
+        "name": "운영 및 유지관리계획서 작성",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=259252&ancYd=20240213&ancNo=014492#0000\" target=\"_blank\">시설물의 안전 및 유지관리에 관한 특별법 제10조, 건축물관리법 제11조</a>",
+        "phase": "construction",
+        "condition": "project_completed and (is_facility_subject_to_safety_management or is_building_subject_to_management)",
+        "desc": "시설물 또는 건축물의 관리주체는 준공된 시설물 및 건축물의 효율적인 운영과 주기적인 안전 확보를 위해 준공도서 보존, 안전점검 등을 포함하는 운영 및 유지관리계획서를 수립해야 합니다. 이는 주로 「시설물의 안전 및 유지관리에 관한 특별법」 및 「건축물관리법」에 의거합니다."
+    },
+    {
+        "id": "CONSTRUCTION_ENGINEERING_EVALUATION",
+        "name": "건설엔지니어링 및 시공 평가",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=259253&ancYd=20240213&ancNo=014493#0000\" target=\"_blank\">건설기술진흥법 시행령 제82조</a>",
+        "phase": "both",
+        "condition": "total_construction_cost >= 10000000000 or is_construction_management_service or (is_design_service and design_service_estimated_cost >= 10000000000)",
+        "desc": "건설엔지니어링 및 시공 평가는 다음 사업에 대해 실시합니다: 총공사비 100억 원 이상인 건설공사; 감독 권한 대행 등 건설사업관리 용역사업; 그리고 국가계약법 제4조제1항에 따라 고시하는 금액(현재 추정가격 100억 원) 이상인 기본설계용역, 실시설계용역 또는 이들을 동시에 시행하는 용역사업."
+    },
+    {
+        "id": "POST_EVALUATION",
+        "name": "사후평가",
+        "law_link": "<a href=\"https://www.law.go.kr/LSW//lsInfoP.do?lsiSeq=259253&ancYd=20240213&ancNo=014493#0000\" target=\"_blank\">건설기술진흥법 시행령 제86조</a>",
+        "phase": "construction",
+        "condition": "total_construction_cost >= 30000000000",
+        "desc": "사후평가는 총공사비 300억 원 이상인 건설공사에 대해 실시합니다."
     }
 ]
