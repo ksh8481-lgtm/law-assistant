@@ -432,12 +432,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            let finalDescription = document.getElementById('description').value;
-            const maxFloors = document.getElementById('maxFloors').value;
-            const excavationDepth = document.getElementById('excavationDepth').value;
-            if (maxFloors) finalDescription += `\n- 건축물 최고 층수: ${maxFloors}층`;
-            if (excavationDepth) finalDescription += `\n- 최대 굴착깊이: ${excavationDepth}m`;
-
             const requestData = {
                 projectName: document.getElementById('projectName').value,
                 budget: parseFloat(document.getElementById('budget').value),
@@ -445,7 +439,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 budgetProvincial: parseFloat(document.getElementById('budgetProvincial').value) || 0,
                 budgetMunicipal: parseFloat(document.getElementById('budgetMunicipal').value) || 0,
                 totalArea: totalVerifiedArea,
-                description: finalDescription,
+                description: document.getElementById('description').value,
                 parcels: parcels
             };
 
