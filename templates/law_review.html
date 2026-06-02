@@ -87,9 +87,20 @@
                         </div>
                     </div>
 
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 1;">
+                            <label for="maxFloors">건축물 최고 층수 (선택)</label>
+                            <input type="number" id="maxFloors" placeholder="예: 5" min="0">
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label for="excavationDepth">최대 굴착깊이 (선택, 단위: m)</label>
+                            <input type="number" id="excavationDepth" placeholder="예: 12" min="0" step="0.1">
+                        </div>
+                    </div>
+
                     <div class="form-group">
                         <label for="description">주요 사업 내용 및 목적</label>
-                        <textarea id="description" rows="3" placeholder="예: 노후 건축물 철거 후 공공도서관 및 지하주차장 건립 등 사업의 구체적인 내용을 적어주세요."></textarea>
+                        <textarea id="description" rows="3" placeholder="예: 노후 건축물 철거 후 공공도서관 건립 등 사업의 구체적인 내용을 적어주세요."></textarea>
                     </div>
 
                     <button type="submit" class="submit-btn" id="analyze-btn">
