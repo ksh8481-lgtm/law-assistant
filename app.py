@@ -466,5 +466,15 @@ def analyze_status(job_id):
         
     return jsonify({"status": "processing"})
 
+@app.route('/api/supervisor/checklist', methods=['GET'])
+def get_supervisor_checklist():
+    try:
+        file_path = os.path.join(os.path.dirname(__file__), 'supervisor_checklist.json')
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return jsonify({"success": True, "data": data})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
