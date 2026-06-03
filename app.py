@@ -269,7 +269,7 @@ def run_analysis(job_id, data):
         available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
         model_name = None
-        for preferred in ['models/gemini-1.5-flash-latest', 'models/gemini-1.5-flash', 'models/gemini-1.5-pro-latest', 'models/gemini-1.5-pro', 'models/gemini-pro', 'models/gemini-1.0-pro']:
+        for preferred in ['models/gemini-1.5-pro-latest', 'models/gemini-1.5-pro', 'models/gemini-1.5-flash-latest', 'models/gemini-1.5-flash', 'models/gemini-pro', 'models/gemini-1.0-pro']:
             if preferred in available_models:
                 model_name = preferred
                 break
