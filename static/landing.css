@@ -62,7 +62,7 @@ body {
     display: flex;
     gap: 2rem;
     width: 100%;
-    max-width: 1000px;
+    max-width: 1200px;
     flex-wrap: wrap;
     justify-content: center;
     animation: fadeInUp 0.8s ease forwards;
@@ -72,7 +72,7 @@ body {
 
 .service-card {
     flex: 1;
-    min-width: 320px;
+    min-width: 300px;
     background: var(--card-bg);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
@@ -154,12 +154,16 @@ body {
     background: rgba(248, 250, 252, 0.6);
 }
 
+.tertiary-card {
+    background: rgba(240, 253, 244, 0.6);
+}
+
 .ready-badge {
     background: #94a3b8;
     cursor: default;
 }
 
-.secondary-card:hover {
+.secondary-card:hover, .tertiary-card:hover {
     transform: translateY(-10px);
     box-shadow: 0 20px 50px rgba(0, 0, 0, 0.05);
 }

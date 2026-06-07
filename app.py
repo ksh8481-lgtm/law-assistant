@@ -100,6 +100,10 @@ def supervisor():
 def report():
     return render_template('report.html')
 
+@app.route('/other_review')
+def other_review():
+    return render_template('other_review.html')
+
 @app.route('/api/debug')
 def debug_env():
     key = os.environ.get('GEMINI_API_KEY', '')

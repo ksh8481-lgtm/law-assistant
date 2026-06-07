@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>기타 행정/감사 검토 (다중 에이전트)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #10b981;
+            --primary-hover: #059669;
+            --bg-grad-1: #ecfdf5;
+            --bg-grad-2: #f8fafc;
+            --bg-grad-3: #f1f5f9;
+            --text-main: #0f172a;
+            --text-muted: #475569;
+            --card-bg: rgba(255, 255, 255, 0.85);
+            --card-border: rgba(255, 255, 255, 0.6);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background: linear-gradient(135deg, var(--bg-grad-1) 0%, var(--bg-grad-2) 50%, var(--bg-grad-3) 100%);
+            background-attachment: fixed;
+            color: var(--text-main);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            position: relative;
+        }
+        .header-content h1 {
+            font-size: 2rem;
+            font-weight: 800;
+            background: linear-gradient(90deg, #065f46, #10b981);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+        .header-content p { color: var(--text-muted); font-size: 1rem; }
+        .back-btn {
+            padding: 0.6rem 1.2rem;
+            background: rgba(255, 255, 255, 0.8);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            text-decoration: none;
+            color: var(--text-main);
+            font-weight: 600;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .back-btn:hover { background: white; transform: translateY(-2px); }
+        
+        .main-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 2.5rem;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.04);
+            margin-bottom: 2rem;
+        }
+        
+        .form-group { margin-bottom: 1.5rem; }
+        label { display: block; font-weight: 700; margin-bottom: 0.5rem; color: #1e293b; }
+        
+        textarea {
+            width: 100%;
+            height: 150px;
+            padding: 1rem;
+            border: 2px solid #cbd5e1;
+            border-radius: 12px;
+            font-family: inherit;
+            font-size: 1rem;
+            resize: vertical;
+            transition: border-color 0.3s;
+            background: rgba(255,255,255,0.9);
+        }
+        textarea:focus { outline: none; border-color: var(--primary); }
+        
+        .file-upload-wrapper {
+            position: relative;
+            border: 2px dashed #cbd5e1;
+            border-radius: 12px;
+            padding: 2rem;
+            text-align: center;
+            background: rgba(248, 250, 252, 0.5);
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        .file-upload-wrapper:hover { background: rgba(241, 245, 249, 0.8); border-color: #94a3b8; }
+        .file-upload-wrapper input[type="file"] {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0; cursor: pointer;
+        }
+        .file-icon { font-size: 2.5rem; margin-bottom: 1rem; color: #64748b; }
+        
+        .submit-btn {
+            width: 100%;
+            padding: 1.2rem;
+            background: var(--primary);
+            color: white;
+            font-size: 1.1rem;
+            font-weight: 700;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+            margin-top: 1rem;
+        }
+        .submit-btn:hover { background: var(--primary-hover); transform: translateY(-2px); }
+        
+        /* Agent Animation */
+        .agents-container {
+            display: none;
+            flex-direction: column;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        .agent-card {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            background: white;
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+            opacity: 0.5;
+            transition: all 0.5s;
+        }
+        .agent-card.active {
+            opacity: 1;
+            border-color: var(--primary);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.15);
+        }
+        .agent-card.done {
+            opacity: 0.8;
+            border-color: #e2e8f0;
+        }
+        .agent-icon {
+            font-size: 2rem;
+            background: #f1f5f9;
+            width: 50px; height: 50px;
+            display: flex; justify-content: center; align-items: center;
+            border-radius: 50%;
+        }
+        .agent-info h3 { font-size: 1.1rem; margin-bottom: 0.2rem; }
+        .agent-info p { font-size: 0.9rem; color: var(--text-muted); }
+        
+        .spinner {
+            width: 20px; height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            display: none;
+        }
+        .agent-card.active .spinner { display: block; }
+        .agent-card.done .spinner { display: none; }
+        .agent-card.done::after {
+            content: '✅';
+            margin-left: auto;
+            font-size: 1.2rem;
+        }
+        
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <h1>⚖️ 기타 행정/감사 검토</h1>
+                <p>법무, 감사, 재무 에이전트가 문서를 정밀 교차 검증합니다.</p>
+            </div>
+            <a href="/" class="back-btn">🏠 메인으로</a>
+        </header>
+
+        <div class="main-card">
+            <div class="form-group">
+                <label>검토할 내용 입력</label>
+                <textarea id="review-text" placeholder="검토가 필요한 민원 내용, 인프라 설치 기준, 또는 조례 규정을 상세히 입력해주세요.&#10;(예: 전기차 충전소 설치 의무 비율 관련 조례 검토, 급경사지 안전 점검 기준 등)"></textarea>
+            </div>
+            
+            <div class="form-group">
+                <label>또는 문서 파일 첨부 (선택)</label>
+                <div class="file-upload-wrapper">
+                    <input type="file" id="file-upload" accept=".pdf,.hwp,.xlsx,.docx">
+                    <div class="file-icon">📁</div>
+                    <p id="file-name">클릭하여 파일 선택 (PDF, HWP, 엑셀 등)</p>
+                    <p style="font-size: 0.85rem; color: #94a3b8; margin-top: 0.5rem;">※ 현재 UI 프로토타입 단계입니다.</p>
+                </div>
+            </div>
+            
+            <button class="submit-btn" onclick="startAgents()">다중 에이전트 검토 시작</button>
+        </div>
+        
+        <div class="agents-container" id="agents-box">
+            <h3 style="margin-bottom: 0.5rem; color: #1e293b;">🤖 에이전트 작업 현황</h3>
+            <div class="agent-card" id="agent-law">
+                <div class="agent-icon">⚖️</div>
+                <div class="agent-info">
+                    <h3>법무 에이전트</h3>
+                    <p>관련 상위법 및 지자체 조례 충돌 여부 필터링 중...</p>
+                </div>
+                <div class="spinner" style="margin-left: auto;"></div>
+            </div>
+            
+            <div class="agent-card" id="agent-audit">
+                <div class="agent-icon">🔎</div>
+                <div class="agent-info">
+                    <h3>감사 에이전트</h3>
+                    <p>과거 공공사업 감사 지적 사례 및 리스크 탐색 중...</p>
+                </div>
+                <div class="spinner" style="margin-left: auto;"></div>
+            </div>
+            
+            <div class="agent-card" id="agent-finance">
+                <div class="agent-icon">💰</div>
+                <div class="agent-info">
+                    <h3>재무 에이전트</h3>
+                    <p>건설공사 표준품셈 및 예산 내역서 적정성 계산 중...</p>
+                </div>
+                <div class="spinner" style="margin-left: auto;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('file-upload').addEventListener('change', function(e) {
+            const fileName = e.target.files[0]?.name;
+            if(fileName) {
+                document.getElementById('file-name').textContent = fileName;
+            }
+        });
+
+        function startAgents() {
+            const text = document.getElementById('review-text').value;
+            const file = document.getElementById('file-upload').files[0];
+            
+            if(!text && !file) {
+                alert("검토할 내용이나 파일을 입력해주세요.");
+                return;
+            }
+            
+            document.querySelector('.submit-btn').disabled = true;
+            document.querySelector('.submit-btn').textContent = "검토 진행 중...";
+            
+            const agentsBox = document.getElementById('agents-box');
+            agentsBox.style.display = 'flex';
+            
+            const law = document.getElementById('agent-law');
+            const audit = document.getElementById('agent-audit');
+            const finance = document.getElementById('agent-finance');
+            
+            // Reset
+            law.className = 'agent-card'; audit.className = 'agent-card'; finance.className = 'agent-card';
+            
+            // Simulate agent workflow
+            setTimeout(() => { law.classList.add('active'); }, 500);
+            
+            setTimeout(() => { 
+                law.classList.remove('active'); law.classList.add('done');
+                audit.classList.add('active');
+            }, 3000);
+            
+            setTimeout(() => { 
+                audit.classList.remove('active'); audit.classList.add('done');
+                finance.classList.add('active');
+            }, 6000);
+            
+            setTimeout(() => { 
+                finance.classList.remove('active'); finance.classList.add('done');
+                document.querySelector('.submit-btn').disabled = false;
+                document.querySelector('.submit-btn').textContent = "결과 보고서 다운로드 (준비 중)";
+                alert("다중 에이전트 검토가 완료되었습니다! (현재는 UI 시뮬레이션입니다. 추후 실제 백엔드 연동이 진행됩니다.)");
+            }, 9000);
+        }
+    </script>
+</body>
+</html>
