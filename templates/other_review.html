@@ -201,7 +201,7 @@
         <header>
             <div class="header-content">
                 <h1>⚖️ 기타 행정/감사 검토</h1>
-                <p>법무, 감사, 재무 에이전트가 문서를 정밀 교차 검증합니다.</p>
+                <p>최고급 AI(Pro 모델)가 법령, 판례, 지침을 종합 분석합니다.</p>
             </div>
             <a href="/" class="back-btn">🏠 메인으로</a>
         </header>
@@ -222,34 +222,16 @@
                 </div>
             </div>
             
-            <button class="submit-btn" onclick="startAgents()">다중 에이전트 검토 시작</button>
+            <button class="submit-btn" onclick="startAgents()">AI 통합 검토 시작</button>
         </div>
         
         <div class="agents-container" id="agents-box">
-            <h3 style="margin-bottom: 0.5rem; color: #1e293b;">🤖 에이전트 작업 현황</h3>
-            <div class="agent-card" id="agent-law">
-                <div class="agent-icon">⚖️</div>
+            <h3 style="margin-bottom: 0.5rem; color: #1e293b;">🤖 작업 현황</h3>
+            <div class="agent-card" id="agent-main">
+                <div class="agent-icon">🧠</div>
                 <div class="agent-info">
-                    <h3>법무 에이전트</h3>
-                    <p>관련 상위법 및 지자체 조례 충돌 여부 필터링 중...</p>
-                </div>
-                <div class="spinner" style="margin-left: auto;"></div>
-            </div>
-            
-            <div class="agent-card" id="agent-audit">
-                <div class="agent-icon">🔎</div>
-                <div class="agent-info">
-                    <h3>감사 에이전트</h3>
-                    <p>과거 공공사업 감사 지적 사례 및 리스크 탐색 중...</p>
-                </div>
-                <div class="spinner" style="margin-left: auto;"></div>
-            </div>
-            
-            <div class="agent-card" id="agent-finance">
-                <div class="agent-icon">💰</div>
-                <div class="agent-info">
-                    <h3>재무 에이전트</h3>
-                    <p>건설공사 표준품셈 및 예산 내역서 적정성 계산 중...</p>
+                    <h3>AI 종합 분석 에이전트</h3>
+                    <p>관련 법령, 대법원 판례, 행정안전부 지침 등을 종합 검토 중입니다...</p>
                 </div>
                 <div class="spinner" style="margin-left: auto;"></div>
             </div>
@@ -286,18 +268,8 @@
             agentsBox.style.display = 'flex';
             resultBox.style.display = 'none';
             
-            const law = document.getElementById('agent-law');
-            const audit = document.getElementById('agent-audit');
-            const finance = document.getElementById('agent-finance');
-            
-            // Reset
-            law.className = 'agent-card active'; 
-            audit.className = 'agent-card'; 
-            finance.className = 'agent-card';
-            
-            // 시각적 피드백을 위한 가짜 애니메이션 타이머 세팅
-            const timer1 = setTimeout(() => { law.className = 'agent-card done'; audit.className = 'agent-card active'; }, 2000);
-            const timer2 = setTimeout(() => { audit.className = 'agent-card done'; finance.className = 'agent-card active'; }, 4000);
+            const agentMain = document.getElementById('agent-main');
+            agentMain.className = 'agent-card active'; 
 
             try {
                 // 실제 백엔드 AI 통신
@@ -309,26 +281,22 @@
 
                 const data = await response.json();
                 
-                // 통신이 빨리 끝나더라도 최소한의 UI 애니메이션 시간(4초) 보장 후 결과 표시
-                setTimeout(() => {
-                    finance.className = 'agent-card done';
-                    document.querySelector('.submit-btn').disabled = false;
-                    document.querySelector('.submit-btn').textContent = "다중 에이전트 검토 시작";
+                agentMain.className = 'agent-card done';
+                document.querySelector('.submit-btn').disabled = false;
+                document.querySelector('.submit-btn').textContent = "AI 통합 검토 시작";
 
-                    if(data.success) {
-                        resultBox.style.display = 'block';
-                        document.getElementById('result-content').innerHTML = marked.parse(data.result);
-                        resultBox.scrollIntoView({ behavior: 'smooth' });
-                    } else {
-                        alert("오류 발생: " + data.message);
-                    }
-                }, Math.max(0, 4500)); // 4.5초 뒤 결과 공개
+                if(data.success) {
+                    resultBox.style.display = 'block';
+                    document.getElementById('result-content').innerHTML = marked.parse(data.result);
+                    resultBox.scrollIntoView({ behavior: 'smooth' });
+                } else {
+                    alert("오류 발생: " + data.message);
+                }
 
             } catch(error) {
-                clearTimeout(timer1); clearTimeout(timer2);
                 alert("서버 통신 실패: " + error);
                 document.querySelector('.submit-btn').disabled = false;
-                document.querySelector('.submit-btn').textContent = "다중 에이전트 검토 시작";
+                document.querySelector('.submit-btn').textContent = "AI 통합 검토 시작";
             }
         }
     </script>
