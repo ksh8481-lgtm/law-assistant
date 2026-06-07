@@ -490,8 +490,17 @@ def api_other_review():
             return jsonify({"success": False, "message": "검토할 내용이 제공되지 않았습니다."}), 400
             
         genai.configure(api_key=GEMINI_KEY)
-        # Force Pro model as requested by user
-        model_name = 'models/gemini-1.5-pro-latest'
+        
+        # Check available models to avoid 404 errors with deprecated aliases
+        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        model_name = None
+        for preferred in ['models/gemini-1.5-pro', 'models/gemini-1.5-pro-latest', 'models/gemini-pro']:
+            if preferred in available_models:
+                model_name = preferred
+                break
+        
+        if not model_name:
+            model_name = available_models[0] if available_models else 'models/gemini-1.5-pro'
         
         prompt = """당신은 대한민국 공무원들의 행정, 감사, 예산 업무를 지원하는 '다중 에이전트(법무/감사/재무 전문가)'입니다.
 공무원이 다음 상황에 대한 검토를 요청했습니다. 대법원 판례, 행정안전부 유권해석, 관련 법령(건설산업기본법, 민사집행법 등)을 교차 검증하여 매우 깊이 있게 분석하십시오.
