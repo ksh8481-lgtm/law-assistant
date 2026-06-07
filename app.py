@@ -2,6 +2,7 @@ import os
 import json
 import requests
 import xml.etree.ElementTree as ET
+import urllib.parse
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import google.generativeai as genai
@@ -160,7 +161,9 @@ def fetch_moleg_context(text, law_key):
             for law in law_root.findall('.//law'):
                 name = law.find('법령명한글')
                 if name is not None and name.text:
-                    laws.append(name.text)
+                    safe_name = urllib.parse.quote(name.text)
+                    link = f"https://www.law.go.kr/LSW/lsSc.do?menuId=1&query={safe_name}"
+                    laws.append(f"[{name.text}]({link})")
         
         prec_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={law_key}&target=prec&type=XML&query={keyword}"
         prec_res = requests.get(prec_url, timeout=3)
@@ -171,7 +174,9 @@ def fetch_moleg_context(text, law_key):
                 name = p.find('사건명')
                 num = p.find('사건번호')
                 if name is not None and num is not None and name.text and num.text:
-                    precs.append(f"{name.text} ({num.text})")
+                    safe_num = urllib.parse.quote(num.text.strip())
+                    link = f"https://www.law.go.kr/LSW/precSc.do?menuId=2&query={safe_num}"
+                    precs.append(f"[{name.text} ({num.text})]({link})")
         
         context = f"[법제처 API 실시간 RAG 검색 결과 (키워드: {keyword})]\n"
         if laws: context += f"- 현행 법령: {', '.join(laws[:3])}\n"
@@ -560,9 +565,9 @@ def api_other_review():
 {moleg_context}
 
 [특별 지시사항]
-1. 반드시 위 [법제처 API 실시간 RAG 검색 결과]에 등장한 현행 법령과 판례 번호를 최우선으로 참고하고 인용하십시오.
+1. 반드시 위 [법제처 API 실시간 RAG 검색 결과]에 등장한 현행 법령과 판례 번호를 최우선으로 참고하고 인용하십시오. 이때 제공된 하이퍼링크를 그대로 사용하십시오. 절대로 법제처 관련 URL을 임의로 지어내지 마십시오!
 2. 당신의 내부 지식 및 구글 검색(Grounding)을 활용하여 감사원(bai.go.kr) 뿐만 아니라 각 시/도(예: 경기도, 서울시 등) 지자체의 과거 사전컨설팅/감사 지적 사례 중 이와 유사한 징계나 지적 사항이 있는지 반드시 폭넓게 검색하여 결과에 포함하십시오.
-3. 법령, 판례, 감사 결과를 언급할 때는 반드시 해당 주체(예: 대법원, 감사원, 경상남도 감사위원회 등)를 명확히 기재하고, 사용자가 직접 확인할 수 있는 **공식 참고자료 링크(URL)**를 하이퍼링크 형태로 함께 제공하십시오.
+3. 법령, 판례, 감사 결과를 언급할 때는 반드시 해당 주체(예: 대법원, 감사원, 경상남도 감사위원회 등)를 명확히 기재하십시오. 감사 결과에 대해 실제 URL을 모른다면 가짜 링크를 생성하지 말고 구글 검색 링크(예: `[감사결과 검색하기](https://www.google.com/search?q=키워드)`)로 대체하십시오.
 4. 응답은 반드시 마크다운(Markdown) 포맷으로 다음 5단계 구조를 엄격히 지켜 작성하십시오.
 
 ### 1. 상황 요약 (Situation Summary)
@@ -572,7 +577,7 @@ def api_other_review():
 ### 3. 법제처 실시간 조회: 관련 법령 및 판례 (Applicable Laws & Precedents)
 - 반드시 공식 링크(URL) 포함
 ### 4. 감사원 및 시/도 지자체 실시간 검색: 유사 감사 지적 사례 (Audit Precedents)
-- 반드시 감사 주체(감사원 또는 특정 시/도)와 공식 링크(URL) 포함
+- 반드시 감사 주체(감사원 또는 특정 시/도) 명시 및 링크(URL 또는 구글 검색 링크) 포함
 ### 5. 공무원 행동 지침 및 결론 (Actionable Advice)
 - 
 
