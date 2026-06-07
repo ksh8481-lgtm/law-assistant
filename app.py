@@ -480,5 +480,43 @@ def get_supervisor_checklist():
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
+@app.route('/api/analyze/other_review', methods=['POST'])
+def api_other_review():
+    try:
+        data = request.json
+        text_content = data.get('text', '')
+        
+        if not text_content:
+            return jsonify({"success": False, "message": "검토할 내용이 제공되지 않았습니다."}), 400
+            
+        genai.configure(api_key=GEMINI_KEY)
+        # Force Pro model as requested by user
+        model_name = 'models/gemini-1.5-pro-latest'
+        
+        prompt = """당신은 대한민국 공무원들의 행정, 감사, 예산 업무를 지원하는 '다중 에이전트(법무/감사/재무 전문가)'입니다.
+공무원이 다음 상황에 대한 검토를 요청했습니다. 대법원 판례, 행정안전부 유권해석, 관련 법령(건설산업기본법, 민사집행법 등)을 교차 검증하여 매우 깊이 있게 분석하십시오.
+응답은 반드시 마크다운(Markdown) 포맷으로 다음 4단계 구조를 엄격히 지켜 작성하십시오:
+
+### 1. 상황 요약 (Situation Summary)
+- 
+### 2. 핵심 쟁점 (Key Legal Issues)
+- 
+### 3. 관련 법령 및 판례 (Applicable Laws & Precedents)
+- 
+### 4. 공무원 행동 지침 및 결론 (Actionable Advice)
+- 
+
+[요청 내용]
+""" + text_content
+        
+        model = genai.GenerativeModel(model_name=model_name)
+        response = model.generate_content(prompt)
+        
+        return jsonify({"success": True, "result": response.text})
+        
+    except Exception as e:
+        print(f"Other Review API Error: {e}")
+        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"}), 500
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

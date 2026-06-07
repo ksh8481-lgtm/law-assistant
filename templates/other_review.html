@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>기타 행정/감사 검토 (다중 에이전트)</title>
     <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         :root {
             --primary: #10b981;
@@ -179,6 +180,20 @@
         
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
+        .result-box {
+            background: white;
+            border-radius: 20px;
+            padding: 2.5rem;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.04);
+            margin-top: 2rem;
+            border: 1px solid var(--card-border);
+        }
+        .markdown-body h3 { margin-top: 1.5rem; margin-bottom: 0.5rem; color: #1e293b; }
+        .markdown-body p { line-height: 1.6; margin-bottom: 1rem; }
+        .markdown-body ul { margin-left: 1.5rem; margin-bottom: 1rem; }
+        .markdown-body li { margin-bottom: 0.5rem; line-height: 1.5; }
+        .markdown-body strong { color: #0f172a; }
+        
     </style>
 </head>
 <body>
@@ -239,6 +254,12 @@
                 <div class="spinner" style="margin-left: auto;"></div>
             </div>
         </div>
+
+        <!-- Result Box -->
+        <div class="result-box" id="result-box" style="display: none;">
+            <h3 style="margin-bottom: 1rem; color: #1e293b; border-bottom: 2px solid var(--primary); padding-bottom: 0.5rem;">법률 검토 보고서</h3>
+            <div id="result-content" class="markdown-body"></div>
+        </div>
     </div>
 
     <script>
@@ -249,12 +270,11 @@
             }
         });
 
-        function startAgents() {
+        async function startAgents() {
             const text = document.getElementById('review-text').value;
-            const file = document.getElementById('file-upload').files[0];
             
-            if(!text && !file) {
-                alert("검토할 내용이나 파일을 입력해주세요.");
+            if(!text) {
+                alert("검토할 내용을 입력해주세요.");
                 return;
             }
             
@@ -262,34 +282,54 @@
             document.querySelector('.submit-btn').textContent = "검토 진행 중...";
             
             const agentsBox = document.getElementById('agents-box');
+            const resultBox = document.getElementById('result-box');
             agentsBox.style.display = 'flex';
+            resultBox.style.display = 'none';
             
             const law = document.getElementById('agent-law');
             const audit = document.getElementById('agent-audit');
             const finance = document.getElementById('agent-finance');
             
             // Reset
-            law.className = 'agent-card'; audit.className = 'agent-card'; finance.className = 'agent-card';
+            law.className = 'agent-card active'; 
+            audit.className = 'agent-card'; 
+            finance.className = 'agent-card';
             
-            // Simulate agent workflow
-            setTimeout(() => { law.classList.add('active'); }, 500);
-            
-            setTimeout(() => { 
-                law.classList.remove('active'); law.classList.add('done');
-                audit.classList.add('active');
-            }, 3000);
-            
-            setTimeout(() => { 
-                audit.classList.remove('active'); audit.classList.add('done');
-                finance.classList.add('active');
-            }, 6000);
-            
-            setTimeout(() => { 
-                finance.classList.remove('active'); finance.classList.add('done');
+            // 시각적 피드백을 위한 가짜 애니메이션 타이머 세팅
+            const timer1 = setTimeout(() => { law.className = 'agent-card done'; audit.className = 'agent-card active'; }, 2000);
+            const timer2 = setTimeout(() => { audit.className = 'agent-card done'; finance.className = 'agent-card active'; }, 4000);
+
+            try {
+                // 실제 백엔드 AI 통신
+                const response = await fetch('/api/analyze/other_review', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: text })
+                });
+
+                const data = await response.json();
+                
+                // 통신이 빨리 끝나더라도 최소한의 UI 애니메이션 시간(4초) 보장 후 결과 표시
+                setTimeout(() => {
+                    finance.className = 'agent-card done';
+                    document.querySelector('.submit-btn').disabled = false;
+                    document.querySelector('.submit-btn').textContent = "다중 에이전트 검토 시작";
+
+                    if(data.success) {
+                        resultBox.style.display = 'block';
+                        document.getElementById('result-content').innerHTML = marked.parse(data.result);
+                        resultBox.scrollIntoView({ behavior: 'smooth' });
+                    } else {
+                        alert("오류 발생: " + data.message);
+                    }
+                }, Math.max(0, 4500)); // 4.5초 뒤 결과 공개
+
+            } catch(error) {
+                clearTimeout(timer1); clearTimeout(timer2);
+                alert("서버 통신 실패: " + error);
                 document.querySelector('.submit-btn').disabled = false;
-                document.querySelector('.submit-btn').textContent = "결과 보고서 다운로드 (준비 중)";
-                alert("다중 에이전트 검토가 완료되었습니다! (현재는 UI 시뮬레이션입니다. 추후 실제 백엔드 연동이 진행됩니다.)");
-            }, 9000);
+                document.querySelector('.submit-btn').textContent = "다중 에이전트 검토 시작";
+            }
         }
     </script>
 </body>
