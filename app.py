@@ -132,6 +132,47 @@ def fetch_law_data(law_key, search_query="국토의 계획 및 이용에 관한 
     except Exception as e:
         return "법제처 API 통신 중 오류가 발생하여 자체 지식을 활용합니다."
 
+def fetch_moleg_context(text, law_key):
+    if not law_key:
+        return ""
+    try:
+        genai.configure(api_key=GEMINI_KEY)
+        model = genai.GenerativeModel('models/gemini-1.5-flash')
+        kw_prompt = f"다음 텍스트에서 대한민국 법제처 판례/법령 검색에 가장 적합한 핵심 명사 키워드 딱 1개(예: 하도급, 가압류, 직불)만 추출해. 다른 말은 절대 하지마.\n텍스트: {text}"
+        kw_res = model.generate_content(kw_prompt)
+        keyword = kw_res.text.strip().replace("'", "").replace('"', "")
+        if len(keyword) > 10: keyword = keyword[:10]
+        
+        law_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={law_key}&target=law&type=XML&query={keyword}"
+        law_res = requests.get(law_url, timeout=3)
+        laws = []
+        if law_res.status_code == 200:
+            law_root = ET.fromstring(law_res.content)
+            for law in law_root.findall('.//law'):
+                name = law.find('법령명한글')
+                if name is not None and name.text:
+                    laws.append(name.text)
+        
+        prec_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={law_key}&target=prec&type=XML&query={keyword}"
+        prec_res = requests.get(prec_url, timeout=3)
+        precs = []
+        if prec_res.status_code == 200:
+            prec_root = ET.fromstring(prec_res.content)
+            for p in prec_root.findall('.//prec'):
+                name = p.find('사건명')
+                num = p.find('사건번호')
+                if name is not None and num is not None and name.text and num.text:
+                    precs.append(f"{name.text} ({num.text})")
+        
+        context = f"[법제처 API 실시간 RAG 검색 결과 (키워드: {keyword})]\n"
+        if laws: context += f"- 현행 법령: {', '.join(laws[:3])}\n"
+        if precs: context += f"- 대법원 판례: {', '.join(precs[:3])}\n"
+        return context
+    except Exception as e:
+        print(f"MOLEG RAG Error: {e}")
+        return ""
+
+
 @app.route('/api/verify_parcel', methods=['POST'])
 def verify_parcel():
     data = request.json
@@ -502,24 +543,39 @@ def api_other_review():
         if not model_name:
             model_name = available_models[0] if available_models else 'models/gemini-1.5-pro'
         
-        prompt = """당신은 대한민국 공무원들의 행정, 감사, 예산 업무를 지원하는 '다중 에이전트(법무/감사/재무 전문가)'입니다.
-공무원이 다음 상황에 대한 검토를 요청했습니다. 대법원 판례, 행정안전부 유권해석, 관련 법령(건설산업기본법, 민사집행법 등)을 교차 검증하여 매우 깊이 있게 분석하십시오.
-응답은 반드시 마크다운(Markdown) 포맷으로 다음 4단계 구조를 엄격히 지켜 작성하십시오:
+        moleg_context = fetch_moleg_context(text_content, os.environ.get('MOLEG_API_KEY', ''))
+        
+        prompt = f"""당신은 대한민국 공무원들의 행정, 감사, 예산 업무를 지원하는 '다중 에이전트(법무/감사/재무 전문가)'입니다.
+공무원이 다음 상황에 대한 검토를 요청했습니다.
+
+{moleg_context}
+
+[특별 지시사항]
+1. 반드시 위 [법제처 API 실시간 RAG 검색 결과]에 등장한 현행 법령과 판례 번호를 최우선으로 참고하고 인용하십시오.
+2. 당신의 내부 지식 및 구글 검색(Grounding)을 활용하여 감사원(bai.go.kr) 및 지자체의 과거 사전컨설팅/감사 지적 사례 중 이와 유사한 징계나 지적 사항이 있는지 반드시 검색하여 결과에 포함하십시오.
+3. 응답은 반드시 마크다운(Markdown) 포맷으로 다음 5단계 구조를 엄격히 지켜 작성하십시오.
 
 ### 1. 상황 요약 (Situation Summary)
 - 
 ### 2. 핵심 쟁점 (Key Legal Issues)
 - 
-### 3. 관련 법령 및 판례 (Applicable Laws & Precedents)
+### 3. 법제처 실시간 조회: 관련 법령 및 판례 (Applicable Laws & Precedents)
 - 
-### 4. 공무원 행동 지침 및 결론 (Actionable Advice)
+### 4. 감사원/지자체 실시간 검색: 유사 감사 지적 사례 (Audit Precedents)
+- 
+### 5. 공무원 행동 지침 및 결론 (Actionable Advice)
 - 
 
 [요청 내용]
-""" + text_content
+{text_content}"""
         
-        model = genai.GenerativeModel(model_name=model_name)
-        response = model.generate_content(prompt)
+        try:
+            model = genai.GenerativeModel(model_name=model_name, tools='google_search_retrieval')
+            response = model.generate_content(prompt)
+        except Exception as tool_e:
+            print("Google Search Tool fallback:", tool_e)
+            model = genai.GenerativeModel(model_name=model_name)
+            response = model.generate_content(prompt)
         
         return jsonify({"success": True, "result": response.text})
         
