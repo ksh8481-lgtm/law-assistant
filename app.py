@@ -197,9 +197,9 @@ def fetch_moleg_context(text, law_key):
                     expcs.append(f"[{name.text} ({num.text})]({link})")
         
         context = f"[법제처 API 실시간 RAG 검색 결과 (키워드: {keyword})]\n"
-        if laws: context += f"- 현행 법령: {', '.join(laws[:3])}\n"
-        if precs: context += f"- 대법원 판례: {', '.join(precs[:3])}\n"
-        if expcs: context += f"- 법령해석례(유권해석): {', '.join(expcs[:3])}\n"
+        if laws: context += f"- 현행 법령: {', '.join(laws[:10])}\n"
+        if precs: context += f"- 대법원 판례: {', '.join(precs[:10])}\n"
+        if expcs: context += f"- 법령해석례(유권해석): {', '.join(expcs[:10])}\n"
         return context
     except Exception as e:
         print(f"MOLEG RAG Error: {e}")
@@ -580,11 +580,11 @@ def api_other_review():
 
 [특별 지시사항]
 1. [법제처 API 실시간 RAG 검색 결과]를 최우선으로 인용하십시오. RAG에 포함된 하이퍼링크를 그대로 사용하세요.
-2. 당신이 자체 지식이나 구글 검색으로 판례나 법령을 추가 인용할 때는 아래의 법제처 검색 규칙을 완벽하게 준수하십시오.
+2. 당신이 구글 검색을 통해 실존하는 판례나 법령을 추가 인용할 때는 아래의 법제처 검색 규칙을 완벽하게 준수하십시오.
   - ⚖️ 법령 조문 링크: 반드시 **제X조**까지 구체적으로 연결되도록 `[법령명 제X조](https://www.law.go.kr/법령/법령명/제X조)` 형식으로 작성하십시오. (예: `[건설산업기본법 제9조](https://www.law.go.kr/법령/건설산업기본법/제9조)`)
   - ⚖️ 판례 링크: 반드시 검색창을 거치도록 `[사건번호](https://www.law.go.kr/LSW/precSc.do?query=사건번호)` 형식으로 작성하십시오. (예: `[2014다87955](https://www.law.go.kr/LSW/precSc.do?query=2014다87955)`)
   - ⚖️ 해석례 링크: `[안건번호](https://www.law.go.kr/LSW/expcSc.do?query=안건번호)`
-3. 🔎 **판례/감사사례 환각(Hallucination) 절대 금지**: 내부 지식 및 구글 검색을 활용하여 행안부/국토부 유권해석, 질의회신, 대법원 판례, 감사원 지적사례 등을 찾되, **절대로 존재하지 않는 가상의 판례번호(예: 2003다49537)나 안건번호, 가짜 판결 요지를 지어내지 마십시오.** 오직 실제로 존재하는 사례와 판례만 풍부하게 기재하십시오.
+3. 🔎 **판례/감사사례 환각(Hallucination) 완벽 차단**: 대법원 판례나 유권해석은 **반드시 [법제처 API 실시간 RAG 검색 결과]에 제공된 번호만** 인용하십시오. 만약 구글 검색(google_search_retrieval)을 통해 새 판례를 발견했다면 해당 검색결과에서 확인된 진짜 번호만 적으십시오. **절대로 당신의 내부 지식(학습된 데이터)에 의존하여 가상의 판례번호(예: 2003다40986)를 무에서 유로 창조해내지 마십시오.**
 4. 🔎 **감사/신문고 링크 생성 규칙**: 존재하지 않는 가짜 PDF나 상세 페이지를 지어내지 마십시오. 대신, 사용자가 해당 지적 사항을 직접 검색해 볼 수 있도록 **각 기관의 통합검색 페이지 주소에 키워드를 넣어서** 제공하거나, 정 안 되면 기관 메인 홈페이지를 연결하세요.
   - 예시: `[감사원 감사결과 검색](https://www.bai.go.kr/bai/search/search.do?srchQuery=하도급)`
   - 예시: `[국민신문고](https://www.epeople.go.kr)`
