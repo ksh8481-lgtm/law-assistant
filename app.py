@@ -585,9 +585,12 @@ def api_other_review():
   - ⚖️ 판례 링크: 반드시 검색창을 거치도록 `[사건번호](https://www.law.go.kr/LSW/precSc.do?query=사건번호)` 형식으로 작성하십시오. (예: `[2014다87955](https://www.law.go.kr/LSW/precSc.do?query=2014다87955)`)
   - ⚖️ 해석례 링크: `[안건번호](https://www.law.go.kr/LSW/expcSc.do?query=안건번호)`
 3. 🔎 **판례/감사사례 환각(Hallucination) 완벽 차단**: 대법원 판례나 유권해석은 **반드시 [법제처 API 실시간 RAG 검색 결과]에 제공된 번호만** 인용하십시오. **만약 RAG 검색 결과에 판례나 유권해석이 없다면, 억지로 지어내지 말고 쿨하게 "검색된 관련 판례/유권해석 없음"이라고만 적으십시오.** 절대로 무에서 유를 창조해내지 마십시오.
-4. 🔎 **감사/신문고 링크 생성 규칙**: 존재하지 않는 가짜 PDF나 검색 페이지 상세 주소를 지어내지 마십시오. 사용자가 직접 검색할 수 있도록 **해당 기관의 메인 홈페이지 주소만** 깔끔하게 연결하세요.
-  - 예시: `[감사원](https://www.bai.go.kr)`
-  - 예시: `[국민신문고](https://www.epeople.go.kr)`
+4. 🔎 **감사/신문고 링크 생성 규칙**: 존재하지 않는 가짜 상세 주소를 지어내지 마십시오. 대신 사용자가 직접 감사 결과를 찾아볼 수 있도록 **아래의 공식 감사결과 공개 게시판 주소**를 정확하게 연결하세요.
+  - **감사원/공공감사정보시스템**: `[공공감사정보시스템 감사결과](https://www.pap.go.kr/selfAudit/resultPublic)`
+  - **경상남도 감사결과**: `[경상남도 감사결과](https://www.gyeongnam.go.kr/gamsa/board/list.gyeong?boardId=BBS_0000228&menuCd=DOM_000003701004000000&contentsSid=4936&cpath=%2Fgamsa)`
+  - **전라남도교육청 감사결과**: `[전남교육청 감사결과](https://www.jne.go.kr/open/na/ntt/selectNttList.do?mi=1157&bbsId=495)`
+  - **국민신문고**: `[국민신문고](https://www.epeople.go.kr)`
+  - 기타 시/도 및 교육청의 경우, 해당 기관의 **감사위원회(또는 감사관실) 공식 감사결과 공개 게시판** URL을 최대한 정확히 찾아서 링크하십시오. 절대 메인 홈페이지로 퉁치거나 없는 주소를 지어내지 마십시오.
 5. 응답은 반드시 마크다운(Markdown) 포맷으로 다음 5단계 구조를 엄격히 지켜 작성하십시오.
 
 ### 1. 상황 요약 (Situation Summary)
