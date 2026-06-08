@@ -169,8 +169,7 @@ def fetch_moleg_context(text, law_key):
             for law in law_root.findall('.//law'):
                 name = law.find('법령명한글')
                 if name is not None and name.text:
-                    safe_name = urllib.parse.quote(name.text)
-                    link = f"https://www.law.go.kr/LSW/lsSc.do?menuId=1&query={safe_name}"
+                    link = f"https://www.law.go.kr/법령/{urllib.parse.quote(name.text)}"
                     laws.append(f"[{name.text}]({link})")
         
         prec_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={law_key}&target=prec&type=XML&query={keyword}"
@@ -182,8 +181,7 @@ def fetch_moleg_context(text, law_key):
                 name = p.find('사건명')
                 num = p.find('사건번호')
                 if name is not None and num is not None and name.text and num.text:
-                    safe_num = urllib.parse.quote(num.text.strip())
-                    link = f"https://www.law.go.kr/LSW/precSc.do?menuId=2&query={safe_num}"
+                    link = f"https://www.law.go.kr/판례/{urllib.parse.quote(num.text.strip())}"
                     precs.append(f"[{name.text} ({num.text})]({link})")
                     
         expc_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={law_key}&target=expc&type=XML&query={keyword}"
@@ -195,8 +193,7 @@ def fetch_moleg_context(text, law_key):
                 name = e.find('안건명')
                 num = e.find('안건번호')
                 if name is not None and num is not None and name.text and num.text:
-                    safe_num = urllib.parse.quote(num.text.strip())
-                    link = f"https://www.law.go.kr/LSW/expcInfoP.do?menuId=4&query={safe_num}"
+                    link = f"https://www.law.go.kr/LSW/expcInfoP.do?query={urllib.parse.quote(num.text.strip())}"
                     expcs.append(f"[{name.text} ({num.text})]({link})")
         
         context = f"[법제처 API 실시간 RAG 검색 결과 (키워드: {keyword})]\n"
@@ -583,9 +580,9 @@ def api_other_review():
 
 [특별 지시사항]
 1. [법제처 API 실시간 RAG 검색 결과]를 최우선으로 인용하십시오. RAG에 포함된 하이퍼링크를 그대로 사용하세요.
-2. 당신이 자체 지식이나 구글 검색으로 판례나 법령을 추가 인용할 때는 아래의 정확한 검색 파라미터(`query=`)를 사용하십시오.
-  - ⚖️ 법령 링크: `[법령명](https://www.law.go.kr/LSW/lsSc.do?query=법령명)` (예: `[건설산업기본법](https://www.law.go.kr/LSW/lsSc.do?query=건설산업기본법)`)
-  - ⚖️ 판례 링크: `[사건번호](https://www.law.go.kr/LSW/precSc.do?query=사건번호)` (예: `[2014다87955](https://www.law.go.kr/LSW/precSc.do?query=2014다87955)`)
+2. 당신이 자체 지식이나 구글 검색으로 판례나 법령을 추가 인용할 때는 아래의 법제처 단축 링크 규칙을 완벽하게 준수하십시오.
+  - ⚖️ 법령 조문 링크: 반드시 **제X조**까지 구체적으로 연결되도록 `[법령명 제X조](https://www.law.go.kr/법령/법령명/제X조)` 형식으로 작성하십시오. (예: `[건설산업기본법 제9조](https://www.law.go.kr/법령/건설산업기본법/제9조)`)
+  - ⚖️ 판례 링크: `[사건번호](https://www.law.go.kr/판례/사건번호)` (예: `[2014다87955](https://www.law.go.kr/판례/2014다87955)`)
   - ⚖️ 해석례 링크: `[안건번호](https://www.law.go.kr/LSW/expcInfoP.do?query=안건번호)`
 3. 🔎 **과거 감사 사례 및 유권해석 폭넓게 탐색**: 내부 지식 및 구글 검색을 최대한 활용하여, 행안부/국토부 등 유권해석, 국민신문고 질의회신, 그리고 **감사원 및 각 지자체의 과거 사전컨설팅/감사 지적 사례를 가급적 많이, 상세하게 찾아내어 포함**하십시오. (결과가 풍부해야 합니다.)
 4. 🔎 **감사/신문고 링크 생성 규칙**: 존재하지 않는 가짜 PDF나 상세 페이지를 지어내지 마십시오. 대신, 사용자가 해당 지적 사항을 직접 검색해 볼 수 있도록 **각 기관의 통합검색 페이지 주소에 키워드를 넣어서** 제공하거나, 정 안 되면 기관 메인 홈페이지를 연결하세요.
