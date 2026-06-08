@@ -138,7 +138,14 @@ def fetch_moleg_context(text, law_key):
         return ""
     try:
         genai.configure(api_key=GEMINI_KEY)
-        model = genai.GenerativeModel('gemini-1.5-pro')
+        try:
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            pro_models = [m for m in available_models if 'pro' in m.lower() and 'vision' not in m.lower()]
+            model_name = next((m for m in pro_models if '1.5' in m), pro_models[0]) if pro_models else (available_models[0] if available_models else 'gemini-1.5-pro-latest')
+        except Exception:
+            model_name = 'gemini-1.5-pro-latest'
+            
+        model = genai.GenerativeModel(model_name)
         kw_prompt = f"다음 텍스트에서 대한민국 법제처 판례/법령 검색에 가장 적합한 핵심 명사 키워드 딱 1개(예: 하도급, 가압류, 직불)만 추출해. 다른 말은 절대 하지마.\n텍스트: {text}"
         kw_res = model.generate_content(kw_prompt)
         keyword = kw_res.text.strip().replace("'", "").replace('"', "")
@@ -550,7 +557,12 @@ def api_other_review():
             return jsonify({"success": False, "message": "검토할 내용이 제공되지 않았습니다."}), 400
             
         genai.configure(api_key=GEMINI_KEY)
-        model_name = 'gemini-1.5-pro'
+        try:
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            pro_models = [m for m in available_models if 'pro' in m.lower() and 'vision' not in m.lower()]
+            model_name = next((m for m in pro_models if '1.5' in m), pro_models[0]) if pro_models else (available_models[0] if available_models else 'gemini-1.5-pro-latest')
+        except Exception:
+            model_name = 'gemini-1.5-pro-latest'
         
         moleg_context = fetch_moleg_context(text_content, os.environ.get('MOLEG_API_KEY', ''))
         
