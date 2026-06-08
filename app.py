@@ -555,11 +555,11 @@ def api_other_review():
 1. [법제처 API 실시간 RAG 검색 결과]를 최우선으로 인용하십시오. RAG에 포함된 하이퍼링크를 그대로 사용하세요.
 2. 법령 조문, 판례, 해석례를 인용할 때는 아래의 규칙을 완벽하게 준수하십시오.
   - ⚖️ 법령 조문 링크: 반드시 **제X조**까지 구체적으로 연결되도록 `[법령명 제X조](https://www.law.go.kr/법령/법령명/제X조)` 형식으로 작성하십시오.
-3. 🔎 **[판례 검색 방식 변경] 사법정보공개포털 실시간 검색**:
-  - 판례 및 유권해석은 법제처 API 결과를 사용하지 않습니다.
-  - 대신 구글 검색 도구(google_search_retrieval)를 활용하여 **사법정보공개포털**에서 사용자의 질문에 부합하는 핵심 판례들을 실시간으로 검색하십시오.
-  - **[주의] 대법원 종합법률정보(glaw.scourt.go.kr) 사이트는 검색에서 절대 제외하십시오.**
-  - 검색된 **관련 있는 여러 개의 판례들**을 모두 요약하여 핵심 요점을 보여주고, 반드시 검색 출처 링크를 같이 걸어주십시오. 절대 검색되지 않은 가짜 판례번호를 창작하지 마십시오.
+3. 🔎 **[판례 제공 방식] AI 내부 지식 활용 및 다수 판례 요약**:
+  - 현재 대법원 사법정보공개포털 등 공식 사이트는 보안상 AI 검색 봇의 접근(검색창 입력)을 원천 차단하고 있습니다.
+  - 따라서 구글 검색이나 외부 사이트(대한법률구조공단 등)를 절대 뒤지지 마시고, **오직 당신의 내부 법률 지식만을 활용하여** 답변을 작성하십시오.
+  - 사용자의 질문에 부합하는 핵심 판례를 **여러 개** 발굴하여 핵심 요점을 요약해주십시오.
+  - 판례 번호 작성 시, "이 판례 번호는 AI의 내부 지식에 기반한 것으로 가상의 번호(환각)일 수 있습니다. 반드시 대법원 사법정보공개포털에서 직접 검색하여 확인하시기 바랍니다."라는 강력한 주의 문구를 반드시 추가하십시오.
 4. 응답은 반드시 마크다운(Markdown) 포맷으로 다음 4단계 구조를 엄격히 지켜 작성하십시오.
 
 ### 1. 상황 요약 (Situation Summary)
@@ -568,7 +568,7 @@ def api_other_review():
 - 
 ### 3. 관련 법령 및 핵심 판례 (Applicable Laws & Key Precedents)
 - 법령은 RAG 결과를 바탕으로 상세 설명. 
-- 판례는 구글 검색(사법정보공개포털 한정)을 통해 찾은 **여러 개의 관련 판례**들의 요점을 설명하고, 각각의 출처 링크를 반드시 첨부할 것.
+- 판례는 AI 지식을 활용하여 관련 있는 여러 개의 판례 요점을 상세히 설명하되, 반드시 위의 '가짜 번호 주의 문구'를 굵은 글씨로 첨부할 것.
 ### 4. 공무원 행동 지침 및 결론 (Action Plan)
 - 
 
@@ -583,18 +583,11 @@ def api_other_review():
             
         response = None
         last_err = None
-        
         for m in models_to_try:
             try:
-                try:
-                    model = genai.GenerativeModel(model_name=m, tools='google_search_retrieval')
-                    response = model.generate_content(prompt)
-                    break
-                except Exception as tool_e:
-                    print(f"Tool {m} fallback: {tool_e}")
-                    model = genai.GenerativeModel(model_name=m)
-                    response = model.generate_content(prompt)
-                    break
+                model = genai.GenerativeModel(model_name=m)
+                response = model.generate_content(prompt)
+                break
             except Exception as e:
                 last_err = e
                 print(f"Model {m} failed: {e}")
