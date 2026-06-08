@@ -140,7 +140,12 @@ def fetch_moleg_context(text, law_key):
         genai.configure(api_key=GEMINI_KEY)
         kw_prompt = f"다음 텍스트에서 대한민국 법제처 판례/법령 검색에 가장 적합한 핵심 명사 키워드 딱 1개(예: 하도급, 가압류, 직불)만 추출해. 다른 말은 절대 하지마.\n텍스트: {text}"
         
-        models_to_try = ['gemini-1.5-pro-latest', 'gemini-1.5-pro', 'gemini-pro', 'gemini-1.5-flash-latest']
+        try:
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
+            models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-pro' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3 if '1.5-flash' in x else 4))
+        except:
+            models_to_try = ['models/gemini-1.5-pro', 'models/gemini-1.5-flash']
+            
         kw_res = None
         for m in models_to_try:
             try:
@@ -148,7 +153,6 @@ def fetch_moleg_context(text, law_key):
                 kw_res = model.generate_content(kw_prompt)
                 break
             except Exception as e:
-                print(f"Fallback {m} failed: {e}")
                 continue
                 
         if not kw_res:
@@ -603,7 +607,12 @@ def api_other_review():
 [요청 내용]
 {text_content}"""
         
-        models_to_try = ['gemini-1.5-pro-latest', 'gemini-1.5-pro', 'gemini-pro', 'gemini-1.5-flash-latest']
+        try:
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
+            models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-pro' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3 if '1.5-flash' in x else 4))
+        except:
+            models_to_try = ['models/gemini-1.5-pro', 'models/gemini-1.5-flash']
+            
         response = None
         last_err = None
         
