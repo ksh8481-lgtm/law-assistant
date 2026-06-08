@@ -171,35 +171,8 @@ def fetch_moleg_context(text, law_key):
                 if name is not None and name.text:
                     link = f"https://www.law.go.kr/법령/{urllib.parse.quote(name.text)}"
                     laws.append(f"[{name.text}]({link})")
-        
-        prec_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={law_key}&target=prec&type=XML&query={keyword}"
-        prec_res = requests.get(prec_url, timeout=3)
-        precs = []
-        if prec_res.status_code == 200:
-            prec_root = ET.fromstring(prec_res.content)
-            for p in prec_root.findall('.//prec'):
-                name = p.find('사건명')
-                num = p.find('사건번호')
-                if name is not None and num is not None and name.text and num.text:
-                    link = f"https://www.law.go.kr/LSW/precSc.do?query={urllib.parse.quote(num.text.strip())}"
-                    precs.append(f"[{name.text} ({num.text})]({link})")
-                    
-        expc_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={law_key}&target=expc&type=XML&query={keyword}"
-        expc_res = requests.get(expc_url, timeout=3)
-        expcs = []
-        if expc_res.status_code == 200:
-            expc_root = ET.fromstring(expc_res.content)
-            for e in expc_root.findall('.//expc'):
-                name = e.find('안건명')
-                num = e.find('안건번호')
-                if name is not None and num is not None and name.text and num.text:
-                    link = f"https://www.law.go.kr/LSW/expcSc.do?query={urllib.parse.quote(num.text.strip())}"
-                    expcs.append(f"[{name.text} ({num.text})]({link})")
-        
         context = f"[법제처 API 실시간 RAG 검색 결과 (키워드: {keyword})]\n"
         if laws: context += f"- 현행 법령: {', '.join(laws[:10])}\n"
-        if precs: context += f"- 대법원 판례: {', '.join(precs[:10])}\n"
-        if expcs: context += f"- 법령해석례(유권해석): {', '.join(expcs[:10])}\n"
         return context
     except Exception as e:
         print(f"MOLEG RAG Error: {e}")
@@ -582,13 +555,10 @@ def api_other_review():
 1. [법제처 API 실시간 RAG 검색 결과]를 최우선으로 인용하십시오. RAG에 포함된 하이퍼링크를 그대로 사용하세요.
 2. 법령 조문, 판례, 해석례를 인용할 때는 아래의 규칙을 완벽하게 준수하십시오.
   - ⚖️ 법령 조문 링크: 반드시 **제X조**까지 구체적으로 연결되도록 `[법령명 제X조](https://www.law.go.kr/법령/법령명/제X조)` 형식으로 작성하십시오.
-  - ⚖️ 판례 링크: 반드시 검색창을 거치도록 `[사건번호](https://www.law.go.kr/LSW/precSc.do?query=사건번호)` 형식으로 작성하십시오.
-  - ⚖️ 해석례 링크: `[안건번호](https://www.law.go.kr/LSW/expcSc.do?query=안건번호)`
-3. 🔎 **[판례 환각 방지] 핵심 판례 1개만 엄선하여 인용할 것**:
-  - 관련 법령(조문)은 상황에 맞게 상세히 설명하고 분석하십시오.
-  - 대법원 판례는 법제처 API 검색 한계로 인해 필요한 판례가 RAG에 없을 수 있습니다. 따라서 **당신의 내부 법률 지식을 활용하여 가장 핵심이 되는 대법원 판례를 인용해도 좋습니다.**
-  - 단, 환각(가짜 판례번호 생성)을 막기 위해 **가장 확실하고 유명한 대법원 판례 딱 1개만** 인용하고, 절대 여러 개의 판례를 나열하지 마십시오. (1개 이상 작성 금지)
-  - 판례 인용 시 "이 판례 번호는 AI의 지식에 기반한 것으로, 실제 법원/법제처 검색을 통한 확인이 필요합니다."라는 주의 문구를 반드시 덧붙이십시오.
+3. 🔎 **[판례 검색 방식 변경] 사법정보공개포털 실시간 검색**:
+  - 판례 및 유권해석은 법제처 API 결과를 사용하지 않습니다.
+  - 대신 구글 검색 도구(google_search_retrieval)를 활용하여 **사법정보공개포털, 대법원 종합법률정보(glaw.scourt.go.kr) 등 공식 법률 포털**에서 사용자의 질문에 부합하는 핵심 판례를 검색하십시오.
+  - 검색된 **실제 판례 1개**만 핵심 근거로 삼아 상세히 설명하고, 판결 요지와 번호가 정확히 일치하는지 확인하십시오. 절대 검색되지 않은 가짜 판례번호를 창작하지 마십시오.
 4. 응답은 반드시 마크다운(Markdown) 포맷으로 다음 4단계 구조를 엄격히 지켜 작성하십시오.
 
 ### 1. 상황 요약 (Situation Summary)
@@ -596,7 +566,8 @@ def api_other_review():
 ### 2. 핵심 쟁점 (Key Legal Issues)
 - 
 ### 3. 관련 법령 및 핵심 판례 (Applicable Laws & Key Precedent)
-- 법령은 상세히 설명. 판례는 반드시 가장 확실한 것 **딱 1개만** 인용할 것.
+- 법령은 RAG 결과를 바탕으로 상세 설명. 
+- 판례는 실시간 구글 검색을 통해 찾은 **가장 핵심적인 1개**의 판례만 상세히 설명하고, 반드시 검색 출처(사법정보공개포털 등) 링크를 첨부할 것.
 ### 4. 공무원 행동 지침 및 결론 (Action Plan)
 - 
 
@@ -614,9 +585,15 @@ def api_other_review():
         
         for m in models_to_try:
             try:
-                model = genai.GenerativeModel(model_name=m)
-                response = model.generate_content(prompt)
-                break
+                try:
+                    model = genai.GenerativeModel(model_name=m, tools='google_search_retrieval')
+                    response = model.generate_content(prompt)
+                    break
+                except Exception as tool_e:
+                    print(f"Tool {m} fallback: {tool_e}")
+                    model = genai.GenerativeModel(model_name=m)
+                    response = model.generate_content(prompt)
+                    break
             except Exception as e:
                 last_err = e
                 print(f"Model {m} failed: {e}")
