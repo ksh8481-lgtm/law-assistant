@@ -177,10 +177,24 @@ def fetch_moleg_context(text, law_key):
                     safe_num = urllib.parse.quote(num.text.strip())
                     link = f"https://www.law.go.kr/LSW/precSc.do?menuId=2&query={safe_num}"
                     precs.append(f"[{name.text} ({num.text})]({link})")
+                    
+        expc_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={law_key}&target=expc&type=XML&query={keyword}"
+        expc_res = requests.get(expc_url, timeout=3)
+        expcs = []
+        if expc_res.status_code == 200:
+            expc_root = ET.fromstring(expc_res.content)
+            for e in expc_root.findall('.//expc'):
+                name = e.find('안건명')
+                num = e.find('안건번호')
+                if name is not None and num is not None and name.text and num.text:
+                    safe_num = urllib.parse.quote(num.text.strip())
+                    link = f"https://www.law.go.kr/LSW/expcInfoP.do?menuId=4&query={safe_num}"
+                    expcs.append(f"[{name.text} ({num.text})]({link})")
         
         context = f"[법제처 API 실시간 RAG 검색 결과 (키워드: {keyword})]\n"
         if laws: context += f"- 현행 법령: {', '.join(laws[:3])}\n"
         if precs: context += f"- 대법원 판례: {', '.join(precs[:3])}\n"
+        if expcs: context += f"- 법령해석례(유권해석): {', '.join(expcs[:3])}\n"
         return context
     except Exception as e:
         print(f"MOLEG RAG Error: {e}")
@@ -565,13 +579,14 @@ def api_other_review():
 {moleg_context}
 
 [특별 지시사항]
-1. [법제처 API 실시간 RAG 검색 결과]를 최우선으로 인용하되, 당신이 자체 지식으로 판례나 법령을 추가로 인용할 때는 절대로 존재하지 않는 가짜 하위 URL을 지어내지 마십시오! 
+1. [법제처 API 실시간 RAG 검색 결과]를 최우선으로 인용하되, 당신이 자체 지식으로 판례나 법령, 유권해석을 추가로 인용할 때는 절대로 존재하지 않는 가짜 하위 URL을 지어내지 마십시오! 
   - ⚖️ 법령 링크 생성 규칙: 반드시 `[법령명](https://www.law.go.kr/LSW/lsSc.do?q=법령명)` 형식으로만 작성 (예: `[건설산업기본법](https://www.law.go.kr/LSW/lsSc.do?q=건설산업기본법)`)
   - ⚖️ 판례 링크 생성 규칙: 반드시 `[사건번호](https://www.law.go.kr/LSW/precSc.do?q=사건번호)` 형식으로만 작성 (예: `[2014다87955](https://www.law.go.kr/LSW/precSc.do?q=2014다87955)`)
-2. 내부 지식 및 구글 검색을 활용하여 감사원(bai.go.kr) 뿐만 아니라 각 시/도 지자체의 과거 사전컨설팅/감사 지적 사례를 폭넓게 검색하여 결과에 포함하십시오.
-3. 감사 결과를 언급할 때는 반드시 해당 주체(예: 대법원, 감사원, 경상남도 등)를 명확히 기재하십시오.
-4. **🔎 감사 결과 링크 절대 주의사항**: AI 특성상 존재하지 않는 가짜 상세 페이지 URL(예: `/board/view.do?id=123`)을 지어내는 환각(Hallucination)을 절대 일으키지 마십시오! 감사 결과 링크는 무조건 토씨 하나 틀리지 않고 **해당 기관의 메인 홈페이지 URL**로만 작성하십시오.
-  - 올바른 예시: `[감사원 홈페이지](https://www.bai.go.kr)`, `[경기도 홈페이지](https://www.gg.go.kr)`
+  - ⚖️ 해석례 링크 생성 규칙: 반드시 `[안건번호](https://www.law.go.kr/LSW/expcInfoP.do?menuId=4&q=안건번호)` 형식으로만 작성
+2. 내부 지식 및 구글 검색을 활용하여 행안부/국토부 등 유권해석, 국민신문고 질의회신 사례 및 감사원(bai.go.kr) 등 각 지자체의 과거 사전컨설팅/감사 지적 사례를 폭넓게 검색하여 결과에 포함하십시오.
+3. 감사/해석 결과를 언급할 때는 반드시 해당 주체(예: 국토교통부, 행정안전부, 감사원, 경상남도 등)를 명확히 기재하십시오.
+4. **🔎 감사/신문고 결과 링크 절대 주의사항**: AI 특성상 존재하지 않는 가짜 상세 페이지 URL(예: `/board/view.do?id=123`)을 지어내는 환각(Hallucination)을 절대 일으키지 마십시오! 감사 결과/신문고 링크는 무조건 토씨 하나 틀리지 않고 **해당 기관의 메인 홈페이지 URL**로만 작성하십시오.
+  - 올바른 예시: `[감사원 홈페이지](https://www.bai.go.kr)`, `[국민신문고](https://www.epeople.go.kr)`
   - 틀린 예시 (절대 금지): `[감사결과 원문](https://www.bai.go.kr/audit/12345.pdf)`
 5. 응답은 반드시 마크다운(Markdown) 포맷으로 다음 5단계 구조를 엄격히 지켜 작성하십시오.
 
@@ -579,9 +594,9 @@ def api_other_review():
 - 
 ### 2. 핵심 쟁점 (Key Legal Issues)
 - 
-### 3. 법제처 실시간 조회: 관련 법령 및 판례 (Applicable Laws & Precedents)
+### 3. 법제처 실시간 조회: 관련 법령, 판례, 유권해석 (Applicable Laws, Precedents & Interpretations)
 - 반드시 위의 ⚖️ 링크 생성 규칙 준수
-### 4. 감사원 및 시/도 지자체 실시간 검색: 유사 감사 지적 사례 (Audit Precedents)
+### 4. 실시간 검색: 국민신문고/부처 질의회신 및 유사 감사 사례 (Audit & QnA Precedents)
 - 반드시 위의 🔎 링크 절대 주의사항 준수 (상세 페이지 주소 창작 금지, 메인 홈페이지로 연결)
 ### 5. 공무원 행동 지침 및 결론 (Actionable Advice)
 - 
