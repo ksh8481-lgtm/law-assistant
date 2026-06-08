@@ -21,12 +21,7 @@ jobs:
             app: python@3.12
             options:
               ports: "8000"
-              start: gunicorn app:app --bind 0.0.0.0:8000
-              env:
-                - name: VWORLD_KEY
-                  value: ${{ secrets.VWORLD_KEY || secrets.VWORLD_API_KEY || vars.VWORLD_KEY || vars.VWORLD_API_KEY }}
-                - name: GEMINI_API_KEY
-                  value: ${{ secrets.GEMINI_API_KEY || vars.GEMINI_API_KEY }}
+              start: gunicorn app:app --bind 0.0.0.0:8000 --timeout 120
               buildenv: []
             context:
               git:
