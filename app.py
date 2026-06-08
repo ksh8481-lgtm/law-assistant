@@ -178,6 +178,42 @@ def fetch_moleg_context(text, law_key):
         print(f"MOLEG RAG Error: {e}")
         return ""
 
+def fetch_moleg_context(query, api_key="ksh8481"):
+    try:
+        # Extract keywords for MOLEG API
+        keywords = extract_keywords(query)
+        if not keywords:
+            return "[법제처 API 검색 실패: 핵심 키워드를 추출하지 못했습니다.]"
+            
+        return query_moleg_api(keywords, api_key)
+    except Exception as e:
+        print(f"MOLEG API fallback error: {e}")
+        return "[법제처 API 검색 실패: 시스템 오류가 발생했습니다.]"
+
+def fetch_local_law_data(query, moleg_context):
+    import glob
+    import os
+    local_data = ""
+    # Check data/laws directory
+    laws_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'laws')
+    if not os.path.exists(laws_dir):
+        return ""
+        
+    for md_file in glob.glob(os.path.join(laws_dir, '*.md')):
+        law_name = os.path.basename(md_file).replace('.md', '').replace('_', ' ')
+        # 띄어쓰기를 무시한 이름 매칭
+        clean_law_name = law_name.replace(" ", "")
+        clean_query = query.replace(" ", "")
+        clean_context = moleg_context.replace(" ", "")
+        
+        if clean_law_name in clean_query or clean_law_name in clean_context:
+            try:
+                with open(md_file, "r", encoding="utf-8") as f:
+                    local_data += f.read() + "\n\n"
+            except:
+                pass
+    return local_data
+
 
 @app.route('/api/verify_parcel', methods=['POST'])
 def verify_parcel():
@@ -545,14 +581,21 @@ def api_other_review():
             model_name = 'gemini-1.5-pro-latest'
         
         moleg_context = fetch_moleg_context(text_content, os.environ.get('MOLEG_API_KEY', ''))
+        local_law_context = fetch_local_law_data(text_content, moleg_context)
         
         prompt = f"""당신은 대한민국 공무원들의 행정, 감사, 예산 업무를 지원하는 '다중 에이전트(법무/감사/재무 전문가)'입니다.
 공무원이 다음 상황에 대한 검토를 요청했습니다.
 
+[사용자 질문]
+{text_content}
+
 {moleg_context}
 
+[로컬 법령 데이터베이스 (조문 본문 및 별표/서식)]
+{local_law_context}
+
 [특별 지시사항]
-1. [법제처 API 실시간 RAG 검색 결과]를 최우선으로 인용하십시오. RAG에 포함된 하이퍼링크를 그대로 사용하세요.
+1. [법제처 API 실시간 RAG 검색 결과]와 [로컬 법령 데이터베이스]를 최우선으로 인용하십시오. 특히 별표(Attached Tables)에 대한 질문은 로컬 데이터베이스의 내용을 바탕으로 상세히 설명하십시오. RAG에 포함된 하이퍼링크를 그대로 사용하세요.
 2. 법령 조문, 판례, 해석례를 인용할 때는 아래의 규칙을 완벽하게 준수하십시오.
   - ⚖️ 법령 조문 링크: 반드시 **제X조**까지 구체적으로 연결되도록 `[법령명 제X조](https://www.law.go.kr/법령/법령명/제X조)` 형식으로 작성하십시오.
 3. 🔎 **[판례 검색] 사설 판례 검색 엔진(케이스노트) 활용**:
