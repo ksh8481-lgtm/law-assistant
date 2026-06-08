@@ -585,15 +585,7 @@ def api_other_review():
   - ⚖️ 판례 링크: 반드시 검색창을 거치도록 `[사건번호](https://www.law.go.kr/LSW/precSc.do?query=사건번호)` 형식으로 작성하십시오.
   - ⚖️ 해석례 링크: `[안건번호](https://www.law.go.kr/LSW/expcSc.do?query=안건번호)`
 3. 🔎 **[초강력 경고] 판례/해석례 절대 창작 금지 (환각 완전 차단)**: 대법원 판례나 유권해석은 **오직 [법제처 API 실시간 RAG 검색 결과] 텍스트를 그대로 '복사+붙여넣기'만** 하십시오. 당신의 머릿속에 있는 판례 지식(예: 하도급 직불 관련 2014다87955 등)이 아무리 정확하다고 확신하더라도 RAG 목록에 없으면 절대 출력하지 마십시오. **만약 RAG 검색 결과에 판례나 유권해석이 없다면, 절대 아는 척하지 말고 오직 "검색된 관련 판례/유권해석 없음"이라고만 적으십시오.**
-4. 🔎 **감사 사례 탐색 및 링크 규칙 (국민신문고 절대 검색 금지)**:
-  - **국민신문고나 일반 질의회신은 절대 검색하거나 인용하지 마십시오.**
-  - **오직 [감사원], [각 시/도 감사위원회], [각 시/도 교육청 감사위원회]의 실제 감사 지적 사례만** 구글 검색과 내부 지식을 활용해 찾아내어 상세히 설명하십시오.
-  - 가짜 상세 주소를 지어내지 말고, 아래의 공식 감사결과 공개 게시판 주소를 연결하세요.
-    - **감사원/공공감사정보시스템**: `[공공감사정보시스템 감사결과](https://www.pap.go.kr/selfAudit/resultPublic)`
-    - **경상남도 감사결과**: `[경상남도 감사결과](https://www.gyeongnam.go.kr/gamsa/board/list.gyeong?boardId=BBS_0000228&menuCd=DOM_000003701004000000&contentsSid=4936&cpath=%2Fgamsa)`
-    - **전라남도교육청 감사결과**: `[전남교육청 감사결과](https://www.jne.go.kr/open/na/ntt/selectNttList.do?mi=1157&bbsId=495)`
-    - 기타 지역 감사위원회/교육청은 해당 공식 감사결과 게시판 URL을 정확히 찾아 링크하십시오.
-5. 응답은 반드시 마크다운(Markdown) 포맷으로 다음 5단계 구조를 엄격히 지켜 작성하십시오.
+4. 응답은 반드시 마크다운(Markdown) 포맷으로 다음 4단계 구조를 엄격히 지켜 작성하십시오.
 
 ### 1. 상황 요약 (Situation Summary)
 - 
@@ -601,9 +593,7 @@ def api_other_review():
 - 
 ### 3. 법제처 실시간 조회: 관련 법령, 판례, 유권해석
 - 반드시 위의 ⚖️ 링크 생성 규칙 및 **초강력 경고(RAG 복사붙여넣기)** 준수
-### 4. 유사 감사 지적 사례 (감사원, 시/도 감사위원회, 교육청 감사위원회)
-- 국민신문고 제외. 감사위원회 지적 사례만 상세 설명 및 정확한 링크 연결
-### 5. 공무원 행동 지침 및 결론 (Action Plan)
+### 4. 공무원 행동 지침 및 결론 (Action Plan)
 - 
 
 [요청 내용]
@@ -620,15 +610,9 @@ def api_other_review():
         
         for m in models_to_try:
             try:
-                try:
-                    model = genai.GenerativeModel(model_name=m, tools='google_search_retrieval')
-                    response = model.generate_content(prompt)
-                    break
-                except Exception as tool_e:
-                    print(f"Tool {m} fallback: {tool_e}")
-                    model = genai.GenerativeModel(model_name=m)
-                    response = model.generate_content(prompt)
-                    break
+                model = genai.GenerativeModel(model_name=m)
+                response = model.generate_content(prompt)
+                break
             except Exception as e:
                 last_err = e
                 print(f"Model {m} failed: {e}")
