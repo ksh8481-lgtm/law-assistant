@@ -616,7 +616,7 @@ def api_other_review():
         
     except Exception as e:
         print(f"Other Review API Error: {e}")
-        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"}), 500
+        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"})
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
