@@ -138,16 +138,22 @@ def fetch_moleg_context(text, law_key):
         return ""
     try:
         genai.configure(api_key=GEMINI_KEY)
-        try:
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            pro_models = [m for m in available_models if 'pro' in m.lower() and 'vision' not in m.lower()]
-            model_name = next((m for m in pro_models if '1.5' in m), pro_models[0]) if pro_models else (available_models[0] if available_models else 'gemini-1.5-pro-latest')
-        except Exception:
-            model_name = 'gemini-1.5-pro-latest'
-            
-        model = genai.GenerativeModel(model_name)
         kw_prompt = f"다음 텍스트에서 대한민국 법제처 판례/법령 검색에 가장 적합한 핵심 명사 키워드 딱 1개(예: 하도급, 가압류, 직불)만 추출해. 다른 말은 절대 하지마.\n텍스트: {text}"
-        kw_res = model.generate_content(kw_prompt)
+        
+        models_to_try = ['gemini-1.5-pro-latest', 'gemini-1.5-pro', 'gemini-pro', 'gemini-1.5-flash-latest']
+        kw_res = None
+        for m in models_to_try:
+            try:
+                model = genai.GenerativeModel(m)
+                kw_res = model.generate_content(kw_prompt)
+                break
+            except Exception as e:
+                print(f"Fallback {m} failed: {e}")
+                continue
+                
+        if not kw_res:
+            return ""
+            
         keyword = kw_res.text.strip().replace("'", "").replace('"', "")
         if len(keyword) > 10: keyword = keyword[:10]
         
@@ -597,14 +603,29 @@ def api_other_review():
 [요청 내용]
 {text_content}"""
         
-        try:
-            model = genai.GenerativeModel(model_name=model_name, tools='google_search_retrieval')
-            response = model.generate_content(prompt)
-        except Exception as tool_e:
-            print("Google Search Tool fallback:", tool_e)
-            model = genai.GenerativeModel(model_name=model_name)
-            response = model.generate_content(prompt)
+        models_to_try = ['gemini-1.5-pro-latest', 'gemini-1.5-pro', 'gemini-pro', 'gemini-1.5-flash-latest']
+        response = None
+        last_err = None
         
+        for m in models_to_try:
+            try:
+                try:
+                    model = genai.GenerativeModel(model_name=m, tools='google_search_retrieval')
+                    response = model.generate_content(prompt)
+                    break
+                except Exception as tool_e:
+                    print(f"Tool {m} fallback: {tool_e}")
+                    model = genai.GenerativeModel(model_name=m)
+                    response = model.generate_content(prompt)
+                    break
+            except Exception as e:
+                last_err = e
+                print(f"Model {m} failed: {e}")
+                continue
+                
+        if not response:
+            raise Exception(f"모든 AI 모델이 요청 한도 초과 또는 오류로 실패했습니다. 마지막 오류: {last_err}")
+            
         return jsonify({"success": True, "result": response.text})
         
     except Exception as e:
