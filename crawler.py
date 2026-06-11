@@ -3,6 +3,9 @@ import requests
 import xml.etree.ElementTree as ET
 import urllib.parse
 import time
+import zipfile
+import io
+import re
 
 API_KEY = "ksh8481"
 TARGET_LAWS = [
@@ -22,7 +25,10 @@ TARGET_LAWS = [
     "건설공사 안전관리 업무수행 지침",
     "건설공사 품질관리 업무지침",
     "시설물의 안전 및 유지관리 실시 등에 관한 지침",
-    "우수유출저감대책 및 시설에 관한 기준"
+    "우수유출저감대책 및 시설에 관한 기준",
+    "지방자치단체 입찰 및 계약집행기준",
+    "지방자치단체 입찰시 낙찰자 결정기준",
+    "재해영향평가등의 협의 실무지침"
 ]
 
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'laws')
@@ -36,6 +42,29 @@ def fetch_law_xml(search_url):
     except Exception as e:
         print(f"Request failed: {e}")
     return None
+
+def extract_text_from_hwpx(hwpx_bytes):
+    texts = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(hwpx_bytes)) as z:
+            for name in z.namelist():
+                if name.startswith('Contents/section'):
+                    xml_data = z.read(name)
+                    xml_str = xml_data.decode('utf-8', errors='ignore')
+                    xml_str = re.sub(r'\sxmlns="[^"]+"', '', xml_str, count=1)
+                    xml_str = re.sub(r'hp:', '', xml_str)
+                    
+                    root = ET.fromstring(xml_str)
+                    for p in root.iter('p'):
+                        p_texts = []
+                        for t in p.iter('t'):
+                            if t.text:
+                                p_texts.append(t.text)
+                        if p_texts:
+                            texts.append(''.join(p_texts))
+    except Exception as e:
+        print(f"Failed to parse HWPX: {e}")
+    return '\n\n'.join(texts)
 
 def process_law(law_name):
     print(f"Searching for: {law_name}")
@@ -107,31 +136,58 @@ def process_law(law_name):
     md_content = f"# {exact_name}\n\n"
     md_content += "## 본문 (조문)\n\n"
     
+    extracted_text_length = 0
+    
     if target_type == 'law':
         for jomun in detail_root.findall('.//조문단위'):
             jomun_title = jomun.find('조문내용')
             if jomun_title is not None and jomun_title.text:
                 md_content += f"{jomun_title.text.strip()}\n"
+                extracted_text_length += len(jomun_title.text)
             
             for hang in jomun.findall('.//항내용'):
                 if hang.text:
                     md_content += f"  {hang.text.strip()}\n"
+                    extracted_text_length += len(hang.text)
             for ho in jomun.findall('.//호내용'):
                 if ho.text:
                     md_content += f"    {ho.text.strip()}\n"
+                    extracted_text_length += len(ho.text)
             md_content += "\n"
     else:
         # admrul
         texts = [t.text.strip() for t in detail_root.findall('.//조문내용') if t.text and t.text.strip()]
         if texts:
-            md_content += "\n\n".join(texts) + "\n\n"
-        else:
-            md_content += "본문 내용이 텍스트로 제공되지 않았습니다. (법제처 시스템에 첨부파일 형태로만 존재하는 행정규칙입니다.)\n\n"
+            content_str = "\n\n".join(texts)
+            md_content += content_str + "\n\n"
+            extracted_text_length += len(content_str)
+            
+    # Check for HWPX fallback if text is very short (e.g. < 1000 chars)
+    if target_type == 'admrul' and extracted_text_length < 1000:
+        hwpx_link = None
+        for f in detail_root.findall('.//첨부파일'):
+            names = f.findall('첨부파일명')
+            links = f.findall('첨부파일링크')
+            for n, l in zip(names, links):
+                if n.text and n.text.strip().endswith('.hwpx'):
+                    hwpx_link = l.text.strip()
+                    break
+            if hwpx_link: break
+            
+        if hwpx_link:
+            print(f"Text is short. Downloading HWPX attachment from {hwpx_link}...")
+            req = requests.get(hwpx_link, headers={'User-Agent': 'Mozilla/5.0'})
+            if req.status_code == 200:
+                print("Extracting HWPX text...")
+                hwpx_text = extract_text_from_hwpx(req.content)
+                if hwpx_text:
+                    md_content += "\n\n## 본문 및 별표 (첨부파일 추출본)\n\n"
+                    md_content += hwpx_text
 
-    md_content += "## 별표 및 서식 (Attached Tables)\n\n"
+    # Tables
+    md_content += "\n\n## 별표 및 서식 (Attached Tables)\n\n"
     tables_found = False
     
-    # Process 별표단위 for both
     for byul in detail_root.findall('.//별표단위'):
         byul_title = byul.find('별표제목')
         if byul_title is not None and byul_title.text:
@@ -144,7 +200,6 @@ def process_law(law_name):
             md_content += f"{byul_content.text.strip()}\n"
             md_content += "```\n\n"
 
-    # Some admrul might just have <별표내용> at root without <별표단위>
     if target_type == 'admrul' and not tables_found:
         byul_contents = detail_root.findall('.//별표내용')
         for i, byul_content in enumerate(byul_contents):
