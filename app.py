@@ -563,6 +563,84 @@ def get_supervisor_checklist():
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
+@app.route('/api/law/article', methods=['GET'])
+def get_law_article():
+    law_name = request.args.get('law_name', '')
+    article_num = request.args.get('article_num', '')
+    
+    if not law_name:
+        return jsonify({"success": False, "message": "law_name is required"}), 400
+        
+    try:
+        q = urllib.parse.quote(law_name)
+        search_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC=ksh8481&target=law&type=XML&query={q}"
+        res = requests.get(search_url, timeout=10)
+        root = ET.fromstring(res.content)
+        
+        mst_id = None
+        target_type = "law"
+        for law in root.findall('.//law'):
+            name = law.find('법령명한글').text if law.find('법령명한글') is not None else ""
+            if name and name.replace(" ", "") == law_name.replace(" ", ""):
+                mst_id = law.find('법령일련번호').text
+                break
+                
+        if not mst_id:
+            target_type = "admrul"
+            search_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC=ksh8481&target=admrul&type=XML&query={q}"
+            res = requests.get(search_url, timeout=10)
+            root = ET.fromstring(res.content)
+            for admrul in root.findall('.//admrul'):
+                name = admrul.find('행정규칙명').text if admrul.find('행정규칙명') is not None else ""
+                if name and name.replace(" ", "") == law_name.replace(" ", ""):
+                    mst_id = admrul.find('행정규칙일련번호').text
+                    break
+                    
+        if not mst_id:
+            return jsonify({"success": False, "message": "해당 법령을 찾을 수 없습니다."}), 404
+            
+        if target_type == "law":
+            detail_url = f"https://www.law.go.kr/DRF/lawService.do?OC=ksh8481&target=law&MST={mst_id}&type=XML"
+        else:
+            detail_url = f"https://www.law.go.kr/DRF/lawService.do?OC=ksh8481&target=admrul&ID={mst_id}&type=XML"
+            
+        detail_res = requests.get(detail_url, timeout=10)
+        detail_root = ET.fromstring(detail_res.content)
+        
+        content = ""
+        if target_type == "law":
+            for jomun in detail_root.findall('.//조문단위'):
+                jomun_title = jomun.find('조문내용')
+                title_text = jomun_title.text if jomun_title is not None else ""
+                
+                if article_num and title_text and not title_text.strip().startswith(article_num):
+                    continue
+                    
+                if title_text:
+                    content += title_text.strip() + "\n"
+                for hang in jomun.findall('.//항내용'):
+                    if hang.text: content += "  " + hang.text.strip() + "\n"
+                for ho in jomun.findall('.//호내용'):
+                    if ho.text: content += "    " + ho.text.strip() + "\n"
+                
+                if article_num: break
+        else:
+            for t in detail_root.findall('.//조문내용'):
+                if t.text:
+                    text = t.text.strip()
+                    if article_num:
+                        if text.startswith(article_num):
+                            content += text + "\n"
+                    else:
+                        content += text + "\n\n"
+                        
+        if not content:
+            content = "해당 조문을 텍스트로 바로 추출할 수 없습니다. 법제처에서 파일 형태로 제공할 수 있습니다."
+            
+        return jsonify({"success": True, "data": content})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
 @app.route('/api/analyze/other_review', methods=['POST'])
 def api_other_review():
     try:

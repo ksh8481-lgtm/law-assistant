@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>스마트 공사감독 체크리스트 - LAW ASSISTANT</title>
     <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
     <style>
         :root {
             --primary: #2563eb;
@@ -12,179 +13,93 @@
             --danger: #ef4444;
             --success: #10b981;
             --warning: #f59e0b;
-            --bg-grad-1: #e0e7ff;
-            --bg-grad-2: #f8fafc;
-            --bg-grad-3: #f3e8ff;
+            --bg-grad-1: #f8fafc;
+            --bg-grad-2: #f1f5f9;
             --text-main: #0f172a;
             --text-muted: #475569;
-            --card-bg: rgba(255, 255, 255, 0.75);
-            --card-border: rgba(255, 255, 255, 0.5);
+            --card-bg: #ffffff;
+            --card-border: #e2e8f0;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: 'Pretendard', sans-serif;
-            background: linear-gradient(135deg, var(--bg-grad-1) 0%, var(--bg-grad-2) 50%, var(--bg-grad-3) 100%);
-            background-attachment: fixed;
+            background: linear-gradient(135deg, var(--bg-grad-1) 0%, var(--bg-grad-2) 100%);
             color: var(--text-main);
             min-height: 100vh;
         }
-        .container {
-            max-width: 1000px;
-            margin: 0 auto;
-            padding: 2rem 1.5rem;
-        }
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 2rem;
-            position: relative;
-        }
-        .header-content h1 {
-            font-size: 2rem;
-            font-weight: 800;
-            background: linear-gradient(90deg, #1e3a8a, #3b82f6);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 0.5rem;
-        }
-        .header-content p { color: var(--text-muted); font-size: 1rem; }
-        .back-btn {
-            padding: 0.6rem 1.2rem;
-            background: rgba(255, 255, 255, 0.8);
-            border: 1px solid var(--card-border);
-            border-radius: 12px;
-            text-decoration: none;
-            color: var(--text-main);
-            font-weight: 600;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.02);
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        .back-btn:hover { background: white; transform: translateY(-2px); }
+        .container { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
         
-        .progress-container {
-            background: white;
-            border-radius: 16px;
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.03);
-            border: 1px solid var(--card-border);
-        }
-        .progress-header { display: flex; justify-content: space-between; margin-bottom: 0.8rem; font-weight: 600; }
-        .progress-bar-bg { height: 12px; background: #e2e8f0; border-radius: 6px; overflow: hidden; }
-        .progress-bar-fill { height: 100%; background: var(--primary); width: 0%; transition: width 0.5s ease; }
+        header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem; }
+        .header-content h1 { font-size: 2.2rem; font-weight: 800; color: #1e293b; margin-bottom: 0.5rem; }
+        .header-content p { color: var(--text-muted); font-size: 1.1rem; }
+        .header-actions { display: flex; gap: 0.8rem; }
+        .btn { padding: 0.6rem 1.2rem; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s; border: none; display: flex; align-items: center; gap: 0.4rem; font-size: 0.95rem; text-decoration: none; }
+        .btn-outline { background: white; border: 1px solid #cbd5e1; color: #334155; }
+        .btn-outline:hover { background: #f8fafc; }
+        .btn-excel { background: #10b981; color: white; }
+        .btn-excel:hover { background: #059669; }
+        .btn-pdf { background: #ef4444; color: white; }
+        .btn-pdf:hover { background: #dc2626; }
+
+        .progress-container { background: white; border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); border: 1px solid var(--card-border); }
+        .progress-header { display: flex; justify-content: space-between; margin-bottom: 0.8rem; font-weight: 600; font-size: 1.1rem;}
+        .progress-bar-bg { height: 16px; background: #e2e8f0; border-radius: 8px; overflow: hidden; }
+        .progress-bar-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #2563eb); width: 0%; transition: width 0.5s ease; }
         
-        .filters {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-        .filter-row {
-            display: flex;
-            gap: 0.5rem;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-        .filter-label { font-weight: 700; margin-right: 0.5rem; color: #334155; min-width: 60px; }
-        .filter-btn {
-            padding: 0.5rem 1rem;
-            background: rgba(255, 255, 255, 0.6);
-            border: 1px solid #cbd5e1;
-            border-radius: 20px;
-            cursor: pointer;
-            font-weight: 500;
-            color: var(--text-muted);
-            transition: all 0.2s;
-        }
-        .filter-btn:hover { background: rgba(255,255,255,0.9); }
-        .filter-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+        /* Tabs */
+        .tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; overflow-x: auto; padding-bottom: 0.5rem; border-bottom: 2px solid #e2e8f0; }
+        .tab-btn { padding: 0.8rem 1.5rem; background: transparent; border: none; font-size: 1.1rem; font-weight: 600; color: #64748b; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all 0.2s; white-space: nowrap; }
+        .tab-btn:hover { color: #334155; }
+        .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+        .checklist-container { display: flex; flex-direction: column; gap: 1rem; }
         
-        .checklist-container {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
-        
-        .check-card {
-            background: var(--card-bg);
-            backdrop-filter: blur(12px);
-            border: 1px solid var(--card-border);
-            border-radius: 16px;
-            padding: 1.5rem;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.02);
-            display: flex;
-            gap: 1rem;
-            transition: all 0.3s;
-            position: relative;
-            overflow: hidden;
-        }
-        .check-card:hover { transform: translateY(-3px); box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
-        .check-card.critical { border-left: 5px solid var(--danger); }
-        .check-card.completed { opacity: 0.6; background: #f8fafc; }
+        .check-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 1.5rem; box-shadow: 0 2px 4px rgba(0,0,0,0.02); display: flex; gap: 1.2rem; transition: all 0.2s; position: relative; }
+        .check-card:hover { border-color: #cbd5e1; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .check-card.completed { opacity: 0.7; background: #f8fafc; }
         .check-card.completed .card-title { text-decoration: line-through; color: #94a3b8; }
         
-        .checkbox-wrapper { padding-top: 0.2rem; }
-        .custom-checkbox {
-            width: 24px; height: 24px;
-            border: 2px solid #cbd5e1;
-            border-radius: 6px;
-            cursor: pointer;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            transition: all 0.2s;
-            background: white;
-        }
+        .checkbox-wrapper { padding-top: 0.3rem; }
+        .custom-checkbox { width: 26px; height: 26px; border: 2px solid #cbd5e1; border-radius: 6px; cursor: pointer; display: flex; justify-content: center; align-items: center; transition: all 0.2s; background: white; }
         .custom-checkbox.checked { background: var(--primary); border-color: var(--primary); }
-        .custom-checkbox.checked::after {
-            content: '✓'; color: white; font-weight: bold; font-size: 14px;
-        }
+        .custom-checkbox.checked::after { content: '✓'; color: white; font-weight: bold; font-size: 16px; }
         
-        .card-content { flex: 1; }
-        .card-meta { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
-        .tag {
-            font-size: 0.75rem; font-weight: 600;
-            padding: 0.2rem 0.6rem; border-radius: 4px;
-        }
-        .tag-phase { background: #e0f2fe; color: #0284c7; }
+        .card-content { flex: 1; min-width: 0; }
+        .card-meta { display: flex; gap: 0.5rem; margin-bottom: 0.8rem; flex-wrap: wrap; align-items: center; }
+        .tag { font-size: 0.8rem; font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 4px; }
         .tag-cat { background: #f1f5f9; color: #475569; }
-        .tag-law { background: #fef3c7; color: #d97706; }
-        .tag-critical { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; display: inline-flex; align-items: center; gap: 0.2rem;}
+        .tag-law { background: #e0e7ff; color: #4f46e5; display: inline-flex; align-items: center; cursor: pointer; transition: background 0.2s; border: 1px solid #c7d2fe;}
+        .tag-law:hover { background: #c7d2fe; }
         
-        .card-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem; line-height: 1.4; transition: color 0.3s; }
-        .card-desc { font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1rem; }
+        .card-title { font-size: 1.2rem; font-weight: 700; margin-bottom: 0.5rem; line-height: 1.4; color: #1e293b; }
+        .card-desc { font-size: 0.95rem; color: var(--text-muted); margin-bottom: 1rem; background: #f8fafc; padding: 0.8rem; border-radius: 8px; border: 1px solid #e2e8f0; }
         
-        .card-actions { display: flex; gap: 0.5rem; }
-        .action-btn {
-            padding: 0.4rem 0.8rem;
-            font-size: 0.85rem;
-            border-radius: 6px;
-            border: none;
-            cursor: pointer;
-            font-weight: 600;
-            transition: all 0.2s;
-            display: flex; align-items: center; gap: 0.3rem;
-        }
-        .btn-photo { background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; }
-        .btn-photo:hover { background: #e2e8f0; }
-        .btn-nc { background: #fef2f2; color: #ef4444; border: 1px solid #fecaca; }
-        .btn-nc:hover { background: #fee2e2; }
+        .memo-box { font-size: 0.9rem; color: #047857; background: #ecfdf5; padding: 0.6rem 1rem; border-radius: 6px; border-left: 3px solid #10b981; margin-bottom: 1rem; display: flex; gap: 0.5rem; align-items: flex-start; }
         
-        .empty-state { text-align: center; padding: 4rem 0; color: var(--text-muted); }
-        .loader { border: 4px solid #f3f3f3; border-top: 4px solid var(--primary); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 2rem auto; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid var(--primary); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 3rem auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
         /* Modal */
-        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: center; z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.3s; padding: 1rem; backdrop-filter: blur(4px); }
         .modal-overlay.active { opacity: 1; pointer-events: all; }
-        .modal-content { background: white; padding: 2rem; border-radius: 16px; max-width: 400px; width: 90%; text-align: center; transform: translateY(20px); transition: transform 0.3s; }
+        .modal-content { background: white; padding: 2rem; border-radius: 16px; max-width: 600px; width: 100%; max-height: 85vh; display: flex; flex-direction: column; transform: translateY(20px); transition: transform 0.3s; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
         .modal-overlay.active .modal-content { transform: translateY(0); }
-        .modal-icon { font-size: 3rem; margin-bottom: 1rem; }
-        .modal-btn { margin-top: 1.5rem; padding: 0.6rem 2rem; background: var(--primary); color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 1rem; }
+        .modal-header h2 { font-size: 1.4rem; color: #1e293b; display: flex; align-items: center; gap: 0.5rem;}
+        .close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #64748b; }
+        .modal-body { overflow-y: auto; flex: 1; font-size: 0.95rem; line-height: 1.6; color: #334155; white-space: pre-wrap; background: #f8fafc; padding: 1rem; border-radius: 8px; border: 1px solid #e2e8f0; }
+        .modal-loader { text-align: center; padding: 2rem; }
+        
+        /* Print Styles */
+        @media print {
+            body { background: white; }
+            .header-actions, .tabs, .progress-container, .card-meta .tag-law, .memo-box { display: none !important; }
+            .container { max-width: 100%; padding: 0; }
+            .check-card { border: none; border-bottom: 1px solid #ccc; border-radius: 0; box-shadow: none; break-inside: avoid; padding: 1rem 0; }
+            .custom-checkbox { border-color: #000; }
+            .custom-checkbox.checked { background: transparent; border-color: #000; }
+            .custom-checkbox.checked::after { color: #000; }
+        }
     </style>
 </head>
 <body>
@@ -192,9 +107,13 @@
         <header>
             <div class="header-content">
                 <h1>🏗️ 스마트 공사감독 체크리스트</h1>
-                <p>현장 소장 및 감독관을 위한 실시간 법정 필수 점검 시스템</p>
+                <p>단계별 필수 점검 사항 및 관련 법령 원문 연동 시스템</p>
             </div>
-            <a href="/" class="back-btn">🏠 메인으로</a>
+            <div class="header-actions">
+                <a href="/" class="btn btn-outline">🏠 메인으로</a>
+                <button class="btn btn-excel" onclick="exportToExcel()">📊 Excel 다운로드</button>
+                <button class="btn btn-pdf" onclick="window.print()">🖨️ PDF 인쇄</button>
+            </div>
         </header>
 
         <div class="progress-container">
@@ -207,24 +126,8 @@
             </div>
         </div>
 
-        <div class="filters">
-            <div class="filter-row" id="phase-filters">
-                <div class="filter-label">단계별</div>
-                <button class="filter-btn active" data-filter="전체">전체</button>
-                <button class="filter-btn" data-filter="착공 전">착공 전</button>
-                <button class="filter-btn" data-filter="시공 중">시공 중</button>
-                <button class="filter-btn" data-filter="준공">준공</button>
-            </div>
-            <div class="filter-row" id="cat-filters">
-                <div class="filter-label">분야별</div>
-                <button class="filter-btn active" data-filter="전체">전체</button>
-                <button class="filter-btn" data-filter="행정/기본">행정/기본</button>
-                <button class="filter-btn" data-filter="안전/보건">안전/보건</button>
-                <button class="filter-btn" data-filter="품질/시공">품질/시공</button>
-                <button class="filter-btn" data-filter="환경/오염">환경/오염</button>
-                <button class="filter-btn" data-filter="재해/방재">재해/방재</button>
-                <button class="filter-btn" data-filter="기타">기타</button>
-            </div>
+        <div class="tabs" id="stage-tabs">
+            <!-- Tabs injected via JS -->
         </div>
 
         <div id="loader" class="loader"></div>
@@ -234,37 +137,41 @@
         </div>
     </div>
 
-    <!-- Simulation Modal -->
-    <div class="modal-overlay" id="modal">
+    <!-- Law Reference Modal -->
+    <div class="modal-overlay" id="law-modal" onclick="if(event.target===this) closeLawModal()">
         <div class="modal-content">
-            <div class="modal-icon" id="modal-icon">📸</div>
-            <h2 id="modal-title" style="margin-bottom: 0.5rem;">기능 시뮬레이션</h2>
-            <p id="modal-desc" style="color: #64748b; font-size: 0.95rem;">실제 서비스에서는 이 버튼을 통해 현장 사진 촬영 및 서버 전송이 이루어집니다.</p>
-            <button class="modal-btn" onclick="closeModal()">확인</button>
+            <div class="modal-header">
+                <h2 id="law-modal-title">⚖️ 법적 근거 확인</h2>
+                <button class="close-btn" onclick="closeLawModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="law-modal-body">
+                <!-- Content or Loader -->
+            </div>
         </div>
     </div>
 
     <script>
-        let allItems = [];
-        let completedIds = JSON.parse(localStorage.getItem('supervisor_completed') || '[]');
-        let currentPhase = '전체';
-        let currentCat = '전체';
+        let projectStages = [];
+        let currentStageId = null;
+        let completedIds = JSON.parse(localStorage.getItem('supervisor_new_completed') || '[]');
 
         document.addEventListener('DOMContentLoaded', () => {
             fetchChecklist();
-            setupFilters();
         });
 
         async function fetchChecklist() {
             try {
                 const res = await fetch('/api/supervisor/checklist');
                 const data = await res.json();
-                if (data.success) {
-                    allItems = data.data;
+                if (data.success && data.data.project_stages) {
+                    projectStages = data.data.project_stages;
+                    if(projectStages.length > 0) currentStageId = projectStages[0].stage_id;
                     document.getElementById('loader').style.display = 'none';
+                    renderTabs();
                     renderCards();
+                    updateGlobalProgress();
                 } else {
-                    alert("데이터 로드 실패: " + data.message);
+                    alert("데이터 로드 실패: 새로운 데이터 형식을 찾을 수 없습니다.");
                 }
             } catch (err) {
                 console.error(err);
@@ -272,22 +179,20 @@
             }
         }
 
-        function setupFilters() {
-            document.querySelectorAll('#phase-filters .filter-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    document.querySelectorAll('#phase-filters .filter-btn').forEach(b => b.classList.remove('active'));
-                    e.target.classList.add('active');
-                    currentPhase = e.target.dataset.filter;
+        function renderTabs() {
+            const tabsContainer = document.getElementById('stage-tabs');
+            tabsContainer.innerHTML = '';
+            
+            projectStages.forEach(stage => {
+                const btn = document.createElement('button');
+                btn.className = `tab-btn ${stage.stage_id === currentStageId ? 'active' : ''}`;
+                btn.textContent = stage.stage_name;
+                btn.onclick = () => {
+                    currentStageId = stage.stage_id;
+                    renderTabs();
                     renderCards();
-                });
-            });
-            document.querySelectorAll('#cat-filters .filter-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    document.querySelectorAll('#cat-filters .filter-btn').forEach(b => b.classList.remove('active'));
-                    e.target.classList.add('active');
-                    currentCat = e.target.dataset.filter;
-                    renderCards();
-                });
+                };
+                tabsContainer.appendChild(btn);
             });
         }
 
@@ -295,69 +200,73 @@
             const container = document.getElementById('checklist');
             container.innerHTML = '';
             
-            let filtered = allItems.filter(item => {
-                let pMatch = (currentPhase === '전체' || item.phase === currentPhase || item.phase === '전체');
-                let cMatch = (currentCat === '전체' || item.category === currentCat);
-                return pMatch && cMatch;
-            });
+            const currentStage = projectStages.find(s => s.stage_id === currentStageId);
+            if (!currentStage || !currentStage.checklists || currentStage.checklists.length === 0) {
+                container.innerHTML = `<div style="text-align:center; padding: 3rem; color:#64748b;">해당 단계에 점검 항목이 없습니다.</div>`;
+                return;
+            }
+
+            let items = [...currentStage.checklists];
             
-            // Sort: Uncompleted first, then critical first
-            filtered.sort((a, b) => {
-                let aComp = completedIds.includes(a.id);
-                let bComp = completedIds.includes(b.id);
+            // Sort: Uncompleted first
+            items.sort((a, b) => {
+                let aComp = completedIds.includes(a.task_id);
+                let bComp = completedIds.includes(b.task_id);
                 if (aComp !== bComp) return aComp ? 1 : -1;
-                if (a.is_critical !== b.is_critical) return a.is_critical ? -1 : 1;
-                return a.id - b.id;
+                return 0;
             });
 
-            if (filtered.length === 0) {
-                container.innerHTML = `<div class="empty-state">해당 필터에 맞는 항목이 없습니다.</div>`;
-            } else {
-                filtered.forEach(item => {
-                    const isCompleted = completedIds.includes(item.id);
-                    const card = document.createElement('div');
-                    card.className = `check-card ${item.is_critical ? 'critical' : ''} ${isCompleted ? 'completed' : ''}`;
-                    
-                    const criticalBadge = item.is_critical ? `<span class="tag tag-critical">🚨 Red Flag (즉시 중지 사안)</span>` : '';
-                    
-                    card.innerHTML = `
-                        <div class="checkbox-wrapper">
-                            <div class="custom-checkbox ${isCompleted ? 'checked' : ''}" onclick="toggleCheck(${item.id})"></div>
+            items.forEach(item => {
+                const isCompleted = completedIds.includes(item.task_id);
+                const card = document.createElement('div');
+                card.className = `check-card ${isCompleted ? 'completed' : ''}`;
+                
+                let lawTag = '';
+                if(item.law_name) {
+                    lawTag = `<span class="tag tag-law" onclick="openLawModal('${item.law_name}', '${item.article_num || ''}')">
+                                ⚖️ ${item.law_name} ${item.article_num} [?]
+                              </span>`;
+                }
+
+                let memoHtml = '';
+                if(item.memo) {
+                    memoHtml = `<div class="memo-box">💡 <strong>기술사 팁:</strong> ${item.memo}</div>`;
+                }
+
+                card.innerHTML = `
+                    <div class="checkbox-wrapper">
+                        <div class="custom-checkbox ${isCompleted ? 'checked' : ''}" onclick="toggleCheck('${item.task_id}')"></div>
+                    </div>
+                    <div class="card-content">
+                        <div class="card-meta">
+                            <span class="tag tag-cat">${item.category}</span>
+                            ${lawTag}
                         </div>
-                        <div class="card-content">
-                            <div class="card-meta">
-                                <span class="tag tag-phase">${item.phase}</span>
-                                <span class="tag tag-cat">${item.category}</span>
-                                <span class="tag tag-law">⚖️ ${item.law_reference}</span>
-                                ${criticalBadge}
-                            </div>
-                            <div class="card-title">${item.check_item}</div>
-                            <div class="card-desc">검측 방법: ${item.inspection_method}</div>
-                            <div class="card-actions">
-                                <button class="action-btn btn-photo" onclick="showModal('photo')">📸 사진 대지 작성</button>
-                                <button class="action-btn btn-nc" onclick="showModal('nc')">⚠️ N/C (부적합) 발행</button>
-                            </div>
-                        </div>
-                    `;
-                    container.appendChild(card);
-                });
-            }
-            updateProgress();
+                        <div class="card-title">${item.task_name}</div>
+                        <div class="card-desc">${item.description}</div>
+                        ${memoHtml}
+                    </div>
+                `;
+                container.appendChild(card);
+            });
         }
 
-        function toggleCheck(id) {
-            if (completedIds.includes(id)) {
-                completedIds = completedIds.filter(x => x !== id);
+        function toggleCheck(taskId) {
+            if (completedIds.includes(taskId)) {
+                completedIds = completedIds.filter(x => x !== taskId);
             } else {
-                completedIds.push(id);
+                completedIds.push(taskId);
             }
-            localStorage.setItem('supervisor_completed', JSON.stringify(completedIds));
-            renderCards(); // Re-render to update classes and sort order
+            localStorage.setItem('supervisor_new_completed', JSON.stringify(completedIds));
+            renderCards(); 
+            updateGlobalProgress();
         }
 
-        function updateProgress() {
-            let total = allItems.length;
+        function updateGlobalProgress() {
+            let total = 0;
+            projectStages.forEach(stage => total += stage.checklists.length);
             let completed = completedIds.length;
+            
             if (total === 0) return;
             
             let percentage = Math.round((completed / total) * 100);
@@ -365,27 +274,64 @@
             document.getElementById('progress-fill').style.width = `${percentage}%`;
         }
 
-        function showModal(type) {
-            const modal = document.getElementById('modal');
-            const icon = document.getElementById('modal-icon');
-            const title = document.getElementById('modal-title');
-            const desc = document.getElementById('modal-desc');
+        async function openLawModal(lawName, articleNum) {
+            const modal = document.getElementById('law-modal');
+            const title = document.getElementById('law-modal-title');
+            const body = document.getElementById('law-modal-body');
             
-            if (type === 'photo') {
-                icon.textContent = '📸';
-                title.textContent = '현장 사진 첨부 시뮬레이션';
-                desc.textContent = '실제 배포 버전에서는 스마트폰 카메라가 연동되어 촬영한 사진이 체크리스트 항목에 워터마크(날짜/시간)와 함께 자동 첨부됩니다.';
-            } else if (type === 'nc') {
-                icon.textContent = '⚠️';
-                title.textContent = 'N/C(부적합) 발행 시뮬레이션';
-                desc.textContent = '실제 배포 버전에서는 클릭 시 즉시 시정 조치 요구서(NCR) 템플릿이 생성되어 시공사 현장소장에게 알림톡/문자로 발송됩니다.';
-            }
-            
+            title.innerHTML = `⚖️ ${lawName} ${articleNum}`;
+            body.innerHTML = `<div class="modal-loader"><div class="loader" style="margin:0 auto; border-top-color:#4f46e5;"></div><p style="margin-top:1rem;">법령 원문을 불러오는 중입니다...</p></div>`;
             modal.classList.add('active');
+
+            try {
+                const query = `?law_name=${encodeURIComponent(lawName)}&article_num=${encodeURIComponent(articleNum)}`;
+                const res = await fetch(`/api/law/article${query}`);
+                const data = await res.json();
+                
+                if(data.success) {
+                    body.textContent = data.data;
+                } else {
+                    body.innerHTML = `<div style="color:#ef4444; padding:1rem;">오류: ${data.message}</div>`;
+                }
+            } catch(e) {
+                body.innerHTML = `<div style="color:#ef4444; padding:1rem;">서버 통신 오류가 발생했습니다.</div>`;
+            }
         }
 
-        function closeModal() {
-            document.getElementById('modal').classList.remove('active');
+        function closeLawModal() {
+            document.getElementById('law-modal').classList.remove('active');
+        }
+
+        function exportToExcel() {
+            let exportData = [];
+            
+            projectStages.forEach(stage => {
+                stage.checklists.forEach(item => {
+                    exportData.push({
+                        '단계': stage.stage_name,
+                        '분야': item.category,
+                        '점검항목': item.task_name,
+                        '법적근거': `${item.law_name} ${item.article_num}`.trim(),
+                        '점검방법': item.description,
+                        '점검상태': completedIds.includes(item.task_id) ? '완료' : '미완료'
+                    });
+                });
+            });
+
+            const worksheet = XLSX.utils.json_to_sheet(exportData);
+            
+            // Set column widths
+            const wscols = [
+                {wch: 15}, {wch: 10}, {wch: 50}, {wch: 25}, {wch: 40}, {wch: 10}
+            ];
+            worksheet['!cols'] = wscols;
+
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "체크리스트");
+            
+            // Generate filename with date
+            let dateStr = new Date().toISOString().slice(0,10).replace(/-/g,"");
+            XLSX.writeFile(workbook, `스마트_공사감독_체크리스트_${dateStr}.xlsx`);
         }
     </script>
 </body>
