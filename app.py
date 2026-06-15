@@ -541,6 +541,7 @@ def run_analysis(job_id, data):
         [요청 사항]
         보고서에 쓸 수 있도록 전문적인 용어로 답변하되, 응답은 반드시 아래 JSON 형식(마크다운 백틱 없이 순수 JSON만)으로 반환하세요.
         URL 링크 엉킴을 방지하기 위해, 관련 법령은 절대로 HTML 태그를 쓰지 말고 "law_name"(정확한 법령명 띄어쓰기 준수)과 "article"(조항 번호)로 정확히 분리하여 작성해 주세요.
+        또한 대금 지급(선금, 기성금, 준공금 등)과 관련된 보고서나 절차가 여러 단계에 걸쳐 중복으로 도출될 경우, 하나로 통합하여 '공사 대금 청구 및 지급' 등의 단일 항목으로 병합하여 보여주세요.
         {{
             "permits": [
                 {{
@@ -552,12 +553,17 @@ def run_analysis(job_id, data):
             ],
             "phases": {{
                 "design": [
-                    {{"task": "설계안전성검토 의뢰", "law_link": "<a href='https://www.law.go.kr/LSW/lsSc.do?query=건설기술진흥법' target='_blank'>건설기술 진흥법 제62조</a>", "desc": "가설구조물 및 굴착 공사에 따른 설계안전성 사전 검토 (대상 여부 확인 필요)"}}
+                    {{"task": "설계안전성검토 의뢰", "law_name": "건설기술 진흥법", "article": "제62조", "desc": "가설구조물 및 굴착 공사에 따른 설계안전성 사전 검토 (대상 여부 확인 필요)"}}
                 ],
                 "construction": [
-                    {{"task": "안전관리계획서 제출", "law_link": "<a href='https://www.law.go.kr/LSW/lsSc.do?query=건설기술진흥법' target='_blank'>건설기술 진흥법 제62조</a>", "desc": "착공 전 인허가 기관에 안전관리계획서 제출 및 승인"}}
+                    {{"task": "안전관리계획서 제출", "law_name": "건설기술 진흥법", "article": "제62조", "desc": "착공 전 인허가 기관에 안전관리계획서 제출 및 승인"}}
                 ],
                 "completion": [
+                    {{"task": "준공검사 신청", "law_name": "건설기술 진흥법", "article": "제39조", "desc": "공사 완료 후 발주청에 준공검사원 제출"}}
+                ],
+                "maintenance": [
+                    {{"task": "하자보수 점검", "law_name": "건설산업기본법", "article": "제28조", "desc": "하자담보책임기간 내 정기 점검 실시"}}
+                ]
                     {{"task": "준공검사", "law_link": "<a href='https://www.law.go.kr/LSW/lsSc.do?query=건축법' target='_blank'>건축법 제22조</a>", "desc": "공사 완료 후 사용승인 신청 및 준공검사"}}
                 ],
                 "maintenance": [
