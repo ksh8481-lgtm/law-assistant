@@ -540,12 +540,13 @@ def run_analysis(job_id, data):
 
         [요청 사항]
         보고서에 쓸 수 있도록 전문적인 용어로 답변하되, 응답은 반드시 아래 JSON 형식(마크다운 백틱 없이 순수 JSON만)으로 반환하세요.
-        "permits" 및 "phases" 항목 작성 시 관련 법령은 반드시 국가법령정보센터 검색 링크(https://www.law.go.kr/LSW/lsSc.do?query=법령명)를 포함한 HTML <a> 태그로 작성해 주세요.
+        URL 링크 엉킴을 방지하기 위해, 관련 법령은 절대로 HTML 태그를 쓰지 말고 "law_name"(정확한 법령명 띄어쓰기 준수)과 "article"(조항 번호)로 정확히 분리하여 작성해 주세요.
         {{
             "permits": [
                 {{
                     "name": "건축허가",
-                    "law_link": "<a href='https://www.law.go.kr/LSW/lsSc.do?query=건축법' target='_blank'>건축법 제11조</a>",
+                    "law_name": "건축법",
+                    "article": "제11조",
                     "reason": "해당 사업은 계획관리지역 내 새로운 건축물을 축조하는 사업이므로 건축허가가 필요함."
                 }}
             ],

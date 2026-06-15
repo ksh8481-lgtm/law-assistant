@@ -307,12 +307,18 @@
                     items.forEach(item => {
                         let taskName = isPermit ? item.name : item.task;
                         let taskDesc = isPermit ? item.reason : item.desc;
+                        
+                        let lawText = item.law_name ? `${item.law_name} ${item.article || ''}`.trim() : (item.law_link || '-');
+                        let lawLinkHTML = item.law_name 
+                            ? `<a href="https://www.law.go.kr/LSW/lsSc.do?query=${encodeURIComponent(item.law_name)}" target="_blank" style="word-break: keep-all;">${lawText}</a>`
+                            : lawText;
+
                         tableHtml += `
                                 <tr>
                                     <td><div class="task-title" style="color:var(--primary-color); margin-bottom: 0;">🔹 ${taskName || '알 수 없음'}</div></td>
                                     <td><div class="task-desc" style="margin-bottom: 0;">${taskDesc || ''}</div></td>
                                     <td class="law-col" style="text-align: center; vertical-align: middle;">
-                                        <span class="law-link-badge" style="display:inline-block;">${item.law_link || '-'}</span>
+                                        <span class="law-link-badge" style="display:inline-block;">${lawLinkHTML}</span>
                                     </td>
                                 </tr>
                         `;
