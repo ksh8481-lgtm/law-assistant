@@ -478,6 +478,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     if (statusData.status === 'completed') {
                         sessionStorage.setItem('aiResult', JSON.stringify(statusData.result));
+                        sessionStorage.setItem('projectData', JSON.stringify(requestData));
                         window.open('/report', '_blank');
                         break;
                     } else if (statusData.status === 'error') {

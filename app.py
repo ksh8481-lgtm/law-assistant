@@ -93,6 +93,69 @@ def index():
 def law_review():
     return render_template('law_review.html')
 
+@app.route('/supervisor')
+def supervisor():
+    return render_template('supervisor.html')
+
+@app.route('/api/supervisor/checklist', methods=['GET', 'POST'])
+def get_supervisor_checklist():
+    try:
+        file_path = os.path.join(os.path.dirname(__file__), 'supervisor_db.json')
+        with open(file_path, 'r', encoding='utf-8') as f:
+            db_data = json.load(f)
+            
+        if request.method == 'POST' and request.json:
+            project_data = request.json
+            if project_data.get('description') or project_data.get('budget'):
+                if GEMINI_KEY:
+                    genai.configure(api_key=GEMINI_KEY)
+                    try:
+                        model = genai.GenerativeModel('gemini-1.5-flash')
+                    except:
+                        model = genai.GenerativeModel('gemini-1.5-pro')
+                    
+                    prompt = f"""
+당신은 현장 공사감독관을 위한 맞춤형 체크리스트 필터링 AI입니다.
+아래 [사업 개요]를 꼼꼼히 읽고, 이어지는 [전체 체크리스트 DB]의 항목(task) 중에서 이 공사에 **해당하지 않거나 불필요한 항목의 task_id**를 추출하세요.
+
+[사업 개요]
+- 사업명: {project_data.get('projectName', '')}
+- 예산: {project_data.get('budget', 0)}억 원
+- 면적: {project_data.get('totalArea', 0)}㎡
+- 주요 사업 내용: {project_data.get('description', '')}
+
+[판단 기준 예시]
+1. 건설사업관리(감리) 항목: "직접 감독" 공사이거나 소규모 공사인 경우 감리가 없을 수 있습니다. 단, 사업 내용에 명확히 없다고 하지 않으면 일단 둡니다.
+2. 지하안전평가: 지하 10m 이상 굴착이나 흙막이가 명시되지 않은 단순 지상/포장 공사면 제외.
+3. 건축허가/건축물 사용승인: 건축물이 포함되지 않은 순수 토목(도로, 공원, 하천 정비 등)이면 제외.
+4. 특정 공사 규모에 미달: 100억 이상일 때만 하는 VE(설계경제성검토) 등. 예산이 기준 미달이면 제외.
+(그 외에도 공사 내용과 전혀 무관한 항목은 과감히 제외하여 실무자의 피로도를 낮추세요.)
+
+[전체 체크리스트 DB]
+{json.dumps(db_data, ensure_ascii=False)}
+
+응답은 오직 제외할 항목의 task_id들만 순수한 JSON 배열 포맷(예: ["TSK_STG_PRE_001", "TSK_STG_CON_005"])으로 반환하세요. 마크다운(` ``` `) 없이 배열만 반환하세요.
+제외할 항목이 없으면 빈 배열 []을 반환하세요.
+"""
+                    try:
+                        response = model.generate_content(prompt)
+                        resp_text = response.text.strip()
+                        if resp_text.startswith("```json"): resp_text = resp_text[7:]
+                        if resp_text.startswith("```"): resp_text = resp_text[3:]
+                        if resp_text.endswith("```"): resp_text = resp_text[:-3]
+                        
+                        excluded_tasks = json.loads(resp_text.strip())
+                        if isinstance(excluded_tasks, list):
+                            for stage in db_data.get("project_stages", []):
+                                original_checklists = stage.get("checklists", [])
+                                stage["checklists"] = [task for task in original_checklists if task.get("task_id") not in excluded_tasks]
+                    except Exception as e:
+                        print("AI filtering error:", e)
+                        pass
+
+        return jsonify({"success": True, "data": db_data})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
 
 @app.route('/report')
 def report():

@@ -206,6 +206,46 @@
             .btn-print {
                 display: none;
             }
+            .section {
+                page-break-inside: avoid;
+            }
+        }
+
+        /* Checklist Table Styles */
+        .checklist-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 0.5rem;
+            font-size: 0.95rem;
+            background: white;
+        }
+        .checklist-table th, .checklist-table td {
+            border: 1px solid var(--border-color);
+            padding: 0.75rem;
+            vertical-align: top;
+        }
+        .checklist-table th {
+            background: #f1f5f9;
+            font-weight: 600;
+            text-align: center;
+            color: var(--text-primary);
+        }
+        .chk-col { width: 40px; text-align: center; vertical-align: middle !important; }
+        .chk-box {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            border: 2px solid #cbd5e1;
+            border-radius: 3px;
+            background: white;
+        }
+        .cat-col { width: 70px; text-align: center; color: var(--text-secondary); font-size: 0.85rem; vertical-align: middle !important; }
+        .law-col { width: 140px; font-size: 0.85rem; }
+        .task-title { font-weight: 600; color: #0f172a; margin-bottom: 0.3rem; }
+        .task-desc { color: #334155; margin-bottom: 0.5rem; line-height: 1.5; font-size: 0.9rem; }
+        .task-memo {
+            font-size: 0.85rem; color: #64748b; background: #f8fafc; padding: 0.4rem 0.6rem; 
+            border-radius: 4px; display: flex; gap: 0.4rem; align-items: flex-start;
         }
     </style>
 </head>
@@ -241,75 +281,135 @@
 
             try {
                 const data = JSON.parse(rawData);
-                let html = '';
+                let html = `
+                <div class="section info">
+                    <h2>🏗️ 사업 생애주기별 인허가 및 법정 의무사항</h2>
+                    <p class="result-disclaimer" style="font-size:0.9rem; color:var(--text-secondary); margin-bottom: 1.5rem;">※ 입력하신 사업 개요와 지역지구 기반으로 AI가 도출한 종합 타임라인입니다.</p>
+                `;
 
-                // 1. Permits
-                if (data.permits && data.permits.length > 0) {
-                    html += `
-                    <div class="section success">
-                        <h2>📑 공통 필수 인허가 및 협의 목록</h2>
-                        <ul class="permit-list-enhanced">
-                            ${data.permits.map(item => `
-                                <li>
-                                    <div class="permit-title">
-                                        <strong>✅ ${item.name || '알 수 없음'}</strong>
-                                        <span class="law-link-badge">${item.law_link || ''}</span>
-                                    </div>
-                                    <div class="permit-reason">
-                                        ${item.reason || ''}
-                                    </div>
-                                </li>
-                            `).join('')}
-                        </ul>
+                const renderTable = (stageName, items, isPermit = false) => {
+                    if (!items || items.length === 0) return '';
+                    let tableHtml = `
+                    <div style="margin-bottom: 2rem; page-break-inside: avoid;">
+                        <h3 style="margin-top:0; color:var(--text-primary); border-bottom: 2px solid var(--primary-color); padding-bottom: 0.5rem; display: inline-block;">
+                            ${stageName}
+                        </h3>
+                        <table class="checklist-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 25%;">항목명</th>
+                                    <th>세부 내용 및 사유</th>
+                                    <th class="law-col">관련 법령</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    `;
+                    items.forEach(item => {
+                        let taskName = isPermit ? item.name : item.task;
+                        let taskDesc = isPermit ? item.reason : item.desc;
+                        tableHtml += `
+                                <tr>
+                                    <td><div class="task-title" style="color:var(--primary-color); margin-bottom: 0;">🔹 ${taskName || '알 수 없음'}</div></td>
+                                    <td><div class="task-desc" style="margin-bottom: 0;">${taskDesc || ''}</div></td>
+                                    <td class="law-col" style="text-align: center; vertical-align: middle;">
+                                        <span class="law-link-badge" style="display:inline-block;">${item.law_link || '-'}</span>
+                                    </td>
+                                </tr>
+                        `;
+                    });
+                    tableHtml += `
+                            </tbody>
+                        </table>
                     </div>`;
-                }
+                    return tableHtml;
+                };
 
-                // 2. Phases (Timeline)
+                html += renderTable('📑 0. 공통 필수 사전 인허가', data.permits, true);
                 if (data.phases) {
-                    const phaseLabels = {
-                        design: '🖌️ 1. 설계 단계',
-                        construction: '🚧 2. 착공 단계',
-                        completion: '🏗️ 3. 준공 단계',
-                        maintenance: '🛠️ 4. 유지보수 단계'
-                    };
-                    
-                    let phasesHtml = '';
-                    for (const [key, label] of Object.entries(phaseLabels)) {
-                        if (data.phases[key] && data.phases[key].length > 0) {
-                            phasesHtml += `
-                            <div class="phase-block">
-                                <h3 class="phase-header">${label}</h3>
-                                <ul class="permit-list-enhanced">
-                                    ${data.phases[key].map(item => `
-                                        <li>
-                                            <div class="permit-title">
-                                                <strong>🔹 ${item.task || '알 수 없음'}</strong>
-                                                <span class="law-link-badge">${item.law_link || ''}</span>
-                                            </div>
-                                            <div class="permit-reason">
-                                                ${item.desc || ''}
-                                            </div>
-                                        </li>
-                                    `).join('')}
-                                </ul>
-                            </div>
-                            `;
-                        }
-                    }
+                    html += renderTable('🖌️ 1. 설계 단계', data.phases.design);
+                    html += renderTable('🚧 2. 착공 단계', data.phases.construction);
+                    html += renderTable('🏗️ 3. 준공 단계', data.phases.completion);
+                    html += renderTable('🛠️ 4. 유지보수 단계', data.phases.maintenance);
+                }
+                
+                html += `</div>`;
+                contentDiv.innerHTML = html;
 
-                    if (phasesHtml) {
-                        html += `
-                        <div class="section info">
-                            <h2>⏱️ 사업 단계별 핵심 법정 의무사항</h2>
-                            <p class="result-disclaimer">※ 입력하신 '주요 사업 내용'을 바탕으로 안전관리계획, 설계안전성검토 등 시기별 필수 절차를 도출했습니다.</p>
-                            <div class="timeline-container">
-                                ${phasesHtml}
-                            </div>
-                        </div>`;
-                    }
+                // 3. Fetch and Render Supervisor Checklist
+                const projectDataRaw = sessionStorage.getItem('projectData');
+                let fetchOptions = {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                };
+                if (projectDataRaw) {
+                    fetchOptions.body = projectDataRaw;
+                } else {
+                    // Fallback empty body if none found
+                    fetchOptions.body = JSON.stringify({});
                 }
 
-                contentDiv.innerHTML = html;
+                contentDiv.insertAdjacentHTML('beforeend', '<div id="checklist-loading" style="text-align:center; padding:2rem; font-weight:bold; color:var(--primary-color);">⏳ AI가 사업 규모(예산/면적)와 현장 여건에 맞춰 감독관 체크리스트를 최적화 필터링 중입니다... (약 2~3초 소요)</div>');
+
+                fetch('/api/supervisor/checklist', fetchOptions)
+                    .then(response => response.json())
+                    .then(checkData => {
+                        const loadingDiv = document.getElementById('checklist-loading');
+                        if (loadingDiv) loadingDiv.remove();
+
+                        if (checkData.success && checkData.data && checkData.data.project_stages) {
+                            let checklistHtml = `
+                            <div class="section law" style="page-break-before: auto;">
+                                <h2>📋 공사감독관 필수 체크리스트 (AI 추출)</h2>
+                                <p class="result-disclaimer" style="font-size:0.9rem; color:var(--text-secondary); margin-bottom: 1rem;">※ 출력 후 현장에 직접 들고 나가서 체크(✔)하며 점검할 수 있는 실무 양식입니다.</p>
+                            `;
+                            checkData.data.project_stages.forEach(stage => {
+                                if (stage.checklists && stage.checklists.length > 0) {
+                                    checklistHtml += `
+                                    <div style="margin-bottom: 2rem; page-break-inside: avoid;">
+                                        <h3 style="margin-top:0; color:var(--text-primary); border-bottom: 2px solid var(--primary-color); padding-bottom: 0.5rem; display: inline-block;">
+                                            ${stage.stage_name}
+                                        </h3>
+                                        <table class="checklist-table">
+                                            <thead>
+                                                <tr>
+                                                    <th class="chk-col">확인</th>
+                                                    <th class="cat-col">구분</th>
+                                                    <th>점검 항목 및 주요 내용</th>
+                                                    <th class="law-col">법적 근거</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                    `;
+                                    stage.checklists.forEach(task => {
+                                        checklistHtml += `
+                                                <tr>
+                                                    <td class="chk-col"><span class="chk-box"></span></td>
+                                                    <td class="cat-col"><strong>${task.category}</strong></td>
+                                                    <td>
+                                                        <div class="task-title">${task.task_name}</div>
+                                                        <div class="task-desc">${task.description}</div>
+                                                        <div class="task-memo">
+                                                            <span>💡</span> <span>${task.memo}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td class="law-col">
+                                                        <a href="https://www.law.go.kr/LSW/lsSc.do?query=${encodeURIComponent(task.law_name)}" target="_blank" style="word-break: keep-all;">${task.law_name}</a><br>
+                                                        <span style="color:var(--text-secondary);">${task.article_num}</span>
+                                                    </td>
+                                                </tr>
+                                        `;
+                                    });
+                                    checklistHtml += `
+                                            </tbody>
+                                        </table>
+                                    </div>`;
+                                }
+                            });
+                            checklistHtml += `</div>`;
+                            contentDiv.insertAdjacentHTML('beforeend', checklistHtml);
+                        }
+                    })
+                    .catch(err => console.error("체크리스트 로딩 오류:", err));
 
             } catch (e) {
                 contentDiv.innerHTML = '<div class="error-message">데이터 형식이 잘못되었습니다. 다시 시도해 주세요.</div>';
