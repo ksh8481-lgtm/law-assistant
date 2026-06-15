@@ -43,7 +43,11 @@ TARGET_LAWS = [
     "공간정보의 구축 및 관리 등에 관한 법률",
     "건축법",
     "건축물관리법",
-    "건축서비스산업 진흥법"
+    "건축서비스산업 진흥법",
+    "산지관리법",
+    "농지법",
+    "수도법",
+    "하수도법"
 ]
 
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'laws')
