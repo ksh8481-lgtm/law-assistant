@@ -387,6 +387,7 @@
                                             <tbody>
                                     `;
                                     stage.checklists.forEach(task => {
+                                        let finalLawUrl = task.law_url ? task.law_url : `https://www.law.go.kr/LSW/lsSc.do?query=${encodeURIComponent(task.law_name)}`;
                                         checklistHtml += `
                                                 <tr>
                                                     <td class="chk-col"><span class="chk-box"></span></td>
@@ -399,7 +400,7 @@
                                                         </div>
                                                     </td>
                                                     <td class="law-col">
-                                                        <a href="https://www.law.go.kr/LSW/lsSc.do?query=${encodeURIComponent(task.law_name)}" target="_blank" style="word-break: keep-all;">${task.law_name}</a><br>
+                                                        <a href="${finalLawUrl}" target="_blank" style="word-break: keep-all;">${task.law_name}</a><br>
                                                         <span style="color:var(--text-secondary);">${task.article_num}</span>
                                                     </td>
                                                 </tr>
