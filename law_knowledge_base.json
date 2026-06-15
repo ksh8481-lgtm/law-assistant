@@ -986,7 +986,7 @@
     {
         "id": "PRELIMINARY_COMPLETION_INSPECTION",
         "name": "예비준공검사",
-        "law_link": "건설사업관리 업무지침서 (참조)",
+        "law_link": "건설공사 사업관리방식 검토기준 및 업무수행지침",
         "phase": "construction",
         "condition": "days_until_completion_date <= 60",
         "desc": "공사 준공 2개월 전 발주 부서와 관련 부서의 합동으로 예비준공검사를 실시해야 합니다. 이는 준공 전 하자 및 미비점을 보완하여 준공검사를 원활하게 진행하기 위함입니다."
