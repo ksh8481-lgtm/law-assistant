@@ -600,22 +600,49 @@ def run_analysis(job_id, data):
             with open(law_urls_path, 'r', encoding='utf-8') as f:
                 law_urls_dict = json.load(f)
                 
-        def process_item(item):
-            if 'law_name' in item and item['law_name']:
-                law_name = item['law_name']
-                if law_name in law_urls_dict:
-                    item['law_url'] = law_urls_dict[law_name]
-                else:
-                    import urllib.parse
-                    is_admrul = law_name.endswith('지침') or law_name.endswith('기준') or law_name.endswith('고시') or law_name.endswith('규정')
-                    base = 'https://www.law.go.kr/LSW/admRulSc.do?query=' if is_admrul else 'https://www.law.go.kr/LSW/lsSc.do?query='
-                    item['law_url'] = base + urllib.parse.quote(law_name)
-                    
+        import urllib.parse
+        import requests
+        import xml.etree.ElementTree as ET
+        import concurrent.futures
+
+        def resolve_url(item):
+            if 'law_name' not in item or not item['law_name']:
+                return
+            law_name = item['law_name'].strip()
+            
+            if law_name in law_urls_dict:
+                item['law_url'] = law_urls_dict[law_name]
+                return
+                
+            try:
+                res_law = requests.get(f"https://www.law.go.kr/DRF/lawSearch.do?OC={LAW_KEY}&target=law&type=XML&query={urllib.parse.quote(law_name)}", timeout=3)
+                root_law = ET.fromstring(res_law.text)
+                if int(root_law.findtext('totalCnt', '0')) > 0:
+                    item['law_url'] = f"https://www.law.go.kr/법령/{urllib.parse.quote(law_name)}"
+                    return
+            except: pass
+            
+            try:
+                res_adm = requests.get(f"https://www.law.go.kr/DRF/lawSearch.do?OC={LAW_KEY}&target=admrul&type=XML&query={urllib.parse.quote(law_name)}", timeout=3)
+                root_adm = ET.fromstring(res_adm.text)
+                if int(root_adm.findtext('totalCnt', '0')) > 0:
+                    item['law_url'] = f"https://www.law.go.kr/행정규칙/{urllib.parse.quote(law_name)}"
+                    return
+            except: pass
+            
+            is_admrul = law_name.endswith('지침') or law_name.endswith('기준') or law_name.endswith('고시') or law_name.endswith('규정')
+            base = 'https://www.law.go.kr/LSW/admRulSc.do?query=' if is_admrul else 'https://www.law.go.kr/LSW/lsSc.do?query='
+            item['law_url'] = base + urllib.parse.quote(law_name)
+            
+        items_to_resolve = []
         if 'permits' in result:
-            for p in result['permits']: process_item(p)
+            items_to_resolve.extend(result['permits'])
         if 'phases' in result:
             for phase_items in result['phases'].values():
-                for t in phase_items: process_item(t)
+                items_to_resolve.extend(phase_items)
+                
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+            executor.map(resolve_url, items_to_resolve)
                 
         JOBS[job_id] = {"status": "completed", "result": result}
         
