@@ -12,7 +12,8 @@
                     "article_num": "제40조",
                     "description": "승인된 현장대리인계와 품질관리자, 안전관리자가 실제로 현장에 상주하고 있는지 신분증 및 출역일보를 통해 대면 확인해야 합니다.",
                     "memo": "자격 대여 및 이중 취업 여부(건설기술인협회 경력증명서) 반드시 확인",
-                    "is_checked": false
+                    "is_checked": false,
+                    "law_url": "https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=273435"
                 },
                 {
                     "task_id": "TSK_STG_PRE_002",
@@ -22,14 +23,15 @@
                     "article_num": "제62조",
                     "description": "안전관리계획서에 따라 현장 경계에 가설울타리가 견고하게 설치되었는지, 세륜기 및 가설사무소의 위치가 도면과 일치하는지 현장 확인합니다.",
                     "memo": "민원 방지를 위해 방음판 추가 설치 여부 현장 확인",
-                    "is_checked": false
+                    "is_checked": false,
+                    "law_url": "https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=276921"
                 },
                 {
                     "task_id": "TSK_STG_PRE_003",
                     "category": "시공/측량",
                     "task_name": "공사 기준점(BM) 및 인조점 확인 측량",
                     "law_name": "건설공사 사업관리방식 검토기준 및 업무수행지침",
-                    "law_url": "https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2000000109914",
+                    "law_url": "https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2100000256028",
                     "article_num": "제33조",
                     "description": "공사 착수 전 설계도면 상의 T.B.M(임시수준점)과 C.P(기준점) 위치가 현장과 일치하는지 시공자와 함께 입회 측량을 실시합니다.",
                     "memo": "공사 중 망실되지 않도록 견고하게 표지석을 설치하고 붉은 페인트로 마킹",
@@ -46,7 +48,7 @@
                     "category": "품질/시공",
                     "task_name": "주요 자재(레미콘, 철근 등) 반입 검수 및 시험 입회",
                     "law_name": "건설공사 사업관리방식 검토기준 및 업무수행지침",
-                    "law_url": "https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2000000109914",
+                    "law_url": "https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2100000256028",
                     "article_num": "제24조",
                     "description": "레미콘 타설 시 현장에 반입된 레미콘의 송장(배합비, 규격)을 확인하고, 슬럼프 및 공기량 시험, 압축강도 공시체 제작에 입회합니다.",
                     "memo": "KS 규격품 확인 및 90분 이내 타설 완료 여부 철저 감독",
@@ -70,14 +72,15 @@
                     "article_num": "제43조",
                     "description": "현장 진출입구의 세륜시설이 정상 작동하는지, 토사 운반 차량의 덮개가 씌워져 있는지, 살수차 가동 여부를 점검합니다.",
                     "memo": "주변 도로에 흙 자국이 묻어있으면 즉시 살수차 청소 지시",
-                    "is_checked": false
+                    "is_checked": false,
+                    "law_url": "https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=276715"
                 },
                 {
                     "task_id": "TSK_STG_CON_004",
                     "category": "시공/계약",
                     "task_name": "지반 조건 등 현장 상이 시 실정보고서 확인",
                     "law_name": "지방자치단체 입찰 및 계약집행기준",
-                    "law_url": "https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2100000214227",
+                    "law_url": "https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2100000280194",
                     "article_num": "제13장",
                     "description": "터파기 시 설계와 달리 암반이 도출되거나 연약지반이 발생하는 등 현장 여건이 다를 경우, 시공을 멈추고 현장 확인 후 실정보고를 지시합니다.",
                     "memo": "임의 시공 후 사후 정산은 절대 불가. 반드시 현장 사진 확보 후 방침 결재",
@@ -88,7 +91,7 @@
                     "category": "시공/검측",
                     "task_name": "주요 공정 매몰 부분 사진 촬영 및 검측",
                     "law_name": "건설공사 사업관리방식 검토기준 및 업무수행지침",
-                    "law_url": "https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2000000109914",
+                    "law_url": "https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2100000256028",
                     "article_num": "제44조",
                     "description": "철근 배근, 지하 매설물(상하수도, 통신 관로 등)과 같이 콘크리트 타설이나 되메우기 후에는 확인할 수 없는 매몰 부분은 반드시 검측 및 사진 촬영을 지시합니다.",
                     "memo": "치수가 잘 보이도록 줄자를 대고 찍은 시공 전/중/후 사진첩 확보",
@@ -105,7 +108,7 @@
                     "category": "시공/검측",
                     "task_name": "예비 준공검사 지적사항 조치 현장 확인",
                     "law_name": "건설공사 사업관리방식 검토기준 및 업무수행지침",
-                    "law_url": "https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2000000109914",
+                    "law_url": "https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2100000256028",
                     "article_num": "제63조",
                     "description": "준공예정일 전 실시한 예비 준공검사에서 지적된 미진한 시공 부위가 완전히 보수되었는지 현장에서 최종 확인합니다.",
                     "memo": "오염, 스크래치, 마감 불량 등 펀치리스트(Punch List) 완벽 지우기",
@@ -132,7 +135,7 @@
                     "category": "행정/기본",
                     "task_name": "현장 안전/품질 회의록 및 작업일보 대조",
                     "law_name": "건설공사 사업관리방식 검토기준 및 업무수행지침",
-                    "law_url": "https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2000000109914",
+                    "law_url": "https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2100000256028",
                     "article_num": "제45조",
                     "description": "현장 방문 시 시공자의 작업일보(투입 인원, 장비, 자재)가 실제 현장과 일치하는지, 주기적인 TBM(안전점검회의)이 실시되고 서명되었는지 확인합니다.",
                     "memo": "안전사고 발생 시 가장 중요한 법적 증빙자료이므로 철저히 관리",
@@ -146,7 +149,8 @@
                     "article_num": "제34조",
                     "description": "하도급 근로자나 장비 기사에게 대금이 제대로 지급되고 있는지 면담을 통해 간이 점검하고, '하도급지킴이' 등 직불 처리 내역을 확인합니다.",
                     "memo": "현장에 '임금체불 신고센터' 현수막 부착 여부 확인 및 근로자 랜덤 면담",
-                    "is_checked": false
+                    "is_checked": false,
+                    "law_url": "https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=273435"
                 }
             ]
         }
