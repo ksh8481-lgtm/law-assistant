@@ -432,8 +432,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            const projectTypeElement = document.querySelector('input[name="projectType"]:checked');
+            const projectType = projectTypeElement ? projectTypeElement.value : '복합공사';
+
             const requestData = {
                 projectName: document.getElementById('projectName').value,
+                projectType: projectType,
                 budget: parseFloat(document.getElementById('budget').value),
                 budgetNational: parseFloat(document.getElementById('budgetNational').value) || 0,
                 budgetProvincial: parseFloat(document.getElementById('budgetProvincial').value) || 0,

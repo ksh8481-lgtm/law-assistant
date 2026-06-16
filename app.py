@@ -428,6 +428,7 @@ def run_analysis(job_id, data):
         model = genai.GenerativeModel(model_name)
         
         project_name = data.get('projectName', '이름 없음')
+        project_type = data.get('projectType', '복합공사')
         budget = data.get('budget', 0)
         budget_nat = data.get('budgetNational', 0)
         budget_prov = data.get('budgetProvincial', 0)
@@ -460,7 +461,7 @@ def run_analysis(job_id, data):
         아래 [사업 개요] 및 [편입필지 지역지구] 정보를 바탕으로 JSON 데이터를 추출하세요.
         응답은 순수 JSON 형식만 반환하세요 (마크다운 백틱 제외).
         
-        [사업 개요] 사업명: {project_name}, 총 사업비: {budget}억, 면적: {total_area}㎡, 주요 내용: {description}
+        [사업 개요] 사업명: {project_name}, 공종: {project_type}, 총 사업비: {budget}억, 면적: {total_area}㎡, 주요 내용: {description}
         [지역지구] {zoning_context}
         
         당신은 다음 변수 목록 중에서 사업 개요에 명확히 해당되는(True 또는 숫자값이 존재하는) 변수들만 골라내어 JSON 키-값 쌍으로 만들어야 합니다:
@@ -507,6 +508,7 @@ def run_analysis(job_id, data):
 
         [사업 개요]
         - 사업명: {project_name}
+        - 주요 사업 분류 (공종): {project_type}
         - 총 사업비: {budget}억 원
         - 검증된 총 사업 면적: {total_area}㎡
         - 주요 사업 내용: {description}
@@ -537,6 +539,12 @@ def run_analysis(job_id, data):
            - **지하안전평가 (지하안전관리에 관한 특별법)**: 10m 이상 지하 굴착 공사 수반 시
            - **설계경제성검토(VE) (건설기술 진흥법 시행령 제75조)**: 총사업비 100억원 이상 건설공사 시
         4. **기타 기본 법정 의무**: 문화재 지표조사, 교통영향평가, 개발행위허가, 산지/농지 전용허가 등
+
+        **[추가 지시사항: 공종에 따른 스마트 필터링]**
+        이 사업은 '{project_type}'입니다.
+        - 만약 토목공사라면 건축법 등 건축 관련 필수 인허가나 행정절차(건축허가, 건축물 사용승인 등)는 과감히 제외하고 토목/환경/안전 위주로 도출하세요.
+        - 만약 조경공사라면 조경 및 수목 식재, 산지/공원 관련 법령 위주로 도출하고 불필요한 토목/건축 규제는 제외하세요.
+        - 복합공사라면 모든 가능성을 열어두고 종합적으로 검토하세요.
 
         [요청 사항]
         보고서에 쓸 수 있도록 전문적인 용어로 답변하되, 응답은 반드시 아래 JSON 형식(마크다운 백틱 없이 순수 JSON만)으로 반환하세요.

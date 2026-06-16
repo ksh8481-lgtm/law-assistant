@@ -26,6 +26,24 @@
                         <label for="projectName">사업명</label>
                         <input type="text" id="projectName" placeholder="예: 구도심 도시재생사업" required>
                     </div>
+
+                    <div class="form-group">
+                        <label>주요 사업 분류 (공종)</label>
+                        <div style="display: flex; gap: 1rem; margin-top: 0.5rem; flex-wrap: wrap;">
+                            <label style="display: flex; align-items: center; gap: 0.4rem; font-weight: normal; cursor: pointer;">
+                                <input type="radio" name="projectType" value="건축공사" required> 건축공사 (신축, 리모델링 등)
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.4rem; font-weight: normal; cursor: pointer;">
+                                <input type="radio" name="projectType" value="토목공사" required> 토목공사 (도로, 교량, 하천 등)
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.4rem; font-weight: normal; cursor: pointer;">
+                                <input type="radio" name="projectType" value="조경공사" required> 조경공사 (공원 조성, 식재 등)
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.4rem; font-weight: normal; cursor: pointer;">
+                                <input type="radio" name="projectType" value="복합공사" checked required> 복합공사 (건축+토목+조경 등)
+                            </label>
+                        </div>
+                    </div>
                     
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
