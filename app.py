@@ -93,9 +93,7 @@ def index():
 def law_review():
     return render_template('law_review.html')
 
-@app.route('/supervisor')
-def supervisor():
-    return render_template('supervisor.html')
+
 
 @app.route('/api/supervisor/checklist', methods=['GET', 'POST'])
 def get_supervisor_checklist():
