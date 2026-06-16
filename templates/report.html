@@ -308,11 +308,9 @@
                         let taskName = isPermit ? item.name : item.task;
                         let taskDesc = isPermit ? item.reason : item.desc;
                         
-                        let isAdmrul = item.law_name && (item.law_name.endsWith('지침') || item.law_name.endsWith('기준') || item.law_name.endsWith('고시') || item.law_name.endsWith('규정'));
-                        let searchBaseUrl = isAdmrul ? 'https://www.law.go.kr/LSW/admRulSc.do?query=' : 'https://www.law.go.kr/LSW/lsSc.do?query=';
                         let lawText = item.law_name ? `${item.law_name} ${item.article || ''}`.trim() : (item.law_link || '-');
-                        let lawLinkHTML = item.law_name 
-                            ? `<a href="${searchBaseUrl}${encodeURIComponent(item.law_name)}" target="_blank" style="word-break: keep-all;">${lawText}</a>`
+                        let lawLinkHTML = item.law_url 
+                            ? `<a href="${item.law_url}" target="_blank" style="word-break: keep-all;">${lawText}</a>`
                             : lawText;
 
                         tableHtml += `

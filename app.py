@@ -564,11 +564,6 @@ def run_analysis(job_id, data):
                 "maintenance": [
                     {{"task": "하자보수 점검", "law_name": "건설산업기본법", "article": "제28조", "desc": "하자담보책임기간 내 정기 점검 실시"}}
                 ]
-                    {{"task": "준공검사", "law_link": "<a href='https://www.law.go.kr/LSW/lsSc.do?query=건축법' target='_blank'>건축법 제22조</a>", "desc": "공사 완료 후 사용승인 신청 및 준공검사"}}
-                ],
-                "maintenance": [
-                    {{"task": "정기 안전점검", "law_link": "<a href='https://www.law.go.kr/LSW/lsSc.do?query=시설물의안전및유지관리에관한특별법' target='_blank'>시설물안전법</a>", "desc": "준공 후 반기별 정기점검 및 유지관리계획 수립"}}
-                ]
             }}
         }}
         """
@@ -584,6 +579,32 @@ def run_analysis(job_id, data):
             text_resp = text_resp[:-3]
             
         result = json.loads(text_resp.strip())
+        
+        # 100% Guaranteed Link Injection
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        law_urls_path = os.path.join(base_dir, 'data', 'law_urls.json')
+        law_urls_dict = {}
+        if os.path.exists(law_urls_path):
+            with open(law_urls_path, 'r', encoding='utf-8') as f:
+                law_urls_dict = json.load(f)
+                
+        def process_item(item):
+            if 'law_name' in item and item['law_name']:
+                law_name = item['law_name']
+                if law_name in law_urls_dict:
+                    item['law_url'] = law_urls_dict[law_name]
+                else:
+                    import urllib.parse
+                    is_admrul = law_name.endswith('지침') or law_name.endswith('기준') or law_name.endswith('고시') or law_name.endswith('규정')
+                    base = 'https://www.law.go.kr/LSW/admRulSc.do?query=' if is_admrul else 'https://www.law.go.kr/LSW/lsSc.do?query='
+                    item['law_url'] = base + urllib.parse.quote(law_name)
+                    
+        if 'permits' in result:
+            for p in result['permits']: process_item(p)
+        if 'phases' in result:
+            for phase_items in result['phases'].values():
+                for t in phase_items: process_item(t)
+                
         JOBS[job_id] = {"status": "completed", "result": result}
         
     except json.JSONDecodeError as e:
