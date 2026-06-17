@@ -194,6 +194,68 @@
         .markdown-body li { margin-bottom: 0.5rem; line-height: 1.5; }
         .markdown-body strong { color: #0f172a; }
         
+        /* Chat UI */
+        .chat-container {
+            margin-top: 2rem;
+            border-top: 2px dashed #cbd5e1;
+            padding-top: 2rem;
+        }
+        .chat-history {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-bottom: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            padding: 1rem;
+            background: #f8fafc;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+        }
+        .chat-msg {
+            max-width: 85%;
+            padding: 1rem;
+            border-radius: 12px;
+            line-height: 1.5;
+        }
+        .chat-msg.user {
+            background: var(--primary);
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 2px;
+        }
+        .chat-msg.ai {
+            background: white;
+            border: 1px solid #e2e8f0;
+            color: var(--text-main);
+            align-self: flex-start;
+            border-bottom-left-radius: 2px;
+        }
+        .chat-input-area {
+            display: flex;
+            gap: 0.5rem;
+        }
+        .chat-input-area input {
+            flex: 1;
+            padding: 1rem;
+            border: 2px solid #cbd5e1;
+            border-radius: 12px;
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        .chat-input-area input:focus { border-color: var(--primary); }
+        .chat-input-area button {
+            padding: 0 1.5rem;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .chat-input-area button:hover { background: var(--primary-hover); }
     </style>
 </head>
 <body>
@@ -217,8 +279,8 @@
                 <div class="file-upload-wrapper">
                     <input type="file" id="file-upload" accept=".pdf,.hwp,.xlsx,.docx">
                     <div class="file-icon">📁</div>
-                    <p id="file-name">클릭하여 파일 선택 (PDF, HWP, 엑셀 등)</p>
-                    <p style="font-size: 0.85rem; color: #94a3b8; margin-top: 0.5rem;">※ 현재 UI 프로토타입 단계입니다.</p>
+                    <p id="file-name">클릭하여 파일 첨부 (PDF, HWP, 엑셀, 이미지 등 전체 지원)</p>
+                    <p style="font-size: 0.85rem; color: #94a3b8; margin-top: 0.5rem;">※ 최신 AI 비전 및 OCR 모델이 문서를 직접 읽고 분석합니다.</p>
                 </div>
             </div>
             
@@ -241,6 +303,18 @@
         <div class="result-box" id="result-box" style="display: none;">
             <h3 style="margin-bottom: 1rem; color: #1e293b; border-bottom: 2px solid var(--primary); padding-bottom: 0.5rem;">법률 검토 보고서</h3>
             <div id="result-content" class="markdown-body"></div>
+            
+            <!-- Chat Box -->
+            <div class="chat-container">
+                <h3 style="margin-bottom: 1rem; color: #1e293b;">💬 심층 질의응답 (Deep Dive)</h3>
+                <div class="chat-history" id="chat-history">
+                    <div class="chat-msg ai">보고서 내용이나 첨부된 문서에 대해 궁금한 점을 질문해 주세요.</div>
+                </div>
+                <div class="chat-input-area">
+                    <input type="text" id="chat-input" placeholder="예: 업로드한 문서의 3페이지 내용을 바탕으로 요약해 줘" onkeypress="if(event.key === 'Enter') sendChat()">
+                    <button onclick="sendChat()" id="chat-btn">전송</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -252,16 +326,21 @@
             }
         });
 
+        let currentFileName = '';
+        let initialContext = '';
+        let chatSessionHistory = [];
+
         async function startAgents() {
             const text = document.getElementById('review-text').value;
+            const fileInput = document.getElementById('file-upload');
             
-            if(!text) {
-                alert("검토할 내용을 입력해주세요.");
+            if(!text && fileInput.files.length === 0) {
+                alert("검토할 내용이나 파일을 첨부해주세요.");
                 return;
             }
             
             document.querySelector('.submit-btn').disabled = true;
-            document.querySelector('.submit-btn').textContent = "검토 진행 중...";
+            document.querySelector('.submit-btn').textContent = "검토 진행 중... (문서 업로드 및 분석에 최대 30초 소요)";
             
             const agentsBox = document.getElementById('agents-box');
             const resultBox = document.getElementById('result-box');
@@ -271,12 +350,17 @@
             const agentMain = document.getElementById('agent-main');
             agentMain.className = 'agent-card active'; 
 
+            const formData = new FormData();
+            formData.append('text', text);
+            if(fileInput.files.length > 0) {
+                formData.append('file', fileInput.files[0]);
+            }
+
             try {
-                // 실제 백엔드 AI 통신
+                // 실제 백엔드 AI 통신 (FormData 전송)
                 const response = await fetch('/api/analyze/other_review', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: text })
+                    body: formData
                 });
 
                 const data = await response.json();
@@ -288,6 +372,14 @@
                 if(data.success) {
                     resultBox.style.display = 'block';
                     document.getElementById('result-content').innerHTML = marked.parse(data.result);
+                    
+                    // 채팅 세션 데이터 저장
+                    currentFileName = data.file_name || '';
+                    initialContext = data.initial_context || '';
+                    chatSessionHistory = [
+                        { role: 'model', text: data.result }
+                    ];
+                    
                     resultBox.scrollIntoView({ behavior: 'smooth' });
                 } else {
                     alert("오류 발생: " + data.message);
@@ -298,6 +390,61 @@
                 document.querySelector('.submit-btn').disabled = false;
                 document.querySelector('.submit-btn').textContent = "AI 통합 검토 시작";
             }
+        }
+        
+        async function sendChat() {
+            const inputEl = document.getElementById('chat-input');
+            const btnEl = document.getElementById('chat-btn');
+            const text = inputEl.value.trim();
+            if(!text) return;
+            
+            // UI 업데이트
+            const historyEl = document.getElementById('chat-history');
+            historyEl.innerHTML += `<div class="chat-msg user">${text.replace(/</g, "&lt;")}</div>`;
+            inputEl.value = '';
+            historyEl.scrollTop = historyEl.scrollHeight;
+            
+            // 로딩 표시
+            const loadingId = 'loading-' + Date.now();
+            historyEl.innerHTML += `<div class="chat-msg ai" id="${loadingId}">답변을 생성 중입니다... ⏳</div>`;
+            historyEl.scrollTop = historyEl.scrollHeight;
+            
+            btnEl.disabled = true;
+            inputEl.disabled = true;
+            
+            try {
+                const response = await fetch('/api/chat/other_review', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chat_history: chatSessionHistory,
+                        new_message: text,
+                        file_name: currentFileName,
+                        initial_context: initialContext
+                    })
+                });
+                
+                const data = await response.json();
+                document.getElementById(loadingId).remove();
+                
+                if(data.success) {
+                    historyEl.innerHTML += `<div class="chat-msg ai markdown-body" style="font-size:0.95rem;">${marked.parse(data.result)}</div>`;
+                    
+                    // 히스토리 업데이트
+                    chatSessionHistory.push({ role: 'user', text: text });
+                    chatSessionHistory.push({ role: 'model', text: data.result });
+                } else {
+                    historyEl.innerHTML += `<div class="chat-msg ai" style="color:red;">오류 발생: ${data.message}</div>`;
+                }
+                historyEl.scrollTop = historyEl.scrollHeight;
+            } catch(error) {
+                document.getElementById(loadingId).remove();
+                historyEl.innerHTML += `<div class="chat-msg ai" style="color:red;">서버 통신 실패: ${error}</div>`;
+            }
+            
+            btnEl.disabled = false;
+            inputEl.disabled = false;
+            inputEl.focus();
         }
     </script>
 </body>

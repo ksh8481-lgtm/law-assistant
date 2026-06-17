@@ -687,23 +687,40 @@ def analyze_status(job_id):
 
 
 
+import tempfile
+import werkzeug.utils
+
 @app.route('/api/analyze/other_review', methods=['POST'])
 def api_other_review():
     try:
-        data = request.json
-        text_content = data.get('text', '')
-        
-        if not text_content:
-            return jsonify({"success": False, "message": "검토할 내용이 제공되지 않았습니다."}), 400
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            text_content = request.form.get('text', '')
+            file_obj = request.files.get('file')
+        else:
+            data = request.json or {}
+            text_content = data.get('text', '')
+            file_obj = None
+            
+        if not text_content and not file_obj:
+            return jsonify({"success": False, "message": "검토할 내용이나 파일이 제공되지 않았습니다."}), 400
             
         genai.configure(api_key=GEMINI_KEY)
-        try:
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            pro_models = [m for m in available_models if 'pro' in m.lower() and 'vision' not in m.lower()]
-            model_name = next((m for m in pro_models if '1.5' in m), pro_models[0]) if pro_models else (available_models[0] if available_models else 'gemini-1.5-pro-latest')
-        except Exception:
-            model_name = 'gemini-1.5-pro-latest'
         
+        uploaded_file = None
+        if file_obj and file_obj.filename:
+            filename = werkzeug.utils.secure_filename(file_obj.filename)
+            temp_dir = tempfile.gettempdir()
+            temp_path = os.path.join(temp_dir, filename)
+            file_obj.save(temp_path)
+            uploaded_file = genai.upload_file(path=temp_path, display_name=filename)
+            os.remove(temp_path)
+            
+        try:
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
+            models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-pro' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3 if '1.5-flash' in x else 4))
+        except:
+            models_to_try = ['models/gemini-1.5-pro', 'models/gemini-1.5-flash']
+            
         moleg_context = fetch_moleg_context(text_content, os.environ.get('MOLEG_API_KEY', ''))
         local_law_context = fetch_local_law_data(text_content, moleg_context)
         
@@ -746,6 +763,79 @@ def api_other_review():
 [요청 내용]
 {text_content}"""
         
+        contents_payload = [prompt]
+        if uploaded_file:
+            contents_payload.append(uploaded_file)
+            
+        response = None
+        last_err = None
+        for m in models_to_try:
+            try:
+                try:
+                    model = genai.GenerativeModel(model_name=m, tools='google_search_retrieval')
+                    response = model.generate_content(contents_payload)
+                    break
+                except Exception as tool_e:
+                    print(f"Tool {m} fallback: {tool_e}")
+                    model = genai.GenerativeModel(model_name=m)
+                    response = model.generate_content(contents_payload)
+                    break
+            except Exception as e:
+                last_err = e
+                print(f"Model {m} failed: {e}")
+                continue
+                
+        if not response:
+            raise Exception(f"모든 AI 모델이 요청 한도 초과 또는 오류로 실패했습니다. 마지막 오류: {last_err}")
+            
+        file_name = uploaded_file.name if uploaded_file else ""
+        return jsonify({
+            "success": True, 
+            "result": response.text, 
+            "file_name": file_name, 
+            "initial_context": prompt
+        })
+        
+    except Exception as e:
+        print(f"Other Review API Error: {e}")
+        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"})
+
+@app.route('/api/chat/other_review', methods=['POST'])
+def api_chat_other_review():
+    try:
+        data = request.json
+        chat_history = data.get('chat_history', [])
+        new_message = data.get('new_message', '')
+        file_name = data.get('file_name', '')
+        initial_context = data.get('initial_context', '')
+        
+        if not new_message:
+            return jsonify({"success": False, "message": "질문이 제공되지 않았습니다."}), 400
+            
+        genai.configure(api_key=GEMINI_KEY)
+        
+        contents_payload = []
+        first_user_parts = [initial_context]
+        if file_name:
+            try:
+                file_obj = genai.get_file(file_name)
+                first_user_parts.append(file_obj)
+            except Exception as e:
+                print(f"File retrieval failed: {e}")
+                
+        contents_payload.append({"role": "user", "parts": first_user_parts})
+        
+        for msg in chat_history:
+            contents_payload.append({
+                "role": msg["role"],
+                "parts": [msg["text"]]
+            })
+            
+        contents_payload.append({
+            "role": "user",
+            "parts": [new_message]
+        })
+        
         try:
             available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
             models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-pro' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3 if '1.5-flash' in x else 4))
@@ -756,27 +846,20 @@ def api_other_review():
         last_err = None
         for m in models_to_try:
             try:
-                try:
-                    model = genai.GenerativeModel(model_name=m, tools='google_search_retrieval')
-                    response = model.generate_content(prompt)
-                    break
-                except Exception as tool_e:
-                    print(f"Tool {m} fallback: {tool_e}")
-                    model = genai.GenerativeModel(model_name=m)
-                    response = model.generate_content(prompt)
-                    break
+                model = genai.GenerativeModel(model_name=m)
+                response = model.generate_content(contents_payload)
+                break
             except Exception as e:
                 last_err = e
-                print(f"Model {m} failed: {e}")
                 continue
                 
         if not response:
-            raise Exception(f"모든 AI 모델이 요청 한도 초과 또는 오류로 실패했습니다. 마지막 오류: {last_err}")
+            raise Exception(f"채팅 응답 생성 실패: {last_err}")
             
         return jsonify({"success": True, "result": response.text})
         
     except Exception as e:
-        print(f"Other Review API Error: {e}")
+        print(f"Chat Review API Error: {e}")
         return jsonify({"success": False, "message": f"서버 오류: {str(e)}"})
 
 if __name__ == '__main__':
