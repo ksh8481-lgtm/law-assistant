@@ -535,11 +535,10 @@ def run_analysis(job_id, data):
         [법제처 제공 현행법 컨텍스트]
         {law_context}
 
-        **[가장 중요한 지시사항: 허위 조항 번호 생성 절대 금지 (할루시네이션 방지)]**
-        사용자는 당신이 과거 지식에 의존해 부정확한 법령 조항 번호(예: 제O조)를 마음대로 지어내는 것을 극도로 경계하고 있습니다.
-        1. 위 [법제처 제공 현행법 컨텍스트]에 없는 법령을 도출할 경우, **절대로 조항 번호(예: 제7조, 제15조 등)를 임의로 지어내지 마십시오.**
-        2. 100% 확신하는 현행 조항이 아니라면 JSON의 "article" 값은 빈 문자열("")로 두거나 기재하지 마십시오. 틀린 조항을 적는 것은 감사에서 중징계 사유입니다!
-        3. 반드시 "현행법에 따르면~"과 같이 법제처 기준 현행법을 바탕으로 해석하고 있다는 것을 보여주세요.
+        **[법령 조항 번호 명시 (매우 중요)]**
+        1. 당신이 도출한 필수 법적 절차(수산업법, 해양환경관리법 등)에 대해, **가급적 정확한 조항 번호(예: 제8조, 제10조 제1항 등)를 반드시 기재**하십시오.
+        2. 제공된 텍스트(컨텍스트)에 해당 법률이 없더라도, 당신의 뛰어난 내부 지식(Pre-trained Knowledge)을 총동원하여 실제 현행법에 존재하는 가장 정확한 조항을 적어주세요.
+        3. 조항 번호를 기재할 때는 절대로 "컨텍스트에 없어서~"와 같은 변명이나 사과문, 해명글을 적지 마십시오. 전문적인 보고서 문체만을 유지하세요.
 
         **[전문가 수준의 심층 연관 분석 프레임워크 (Deep Reasoning Framework)]**
         당신은 단순 정보 검색기가 아니라 최상급 건설 행정 전문가입니다. 아래 3단계 사고 프레임워크를 반드시 거쳐 결과를 도출하십시오.
@@ -876,6 +875,61 @@ def api_chat_other_review():
         
     except Exception as e:
         print(f"Chat Review API Error: {e}")
+        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"})
+
+@app.route('/api/chat/report', methods=['POST'])
+def api_chat_report():
+    try:
+        data = request.json
+        chat_history = data.get('chat_history', [])
+        new_message = data.get('new_message', '')
+        report_data = data.get('report_data', {})
+        
+        if not new_message:
+            return jsonify({"success": False, "message": "질문이 제공되지 않았습니다."}), 400
+            
+        genai.configure(api_key=GEMINI_KEY)
+        
+        initial_context = f"""
+        당신은 건설사업의 [AI 법규 검토 종합 보고서]에 대해 설명해주는 AI 챗봇입니다.
+        아래는 당신이 조금 전 분석하여 생성한 보고서의 원본 데이터(JSON)입니다.
+        사용자가 이 보고서의 내용에 대해 질문하면, 아래 데이터를 바탕으로 친절하고 전문적으로 답변해 주세요.
+        없는 내용을 꾸며내지 마시고, 데이터에 있는 법적 근거와 현장 상황을 연결하여 설명해 주십시오.
+
+        [보고서 데이터]:
+        {json.dumps(report_data, ensure_ascii=False, indent=2)}
+        """
+        
+        contents_payload = []
+        contents_payload.append({"role": "user", "parts": [initial_context]})
+        
+        for msg in chat_history:
+            contents_payload.append({
+                "role": msg["role"],
+                "parts": [msg["text"]]
+            })
+            
+        contents_payload.append({
+            "role": "user",
+            "parts": [new_message]
+        })
+        
+        model_name = 'models/gemini-1.5-pro-latest'
+        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        
+        if model_name not in available_models:
+            model_name = 'models/gemini-1.5-flash-latest'
+            
+        model = genai.GenerativeModel(model_name)
+        response = model.generate_content(contents_payload)
+        
+        return jsonify({
+            "success": True,
+            "result": response.text
+        })
+        
+    except Exception as e:
+        print(f"Report Chat API Error: {e}")
         return jsonify({"success": False, "message": f"서버 오류: {str(e)}"})
 
 if __name__ == '__main__':
