@@ -397,8 +397,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     addParcelRow();
 
+    const publicWaterInput = document.getElementById('publicWaterArea');
+    if (publicWaterInput) {
+        publicWaterInput.addEventListener('input', updateTotalArea);
+    }
+
     function updateTotalArea() {
-        totalAreaSpan.textContent = totalVerifiedArea.toLocaleString();
+        const pubArea = parseFloat(publicWaterInput ? publicWaterInput.value : 0) || 0;
+        const finalArea = totalVerifiedArea + pubArea;
+        if (totalAreaSpan) {
+            totalAreaSpan.textContent = finalArea.toLocaleString();
+        }
     }
 
     if (form) {
@@ -427,8 +436,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
 
-            if (parcels.length === 0) {
-                alert("검증이 완료된 편입 필지가 하나 이상 있어야 합니다.");
+            const pubArea = parseFloat(publicWaterInput ? publicWaterInput.value : 0) || 0;
+            
+            if (parcels.length === 0 && pubArea <= 0) {
+                alert("검증이 완료된 편입 필지 또는 공유수면 면적이 하나 이상 있어야 합니다.");
                 return;
             }
 
@@ -442,7 +453,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 budgetNational: parseFloat(document.getElementById('budgetNational').value) || 0,
                 budgetProvincial: parseFloat(document.getElementById('budgetProvincial').value) || 0,
                 budgetMunicipal: parseFloat(document.getElementById('budgetMunicipal').value) || 0,
-                totalArea: totalVerifiedArea,
+                totalArea: totalVerifiedArea + pubArea,
+                publicWaterArea: pubArea,
                 description: document.getElementById('description').value,
                 parcels: parcels
             };

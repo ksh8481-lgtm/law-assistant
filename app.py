@@ -432,11 +432,12 @@ def run_analysis(job_id, data):
         budget_prov = data.get('budgetProvincial', 0)
         budget_mun = data.get('budgetMunicipal', 0)
         total_area = data.get('totalArea', 0)
+        public_water_area = data.get('publicWaterArea', 0)
         description = data.get('description', '설명 없음')
         parcels = data.get('parcels', [])
 
-        if not parcels:
-            raise Exception("검증된 편입 필지가 없습니다.")
+        if not parcels and public_water_area <= 0:
+            raise Exception("검증된 편입 필지 또는 공유수면 면적이 없습니다.")
 
         parcel_str_list = []
         all_zonings = set()
@@ -446,7 +447,21 @@ def run_analysis(job_id, data):
                 all_zonings.add(z)
                 
         parcel_str = "\n".join(parcel_str_list)
+        if not parcel_str:
+            parcel_str = "지번이 부여된 육상 필지 편입 없음"
+            
         zoning_context = ", ".join(list(all_zonings))
+        
+        public_water_instruction = ""
+        if public_water_area > 0:
+            public_water_instruction = f"""
+        [특수 조건: 해상 및 공유수면 공사]
+        본 사업 구역에는 지번이 존재하지 않는 바다/하천 등 **공유수면 면적 {public_water_area}㎡**가 포함되어 있습니다.
+        따라서 토지이음 규제 내역에 나타나지 않더라도, 해상 공사 및 공유수면 점용과 관련된 다음 법률 및 절차를 반드시 최우선으로 검토하고 각 단계(Phase)에 포함하십시오:
+        - 「공유수면 관리 및 매립에 관한 법률」 (점용·사용 허가, 실시계획 승인)
+        - 「해양환경관리법」 (해역이용협의 등)
+        - 「해양조사와 해양정보 활용에 관한 법률」 등 해상 인허가 관련 필수 법령
+"""
         
         law_context = fetch_law_data(LAW_KEY, "국토의 계획 및 이용에 관한 법률")
         # 모든 DB 변수 추출
@@ -513,6 +528,7 @@ def run_analysis(job_id, data):
         
         [편입 필지 및 지역지구 현황] (매우 중요)
         {parcel_str}
+        {public_water_instruction}
         
         ※ 핵심 검토 요건: 이 사업은 [{zoning_context}] 구역을 포함하고 있습니다. 이 용도지역에 따른 행위 제한 및 필수 인허가를 반드시 찾아내어 적으세요.
         {scale_permits_str}
