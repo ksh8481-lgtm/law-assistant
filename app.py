@@ -172,24 +172,46 @@ def debug_env():
         "message": "서버에 현재 등록된 API 키의 앞/뒷부분입니다. 발급받으신 새 키와 일치하는지 확인해주세요."
     })
 
-def fetch_law_data(law_key, search_query="국토의 계획 및 이용에 관한 법률"):
-    if not law_key:
-        return "법제처 API 키가 제공되지 않아 AI 자체 지식을 기반으로 분석합니다."
+def fetch_single_law_full_text(law_name):
+    if not LAW_KEY: return ""
     try:
-        url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={law_key}&target=law&type=XML&query={search_query}"
-        response = requests.get(url, timeout=5)
-        response.raise_for_status()
-        root = ET.fromstring(response.content)
-        laws = []
-        for law in root.findall('.//law'):
-            law_name = law.find('법령명한글').text if law.find('법령명한글') is not None else ""
-            laws.append(law_name)
-        if laws:
-            return f"법제처 API에서 조회된 연관 법령 목록: {', '.join(laws[:5])} 등."
-        else:
-            return "연관 법령을 찾지 못했습니다."
+        import urllib.parse
+        url1 = f"https://www.law.go.kr/DRF/lawSearch.do?OC={LAW_KEY}&target=law&type=XML&query={urllib.parse.quote(law_name)}"
+        res1 = requests.get(url1, timeout=5)
+        if res1.status_code != 200: return ""
+        root1 = ET.fromstring(res1.content)
+        law = root1.find('.//law')
+        if law is None: return ""
+        mst = law.find('법령일련번호')
+        if mst is None or not mst.text: return ""
+        
+        url2 = f"https://www.law.go.kr/DRF/lawService.do?OC={LAW_KEY}&target=law&type=XML&MST={mst.text}"
+        res2 = requests.get(url2, timeout=10)
+        if res2.status_code != 200: return ""
+        root2 = ET.fromstring(res2.content)
+        
+        articles = root2.findall('.//조문단위')
+        text_parts = [f"【{law_name}】"]
+        for a in articles:
+            content_elem = a.find('조문내용')
+            if content_elem is not None and content_elem.text:
+                text_parts.append(content_elem.text.strip())
+        return "\n".join(text_parts)
     except Exception as e:
-        return "법제처 API 통신 중 오류가 발생하여 자체 지식을 활용합니다."
+        print(f"Failed to fetch {law_name}: {e}")
+        return ""
+
+def fetch_full_law_context(law_names):
+    if not law_names: return "관련 법령 정보 없음"
+    import concurrent.futures
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        for res in executor.map(fetch_single_law_full_text, law_names):
+            if res:
+                results.append(res)
+    if not results:
+        return "법제처 API 통신 오류 또는 조문 검색 실패"
+    return "\n\n".join(results)
 
 def fetch_moleg_context(text, law_key):
     if not law_key:
@@ -424,11 +446,6 @@ def run_analysis(job_id, data):
             raise Exception(f"텍스트 생성을 지원하는 모델이 없습니다. (검색된 모델: {available_models})")
 
         model = genai.GenerativeModel(model_name)
-        search_model = None
-        try:
-            search_model = genai.GenerativeModel(model_name, tools='google_search_retrieval')
-        except Exception:
-            pass
         
         project_name = data.get('projectName', '이름 없음')
         project_type = data.get('projectType', '복합공사')
@@ -509,11 +526,26 @@ def run_analysis(job_id, data):
 
         # --- Rule Engine (Knowledge Base 결정론적 매칭) ---
         matched_laws = evaluate_knowledge_base(kb_params)
+        
+        unique_laws = set(["국토의 계획 및 이용에 관한 법률", "건설기술 진흥법", "건설산업기본법", "산업안전보건법", "지방계약법", "지방재정법"])
+        
         scale_permits_str = ""
         if matched_laws:
             law_lines = [f"        - {law['name']} (Phase: {law['phase']}) : {law['desc']} (근거: {law['law_link']})" for law in matched_laws]
             scale_permits_str = "\n".join(law_lines)
             scale_permits_str = f"\n        **[지식 기반(Knowledge Base) 강제 적용 목록]**\n        서버의 룰 엔진이 매칭한 절대 누락되어서는 안 될 필수 목록입니다. 이 항목들은 반드시 최종 보고서 JSON의 적절한 phase 배열에 포함시키세요:\n{scale_permits_str}\n"
+            
+            for law in matched_laws:
+                import re
+                clean_name = re.sub(r'\s*제\d+조.*|\s*시행령.*|\s*시행규칙.*', '', law.get('law_link', '')).strip()
+                if clean_name:
+                    unique_laws.add(clean_name)
+
+        if public_water_area > 0:
+            unique_laws.update(["공유수면 관리 및 매립에 관한 법률", "해양환경관리법", "수산업법"])
+
+        # 실시간 법령 전체 본문 다운로드
+        law_context = fetch_full_law_context(list(unique_laws))
 
         prompt = f"""
         당신은 대한민국 시설직 공무원을 돕는 최고 수준의 법규 검토 AI 전문가입니다.
@@ -541,8 +573,8 @@ def run_analysis(job_id, data):
         {law_context}
 
         **[법령 조항 번호 명시 (매우 중요)]**
-        1. 당신이 도출한 필수 법적 절차(수산업법, 해양환경관리법 등)에 대해, **정확한 조항 번호(예: 제8조, 제10조 제1항 등)를 반드시 기재**하십시오.
-        2. 제공된 텍스트(컨텍스트)에 해당 법률이 없더라도, 당신에게 주어진 구글 검색 도구(Google Search Retrieval)를 적극 활용하여 대한민국 법제처(국가법령정보센터)의 최신 법령을 실시간으로 검색해 가장 정확한 조항 번호를 찾아내십시오. 시간이 걸리더라도 검색을 통해 정확성을 높이는 것이 우선입니다.
+        1. 당신이 도출한 필수 법적 절차에 대해, **정확한 조항 번호(예: 제8조, 제10조 제1항 등)를 반드시 기재**하십시오.
+        2. 위 [법제처 제공 현행법 컨텍스트]에는 서버가 실시간으로 대한민국 법제처 API에서 통째로 다운로드한 현행법들의 **전체 조문 본문**이 들어 있습니다. 오직 이 다운로드된 공식 본문만을 100% 신뢰하여 조항 번호를 추출하십시오.
         3. 조항 번호를 기재할 때는 절대 "컨텍스트에 없어서~"와 같은 변명이나 사과문, 해명글을 적지 마십시오. 전문적인 보고서 문체만을 유지하세요.
 
         **[전문가 수준의 심층 연관 분석 프레임워크 (Deep Reasoning Framework)]**
@@ -600,14 +632,7 @@ def run_analysis(job_id, data):
         }}
         """
         
-        try:
-            if search_model:
-                response = search_model.generate_content(prompt)
-            else:
-                response = model.generate_content(prompt)
-        except Exception as e:
-            print(f"Search retrieval failed, falling back to standard: {e}")
-            response = model.generate_content(prompt)
+        response = model.generate_content(prompt)
         text_resp = response.text.strip()
         
         if text_resp.startswith("```json"):
