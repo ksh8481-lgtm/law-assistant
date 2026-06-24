@@ -424,6 +424,11 @@ def run_analysis(job_id, data):
             raise Exception(f"텍스트 생성을 지원하는 모델이 없습니다. (검색된 모델: {available_models})")
 
         model = genai.GenerativeModel(model_name)
+        search_model = None
+        try:
+            search_model = genai.GenerativeModel(model_name, tools='google_search_retrieval')
+        except Exception:
+            pass
         
         project_name = data.get('projectName', '이름 없음')
         project_type = data.get('projectType', '복합공사')
@@ -536,9 +541,9 @@ def run_analysis(job_id, data):
         {law_context}
 
         **[법령 조항 번호 명시 (매우 중요)]**
-        1. 당신이 도출한 필수 법적 절차(수산업법, 해양환경관리법 등)에 대해, **가급적 정확한 조항 번호(예: 제8조, 제10조 제1항 등)를 반드시 기재**하십시오.
-        2. 제공된 텍스트(컨텍스트)에 해당 법률이 없더라도, 당신의 뛰어난 내부 지식(Pre-trained Knowledge)을 총동원하여 실제 현행법에 존재하는 가장 정확한 조항을 적어주세요.
-        3. 조항 번호를 기재할 때는 절대로 "컨텍스트에 없어서~"와 같은 변명이나 사과문, 해명글을 적지 마십시오. 전문적인 보고서 문체만을 유지하세요.
+        1. 당신이 도출한 필수 법적 절차(수산업법, 해양환경관리법 등)에 대해, **정확한 조항 번호(예: 제8조, 제10조 제1항 등)를 반드시 기재**하십시오.
+        2. 제공된 텍스트(컨텍스트)에 해당 법률이 없더라도, 당신에게 주어진 구글 검색 도구(Google Search Retrieval)를 적극 활용하여 대한민국 법제처(국가법령정보센터)의 최신 법령을 실시간으로 검색해 가장 정확한 조항 번호를 찾아내십시오. 시간이 걸리더라도 검색을 통해 정확성을 높이는 것이 우선입니다.
+        3. 조항 번호를 기재할 때는 절대 "컨텍스트에 없어서~"와 같은 변명이나 사과문, 해명글을 적지 마십시오. 전문적인 보고서 문체만을 유지하세요.
 
         **[전문가 수준의 심층 연관 분석 프레임워크 (Deep Reasoning Framework)]**
         당신은 단순 정보 검색기가 아니라 최상급 건설 행정 전문가입니다. 아래 3단계 사고 프레임워크를 반드시 거쳐 결과를 도출하십시오.
@@ -595,7 +600,14 @@ def run_analysis(job_id, data):
         }}
         """
         
-        response = model.generate_content(prompt)
+        try:
+            if search_model:
+                response = search_model.generate_content(prompt)
+            else:
+                response = model.generate_content(prompt)
+        except Exception as e:
+            print(f"Search retrieval failed, falling back to standard: {e}")
+            response = model.generate_content(prompt)
         text_resp = response.text.strip()
         
         if text_resp.startswith("```json"):
