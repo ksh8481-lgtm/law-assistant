@@ -171,9 +171,25 @@ def debug_env():
         "gemini_key_in_server": masked_key,
         "message": "서버에 현재 등록된 API 키의 앞/뒷부분입니다. 발급받으신 새 키와 일치하는지 확인해주세요."
     })
-
-
-
+def fetch_law_data(law_key, search_query="국토의 계획 및 이용에 관한 법률"):
+    if not law_key:
+        return "법제처 API 키가 제공되지 않아 AI 자체 지식을 기반으로 분석합니다."
+    try:
+        url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={law_key}&target=law&type=XML&query={search_query}"
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(response.content)
+        laws = []
+        for law in root.findall('.//law'):
+            law_name = law.find('법령명한글').text if law.find('법령명한글') is not None else ""
+            laws.append(law_name)
+        if laws:
+            return f"법제처 API에서 조회된 연관 법령 목록: {', '.join(laws[:5])} 등."
+        else:
+            return "연관 법령을 찾지 못했습니다."
+    except Exception as e:
+        return "법제처 API 통신 중 오류가 발생하여 자체 지식을 활용합니다."
 def fetch_moleg_context(text, law_key):
     if not law_key:
         return ""
