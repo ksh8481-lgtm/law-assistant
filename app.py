@@ -930,11 +930,13 @@ def api_chat_report():
             "parts": [new_message]
         })
         
-        model_name = 'models/gemini-1.5-pro-latest'
         available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
-        if model_name not in available_models:
-            model_name = 'models/gemini-1.5-flash-latest'
+        model_name = 'models/gemini-1.5-flash'
+        for preferred in ['models/gemini-1.5-pro-latest', 'models/gemini-1.5-pro', 'models/gemini-1.5-flash-latest', 'models/gemini-1.5-flash', 'models/gemini-pro']:
+            if preferred in available_models:
+                model_name = preferred
+                break
             
         model = genai.GenerativeModel(model_name)
         response = model.generate_content(contents_payload)
