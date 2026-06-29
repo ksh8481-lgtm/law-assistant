@@ -932,11 +932,17 @@ def api_chat_report():
         
         available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
-        model_name = 'models/gemini-1.5-flash'
-        for preferred in ['models/gemini-1.5-pro-latest', 'models/gemini-1.5-pro', 'models/gemini-1.5-flash-latest', 'models/gemini-1.5-flash', 'models/gemini-pro']:
+        model_name = None
+        for preferred in ['models/gemini-1.5-pro-latest', 'models/gemini-1.5-pro', 'models/gemini-2.0-flash-exp', 'models/gemini-1.5-flash-latest', 'models/gemini-1.5-flash', 'models/gemini-1.0-pro', 'models/gemini-pro']:
             if preferred in available_models:
                 model_name = preferred
                 break
+                
+        # If no preferred model is found, just pick the very first available one
+        if not model_name and available_models:
+            model_name = available_models[0]
+        elif not model_name:
+            model_name = 'models/gemini-1.5-flash'  # Final fallback if list is empty
             
         model = genai.GenerativeModel(model_name)
         response = model.generate_content(contents_payload)
