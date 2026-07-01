@@ -108,9 +108,9 @@ def get_supervisor_checklist():
                 if GEMINI_KEY:
                     genai.configure(api_key=GEMINI_KEY)
                     try:
-                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        model = genai.GenerativeModel('models/gemini-2.5-flash')
                     except:
-                        model = genai.GenerativeModel('gemini-1.5-pro')
+                        model = genai.GenerativeModel('models/gemini-2.0-flash')
                     
                     prompt = f"""
 당신은 현장 공사감독관을 위한 맞춤형 체크리스트 필터링 AI입니다.
@@ -303,7 +303,7 @@ def fetch_moleg_context(text, law_key):
             available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
             models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-pro' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3 if '1.5-flash' in x else 4))
         except:
-            models_to_try = ['models/gemini-1.5-pro', 'models/gemini-1.5-flash']
+            models_to_try = ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']
             
         kw_res = None
         for m in models_to_try:
@@ -515,7 +515,7 @@ def run_analysis(job_id, data):
         available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
         model_name = None
-        for preferred in ['models/gemini-1.5-pro-latest', 'models/gemini-1.5-pro', 'models/gemini-1.5-flash-latest', 'models/gemini-1.5-flash', 'models/gemini-pro', 'models/gemini-1.0-pro']:
+        for preferred in ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']:
             if preferred in available_models:
                 model_name = preferred
                 break
@@ -852,7 +852,7 @@ def api_other_review():
             available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
             models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-pro' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3 if '1.5-flash' in x else 4))
         except:
-            models_to_try = ['models/gemini-1.5-pro', 'models/gemini-1.5-flash']
+            models_to_try = ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']
             
         moleg_context = fetch_moleg_context(text_content, os.environ.get('MOLEG_API_KEY', ''))
         local_law_context = fetch_local_law_data(text_content, moleg_context)
@@ -973,7 +973,7 @@ def api_chat_other_review():
             available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
             models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-pro' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3 if '1.5-flash' in x else 4))
         except:
-            models_to_try = ['models/gemini-1.5-pro', 'models/gemini-1.5-flash']
+            models_to_try = ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']
             
         response = None
         last_err = None
@@ -1035,7 +1035,7 @@ def api_chat_report():
         available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
         model_name = None
-        for preferred in ['models/gemini-1.5-pro-latest', 'models/gemini-1.5-pro', 'models/gemini-2.0-flash-exp', 'models/gemini-1.5-flash-latest', 'models/gemini-1.5-flash', 'models/gemini-1.0-pro', 'models/gemini-pro']:
+        for preferred in ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']:
             if preferred in available_models:
                 model_name = preferred
                 break
@@ -1044,7 +1044,7 @@ def api_chat_report():
         if not model_name and available_models:
             model_name = available_models[0]
         elif not model_name:
-            model_name = 'models/gemini-1.5-flash'  # Final fallback if list is empty
+            model_name = 'models/gemini-2.5-flash'  # Final fallback if list is empty
             
         model = genai.GenerativeModel(model_name)
         response = model.generate_content(contents_payload)
