@@ -169,12 +169,15 @@ def duty_list():
 
 @app.route('/api/search_law_list', methods=['POST'])
 def search_law_list():
-    data = request.json
-    keyword = data.get('keyword', '').strip()
-    if not keyword:
-        return jsonify({"success": False, "message": "검색어를 입력해주세요."})
-    
     try:
+        data = request.get_json(silent=True) or {}
+        keyword = data.get('keyword', '')
+        if isinstance(keyword, str):
+            keyword = keyword.strip()
+            
+        if not keyword:
+            return jsonify({"success": False, "message": "검색어를 입력해주세요."})
+        
         search_res = requests.get(f"https://www.law.go.kr/DRF/lawSearch.do?OC={LAW_KEY}&target=law&type=XML&query={urllib.parse.quote(keyword)}", timeout=5)
         root = ET.fromstring(search_res.text)
         laws = []
@@ -190,14 +193,16 @@ def search_law_list():
 
 @app.route('/api/search_duties', methods=['POST'])
 def search_duties():
-    data = request.json
-    lsi_seq = data.get('lsi_seq', '').strip()
-    exact_law_name = data.get('law_name', '').strip()
-    
-    if not lsi_seq or not exact_law_name:
-        return jsonify({"success": False, "message": "법령일련번호 또는 법률명이 누락되었습니다."})
-    
     try:
+        data = request.get_json(silent=True) or {}
+        lsi_seq = data.get('lsi_seq', '')
+        exact_law_name = data.get('law_name', '')
+        if isinstance(lsi_seq, str): lsi_seq = lsi_seq.strip()
+        if isinstance(exact_law_name, str): exact_law_name = exact_law_name.strip()
+        
+        if not lsi_seq or not exact_law_name:
+            return jsonify({"success": False, "message": "법령일련번호 또는 법률명이 누락되었습니다."})
+        
         doc_res = requests.get(f"https://www.law.go.kr/DRF/lawService.do?OC={LAW_KEY}&target=law&type=XML&MST={lsi_seq}", timeout=10)
         doc_root = ET.fromstring(doc_res.text)
         
