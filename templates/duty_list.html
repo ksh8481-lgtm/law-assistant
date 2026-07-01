@@ -105,6 +105,34 @@
             border-radius: 8px;
         }
 
+        .law-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .law-item {
+            padding: 1.2rem 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .law-item:hover {
+            background-color: var(--hover-bg);
+        }
+
+        .law-item.active {
+            background-color: var(--hover-bg);
+            border-left: 4px solid var(--primary-color);
+            color: var(--primary-dark);
+            font-weight: 700;
+        }
+
         /* Main Content Styling */
         .main-content {
             flex: 1;
@@ -266,12 +294,15 @@
         </div>
         <div class="search-container">
             <input type="text" id="lawSearchInput" class="search-input" placeholder="법률 이름 검색 (예: 중대재해처벌법)">
-            <button id="searchBtn" class="search-btn">AI 의무 분석 시작</button>
+            <button id="searchBtn" class="search-btn">유사 법률 검색</button>
             <div class="search-help">
                 💡 <b>이용 안내</b><br>
-                법제처에 등록된 법률의 이름을 입력하시면 AI가 원문을 실시간으로 다운로드하여 의무 사항을 분석합니다. (약 5~10초 소요)
+                검색어를 입력하면 유사한 법률 목록이 나타납니다. 원하는 법률을 선택해 분석을 시작하세요.
             </div>
         </div>
+        <ul class="law-list" id="lawList">
+            <!-- Laws will be injected here -->
+        </ul>
     </aside>
 
     <main class="main-content">
@@ -291,20 +322,70 @@
         document.addEventListener('DOMContentLoaded', () => {
             const searchInput = document.getElementById('lawSearchInput');
             const searchBtn = document.getElementById('searchBtn');
+            const lawListEl = document.getElementById('lawList');
             const contentArea = document.getElementById('contentArea');
 
-            async function performSearch() {
-                const lawName = searchInput.value.trim();
-                if (!lawName) {
+            // 1. 법률 리스트 검색
+            async function searchLawList() {
+                const keyword = searchInput.value.trim();
+                if (!keyword) {
                     alert("검색할 법률 이름을 입력해주세요.");
                     return;
                 }
 
-                // Show Loading
+                searchBtn.disabled = true;
+                searchBtn.textContent = "검색 중...";
+                lawListEl.innerHTML = '<li class="law-item" style="text-align:center; color:var(--text-secondary);">법령 검색 중...</li>';
+
+                try {
+                    const response = await fetch('/api/search_law_list', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ keyword: keyword })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        renderLawList(result.data);
+                    } else {
+                        lawListEl.innerHTML = `<li class="law-item" style="color:red;">오류: ${result.message}</li>`;
+                    }
+                } catch (err) {
+                    console.error("Law list search failed:", err);
+                    lawListEl.innerHTML = `<li class="law-item" style="color:red;">네트워크 오류가 발생했습니다.</li>`;
+                } finally {
+                    searchBtn.disabled = false;
+                    searchBtn.textContent = "유사 법률 검색";
+                }
+            }
+
+            function renderLawList(laws) {
+                lawListEl.innerHTML = '';
+                if (!laws || laws.length === 0) {
+                    lawListEl.innerHTML = '<li class="law-item" style="text-align:center; color:var(--text-secondary);">검색 결과가 없습니다.</li>';
+                    return;
+                }
+
+                laws.forEach(law => {
+                    const li = document.createElement('li');
+                    li.className = 'law-item';
+                    li.textContent = law.law_name;
+                    li.onclick = () => {
+                        document.querySelectorAll('.law-item').forEach(el => el.classList.remove('active'));
+                        li.classList.add('active');
+                        analyzeDuties(law.lsi_seq, law.law_name);
+                    };
+                    lawListEl.appendChild(li);
+                });
+            }
+
+            // 2. 선택한 법률의 의무 사항 AI 분석
+            async function analyzeDuties(lsi_seq, law_name) {
                 contentArea.innerHTML = `
                     <div class="empty-state">
                         <div class="spinner"></div>
-                        <h2>법제처 원문 연동 및 AI 분석 중...</h2>
+                        <h2>[${law_name}]<br>법제처 원문 다운로드 및 AI 분석 중...</h2>
                         <p>법령의 내용이 많을 경우 최대 10초까지 소요될 수 있습니다. 잠시만 기다려주세요.</p>
                     </div>
                 `;
@@ -313,7 +394,7 @@
                     const response = await fetch('/api/search_duties', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ law_name: lawName })
+                        body: JSON.stringify({ lsi_seq: lsi_seq, law_name: law_name })
                     });
                     
                     const result = await response.json();
@@ -324,14 +405,14 @@
                         contentArea.innerHTML = `<div class="empty-state"><h2>오류가 발생했습니다.</h2><p>${result.message}</p></div>`;
                     }
                 } catch (err) {
-                    console.error("Search failed:", err);
+                    console.error("Duty analysis failed:", err);
                     contentArea.innerHTML = `<div class="empty-state"><h2>네트워크 오류가 발생했습니다.</h2></div>`;
                 }
             }
 
-            searchBtn.addEventListener('click', performSearch);
+            searchBtn.addEventListener('click', searchLawList);
             searchInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') performSearch();
+                if (e.key === 'Enter') searchLawList();
             });
 
             function renderDuties(data) {

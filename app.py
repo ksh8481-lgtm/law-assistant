@@ -167,23 +167,37 @@ def other_review():
 def duty_list():
     return render_template('duty_list.html')
 
+@app.route('/api/search_law_list', methods=['POST'])
+def search_law_list():
+    data = request.json
+    keyword = data.get('keyword', '').strip()
+    if not keyword:
+        return jsonify({"success": False, "message": "검색어를 입력해주세요."})
+    
+    try:
+        search_res = requests.get(f"https://www.law.go.kr/DRF/lawSearch.do?OC={LAW_KEY}&target=law&type=XML&query={urllib.parse.quote(keyword)}", timeout=5)
+        root = ET.fromstring(search_res.text)
+        laws = []
+        for law in root.findall('law'):
+            laws.append({
+                'lsi_seq': law.findtext('법령일련번호'),
+                'law_name': law.findtext('법령명한글')
+            })
+        return jsonify({"success": True, "data": laws})
+    except Exception as e:
+        print("Law List Search Error:", e)
+        return jsonify({"success": False, "message": f"법령 목록 검색 오류: {str(e)}"})
+
 @app.route('/api/search_duties', methods=['POST'])
 def search_duties():
     data = request.json
-    law_name = data.get('law_name', '').strip()
-    if not law_name:
-        return jsonify({"success": False, "message": "법률명을 입력해주세요."})
+    lsi_seq = data.get('lsi_seq', '').strip()
+    exact_law_name = data.get('law_name', '').strip()
+    
+    if not lsi_seq or not exact_law_name:
+        return jsonify({"success": False, "message": "법령일련번호 또는 법률명이 누락되었습니다."})
     
     try:
-        search_res = requests.get(f"https://www.law.go.kr/DRF/lawSearch.do?OC={LAW_KEY}&target=law&type=XML&query={urllib.parse.quote(law_name)}", timeout=5)
-        root = ET.fromstring(search_res.text)
-        law_node = root.find('law')
-        if not law_node:
-            return jsonify({"success": False, "message": "검색된 법률이 없습니다. 정확한 이름을 입력해주세요."})
-            
-        lsi_seq = law_node.findtext('법령일련번호')
-        exact_law_name = law_node.findtext('법령명한글')
-        
         doc_res = requests.get(f"https://www.law.go.kr/DRF/lawService.do?OC={LAW_KEY}&target=law&type=XML&MST={lsi_seq}", timeout=10)
         doc_root = ET.fromstring(doc_res.text)
         
@@ -204,15 +218,17 @@ def search_duties():
             return jsonify({"success": False, "message": "Gemini API 키가 설정되지 않았습니다."})
             
         genai.configure(api_key=GEMINI_KEY)
-        model_name = 'models/gemini-1.5-flash'
         available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        for preferred in ['models/gemini-1.5-pro-latest', 'models/gemini-1.5-pro', 'models/gemini-2.0-flash-exp', 'models/gemini-1.5-flash-latest', 'models/gemini-1.5-flash', 'models/gemini-1.0-pro']:
+        model_name = None
+        for preferred in ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-2.5-pro', 'models/gemini-1.5-pro', 'models/gemini-1.5-flash']:
             if preferred in available_models:
                 model_name = preferred
                 break
         if not model_name and available_models:
             model_name = available_models[0]
-            
+        elif not model_name:
+            model_name = 'models/gemini-2.5-flash'
+    
         model = genai.GenerativeModel(model_name)
         prompt = f"""
 다음은 '{exact_law_name}' 법령의 일부 조문입니다:
