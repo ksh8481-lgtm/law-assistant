@@ -55,6 +55,27 @@
             gap: 0.5rem;
         }
 
+        .search-container {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .search-input {
+            width: 100%;
+            padding: 0.8rem 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 0.95rem;
+            box-sizing: border-box;
+            outline: none;
+            transition: all 0.2s;
+        }
+        
+        .search-input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+        }
+
         .law-list {
             list-style: none;
             padding: 0;
@@ -223,6 +244,9 @@
         <div class="sidebar-header">
             <h1>📑 법정 의무 마스터</h1>
         </div>
+        <div class="search-container">
+            <input type="text" id="lawSearchInput" class="search-input" placeholder="법률 이름 검색 (예: 산업안전보건법)">
+        </div>
         <ul class="law-list" id="lawList">
             <!-- Laws will be injected here -->
         </ul>
@@ -245,6 +269,7 @@
         document.addEventListener('DOMContentLoaded', async () => {
             const lawListEl = document.getElementById('lawList');
             const contentArea = document.getElementById('contentArea');
+            const lawSearchInput = document.getElementById('lawSearchInput');
             let dbData = null;
 
             try {
@@ -260,6 +285,19 @@
                 console.error("Failed to fetch duties:", err);
                 contentArea.innerHTML = `<div class="empty-state"><h2>네트워크 오류가 발생했습니다.</h2></div>`;
             }
+
+            lawSearchInput.addEventListener('input', (e) => {
+                const keyword = e.target.value.toLowerCase().trim();
+                if (!dbData) return;
+                
+                if (keyword === '') {
+                    renderSidebar(dbData);
+                    return;
+                }
+                
+                const filtered = dbData.filter(law => law.law_name.toLowerCase().includes(keyword));
+                renderSidebar(filtered);
+            });
 
             function renderSidebar(laws) {
                 lawListEl.innerHTML = '';
@@ -277,9 +315,11 @@
             }
 
             function renderDuties(law) {
+                const lawUrl = `https://www.law.go.kr/법령/${encodeURIComponent(law.law_name)}`;
                 let html = `
-                    <div class="law-title-container">
+                    <div class="law-title-container" style="display:flex; justify-content:space-between; align-items:flex-end;">
                         <h2 class="law-title">${law.law_name}</h2>
+                        <a href="${lawUrl}" target="_blank" style="padding: 0.6rem 1.2rem; background: var(--primary-color); color: white; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.95rem; transition: background 0.2s;">법 원문 보기 🔗</a>
                     </div>
                     <div class="duties-grid">
                 `;
