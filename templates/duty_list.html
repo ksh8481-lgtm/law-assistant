@@ -56,16 +56,20 @@
         }
 
         .search-container {
-            padding: 1rem;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
             border-bottom: 1px solid var(--border-color);
+            flex: 1;
         }
         
         .search-input {
             width: 100%;
-            padding: 0.8rem 1rem;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            font-size: 0.95rem;
+            padding: 1rem;
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 1rem;
             box-sizing: border-box;
             outline: none;
             transition: all 0.2s;
@@ -76,32 +80,29 @@
             box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
         }
 
-        .law-list {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-            overflow-y: auto;
-            flex: 1;
-        }
-
-        .law-item {
-            padding: 1.2rem 1.5rem;
-            border-bottom: 1px solid var(--border-color);
-            cursor: pointer;
-            transition: all 0.2s;
-            font-weight: 500;
-            color: var(--text-primary);
-        }
-
-        .law-item:hover {
-            background-color: var(--hover-bg);
-        }
-
-        .law-item.active {
-            background-color: var(--hover-bg);
-            border-left: 4px solid var(--primary-color);
-            color: var(--primary-dark);
+        .search-btn {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 1rem;
+            border-radius: 8px;
+            font-size: 1.1rem;
             font-weight: 700;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .search-btn:hover {
+            background: var(--primary-dark);
+        }
+
+        .search-help {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+            background: var(--bg-color);
+            padding: 1rem;
+            border-radius: 8px;
         }
 
         /* Main Content Styling */
@@ -141,6 +142,9 @@
             margin-bottom: 2rem;
             padding-bottom: 1rem;
             border-bottom: 2px solid var(--primary-color);
+            display: flex; 
+            justify-content: space-between; 
+            align-items: flex-end;
         }
 
         .law-title {
@@ -236,6 +240,22 @@
             font-size: 1.5rem;
             margin-bottom: 0.5rem;
         }
+
+        /* Spinner */
+        .spinner {
+            border: 4px solid rgba(0,0,0,0.1);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border-left-color: var(--primary-color);
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1.5rem auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -245,11 +265,13 @@
             <h1>📑 법정 의무 마스터</h1>
         </div>
         <div class="search-container">
-            <input type="text" id="lawSearchInput" class="search-input" placeholder="법률 이름 검색 (예: 산업안전보건법)">
+            <input type="text" id="lawSearchInput" class="search-input" placeholder="법률 이름 검색 (예: 중대재해처벌법)">
+            <button id="searchBtn" class="search-btn">AI 의무 분석 시작</button>
+            <div class="search-help">
+                💡 <b>이용 안내</b><br>
+                법제처에 등록된 법률의 이름을 입력하시면 AI가 원문을 실시간으로 다운로드하여 의무 사항을 분석합니다. (약 5~10초 소요)
+            </div>
         </div>
-        <ul class="law-list" id="lawList">
-            <!-- Laws will be injected here -->
-        </ul>
     </aside>
 
     <main class="main-content">
@@ -259,75 +281,73 @@
         
         <div id="contentArea">
             <div class="empty-state">
-                <h2>법률을 선택해주세요</h2>
-                <p>좌측 목록에서 법률을 선택하시면, 관련된 필수 의무사항과 주기를 확인할 수 있습니다.</p>
+                <h2>법률을 검색해주세요</h2>
+                <p>좌측 검색창에 법률을 입력하시면 관련된 필수 의무사항과 주기를 확인할 수 있습니다.</p>
             </div>
         </div>
     </main>
 
     <script>
-        document.addEventListener('DOMContentLoaded', async () => {
-            const lawListEl = document.getElementById('lawList');
+        document.addEventListener('DOMContentLoaded', () => {
+            const searchInput = document.getElementById('lawSearchInput');
+            const searchBtn = document.getElementById('searchBtn');
             const contentArea = document.getElementById('contentArea');
-            const lawSearchInput = document.getElementById('lawSearchInput');
-            let dbData = null;
 
-            try {
-                const response = await fetch('/api/duties');
-                const result = await response.json();
-                if (result.success && result.data && result.data.laws) {
-                    dbData = result.data.laws;
-                    renderSidebar(dbData);
-                } else {
-                    contentArea.innerHTML = `<div class="empty-state"><h2>데이터를 불러올 수 없습니다.</h2></div>`;
-                }
-            } catch (err) {
-                console.error("Failed to fetch duties:", err);
-                contentArea.innerHTML = `<div class="empty-state"><h2>네트워크 오류가 발생했습니다.</h2></div>`;
-            }
-
-            lawSearchInput.addEventListener('input', (e) => {
-                const keyword = e.target.value.toLowerCase().trim();
-                if (!dbData) return;
-                
-                if (keyword === '') {
-                    renderSidebar(dbData);
+            async function performSearch() {
+                const lawName = searchInput.value.trim();
+                if (!lawName) {
+                    alert("검색할 법률 이름을 입력해주세요.");
                     return;
                 }
-                
-                const filtered = dbData.filter(law => law.law_name.toLowerCase().includes(keyword));
-                renderSidebar(filtered);
-            });
 
-            function renderSidebar(laws) {
-                lawListEl.innerHTML = '';
-                laws.forEach((law, index) => {
-                    const li = document.createElement('li');
-                    li.className = 'law-item';
-                    li.textContent = law.law_name;
-                    li.onclick = () => {
-                        document.querySelectorAll('.law-item').forEach(el => el.classList.remove('active'));
-                        li.classList.add('active');
-                        renderDuties(law);
-                    };
-                    lawListEl.appendChild(li);
-                });
+                // Show Loading
+                contentArea.innerHTML = `
+                    <div class="empty-state">
+                        <div class="spinner"></div>
+                        <h2>법제처 원문 연동 및 AI 분석 중...</h2>
+                        <p>법령의 내용이 많을 경우 최대 10초까지 소요될 수 있습니다. 잠시만 기다려주세요.</p>
+                    </div>
+                `;
+
+                try {
+                    const response = await fetch('/api/search_duties', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ law_name: lawName })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        renderDuties(result.data);
+                    } else {
+                        contentArea.innerHTML = `<div class="empty-state"><h2>오류가 발생했습니다.</h2><p>${result.message}</p></div>`;
+                    }
+                } catch (err) {
+                    console.error("Search failed:", err);
+                    contentArea.innerHTML = `<div class="empty-state"><h2>네트워크 오류가 발생했습니다.</h2></div>`;
+                }
             }
 
-            function renderDuties(law) {
-                const lawUrl = `https://www.law.go.kr/법령/${encodeURIComponent(law.law_name)}`;
+            searchBtn.addEventListener('click', performSearch);
+            searchInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') performSearch();
+            });
+
+            function renderDuties(data) {
+                const lawUrl = `https://www.law.go.kr/법령/${encodeURIComponent(data.law_name)}`;
                 let html = `
-                    <div class="law-title-container" style="display:flex; justify-content:space-between; align-items:flex-end;">
-                        <h2 class="law-title">${law.law_name}</h2>
+                    <div class="law-title-container">
+                        <h2 class="law-title">${data.law_name}</h2>
                         <a href="${lawUrl}" target="_blank" style="padding: 0.6rem 1.2rem; background: var(--primary-color); color: white; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.95rem; transition: background 0.2s;">법 원문 보기 🔗</a>
                     </div>
                     <div class="duties-grid">
                 `;
 
-                if (!law.duties || law.duties.length === 0) {
-                    html += `<p style="color:var(--text-secondary);">등록된 의무 사항이 없습니다.</p>`;
+                if (!data.duties || data.duties.length === 0) {
+                    html += `<p style="color:var(--text-secondary); font-size:1.1rem; text-align:center; padding: 2rem;">이 법령에는 명시된 행정/건설 등 관련 필수 의무 사항이 발견되지 않았습니다.</p>`;
                 } else {
-                    law.duties.forEach(duty => {
+                    data.duties.forEach(duty => {
                         html += `
                             <div class="duty-card">
                                 <div class="duty-header">
@@ -338,11 +358,11 @@
                                 <div class="duty-meta">
                                     <div class="meta-item">
                                         <span class="meta-label">점검 주기 / 기한</span>
-                                        <span class="meta-value">⏱️ ${duty.frequency}</span>
+                                        <span class="meta-value">⏱️ ${duty.frequency || '지정되지 않음'}</span>
                                     </div>
                                     <div class="meta-item">
                                         <span class="meta-label">의무 주체</span>
-                                        <span class="meta-value">👤 ${duty.target}</span>
+                                        <span class="meta-value">👤 ${duty.target || '지정되지 않음'}</span>
                                     </div>
                                 </div>
                             </div>

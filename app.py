@@ -167,15 +167,87 @@ def other_review():
 def duty_list():
     return render_template('duty_list.html')
 
-@app.route('/api/duties', methods=['GET'])
-def get_duties():
+@app.route('/api/search_duties', methods=['POST'])
+def search_duties():
+    data = request.json
+    law_name = data.get('law_name', '').strip()
+    if not law_name:
+        return jsonify({"success": False, "message": "법률명을 입력해주세요."})
+    
     try:
-        file_path = os.path.join(os.path.dirname(__file__), 'data', 'duty_db.json')
-        with open(file_path, 'r', encoding='utf-8') as f:
-            db_data = json.load(f)
-        return jsonify({"success": True, "data": db_data})
+        search_res = requests.get(f"https://www.law.go.kr/DRF/lawSearch.do?OC={LAW_KEY}&target=law&type=XML&query={urllib.parse.quote(law_name)}", timeout=5)
+        root = ET.fromstring(search_res.text)
+        law_node = root.find('law')
+        if not law_node:
+            return jsonify({"success": False, "message": "검색된 법률이 없습니다. 정확한 이름을 입력해주세요."})
+            
+        lsi_seq = law_node.findtext('법령일련번호')
+        exact_law_name = law_node.findtext('법령명한글')
+        
+        doc_res = requests.get(f"https://www.law.go.kr/DRF/lawService.do?OC={LAW_KEY}&target=law&type=XML&MST={lsi_seq}", timeout=10)
+        doc_root = ET.fromstring(doc_res.text)
+        
+        articles = doc_root.findall('.//조문단위')
+        full_text = ""
+        for art in articles:
+            art_title = art.findtext('조문내용') or ""
+            full_text += art_title + "\n"
+            for hang in art.findall('.//항내용'):
+                full_text += hang.text + "\n"
+            for ho in art.findall('.//호내용'):
+                full_text += ho.text + "\n"
+                
+        if len(full_text) > 40000:
+            full_text = full_text[:40000]
+            
+        if not GEMINI_KEY:
+            return jsonify({"success": False, "message": "Gemini API 키가 설정되지 않았습니다."})
+            
+        genai.configure(api_key=GEMINI_KEY)
+        model_name = 'models/gemini-1.5-flash'
+        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        for preferred in ['models/gemini-1.5-pro-latest', 'models/gemini-1.5-pro', 'models/gemini-2.0-flash-exp', 'models/gemini-1.5-flash-latest', 'models/gemini-1.5-flash', 'models/gemini-1.0-pro']:
+            if preferred in available_models:
+                model_name = preferred
+                break
+        if not model_name and available_models:
+            model_name = available_models[0]
+            
+        model = genai.GenerativeModel(model_name)
+        prompt = f"""
+다음은 '{exact_law_name}' 법령의 일부 조문입니다:
+{full_text}
+
+이 법령 내용 중에서 '행정/건설 관리기관, 사업주, 지자체 등이 의무적으로 이행해야 하는 사항'(예: 정기 안전점검, 교육 실시, 계획 수립, 결과 통보 등)만 추출하세요.
+결과는 오직 아래의 순수 JSON 배열 포맷으로만 반환하세요(마크다운 없이). 의무사항이 없으면 빈 배열 []을 반환하세요.
+[
+  {{
+    "article": "제O조",
+    "duty_title": "핵심 의무 제목",
+    "description": "구체적인 의무 내용 요약",
+    "frequency": "수시 / 연 1회 등 기한",
+    "target": "의무 이행 주체"
+  }}
+]
+"""
+        response = model.generate_content(prompt)
+        resp_text = response.text.strip()
+        if resp_text.startswith("```json"): resp_text = resp_text[7:]
+        if resp_text.startswith("```"): resp_text = resp_text[3:]
+        if resp_text.endswith("```"): resp_text = resp_text[:-3]
+        
+        duties = json.loads(resp_text.strip())
+        
+        result_data = {
+            "law_name": exact_law_name,
+            "duties": duties
+        }
+        
+        return jsonify({"success": True, "data": result_data})
+        
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        print("Duty Search Error:", e)
+        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"})
 
 @app.route('/api/debug')
 def debug_env():
