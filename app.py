@@ -163,6 +163,20 @@ def report():
 def other_review():
     return render_template('other_review.html')
 
+@app.route('/duty_list')
+def duty_list():
+    return render_template('duty_list.html')
+
+@app.route('/api/duties', methods=['GET'])
+def get_duties():
+    try:
+        file_path = os.path.join(os.path.dirname(__file__), 'data', 'duty_db.json')
+        with open(file_path, 'r', encoding='utf-8') as f:
+            db_data = json.load(f)
+        return jsonify({"success": True, "data": db_data})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
 @app.route('/api/debug')
 def debug_env():
     key = os.environ.get('GEMINI_API_KEY', '')

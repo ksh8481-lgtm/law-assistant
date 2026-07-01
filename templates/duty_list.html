@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>법정 의무 마스터 - LAW ASSISTANT</title>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #f1f5f9;
+            --surface-color: #ffffff;
+            --text-primary: #1e293b;
+            --text-secondary: #475569;
+            --primary-color: #10b981; /* Emerald */
+            --primary-dark: #059669;
+            --border-color: #e2e8f0;
+            --hover-bg: #ecfdf5;
+        }
+
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Sidebar styling */
+        .sidebar {
+            width: 320px;
+            background: var(--surface-color);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.05);
+            z-index: 10;
+        }
+
+        .sidebar-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .sidebar-header h1 {
+            font-size: 1.4rem;
+            margin: 0;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .law-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .law-item {
+            padding: 1.2rem 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .law-item:hover {
+            background-color: var(--hover-bg);
+        }
+
+        .law-item.active {
+            background-color: var(--hover-bg);
+            border-left: 4px solid var(--primary-color);
+            color: var(--primary-dark);
+            font-weight: 700;
+        }
+
+        /* Main Content Styling */
+        .main-content {
+            flex: 1;
+            padding: 2.5rem;
+            overflow-y: auto;
+            background: var(--bg-color);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header-nav {
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .back-btn {
+            padding: 0.5rem 1rem;
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .back-btn:hover {
+            background: var(--bg-color);
+            color: var(--text-primary);
+        }
+
+        .law-title-container {
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid var(--primary-color);
+        }
+
+        .law-title {
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--text-primary);
+            margin: 0;
+        }
+
+        .duties-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1.5rem;
+        }
+
+        .duty-card {
+            background: var(--surface-color);
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            border-left: 5px solid var(--primary-color);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .duty-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        .duty-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .duty-article {
+            background: #d1fae5;
+            color: var(--primary-dark);
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 0.95rem;
+        }
+
+        .duty-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin: 0;
+            color: var(--text-primary);
+        }
+
+        .duty-desc {
+            color: var(--text-secondary);
+            font-size: 1.05rem;
+            line-height: 1.6;
+            margin-bottom: 1.5rem;
+        }
+
+        .duty-meta {
+            display: flex;
+            gap: 2rem;
+            background: var(--bg-color);
+            padding: 1rem;
+            border-radius: 8px;
+        }
+
+        .meta-item {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+        }
+
+        .meta-label {
+            font-size: 0.85rem;
+            color: #64748b;
+            font-weight: 600;
+        }
+
+        .meta-value {
+            font-weight: 700;
+            color: var(--text-primary);
+            font-size: 1rem;
+        }
+        
+        .empty-state {
+            text-align: center;
+            margin-top: 5rem;
+            color: var(--text-secondary);
+        }
+        
+        .empty-state h2 {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <h1>📑 법정 의무 마스터</h1>
+        </div>
+        <ul class="law-list" id="lawList">
+            <!-- Laws will be injected here -->
+        </ul>
+    </aside>
+
+    <main class="main-content">
+        <div class="header-nav">
+            <a href="/" class="back-btn">← 메인으로 돌아가기</a>
+        </div>
+        
+        <div id="contentArea">
+            <div class="empty-state">
+                <h2>법률을 선택해주세요</h2>
+                <p>좌측 목록에서 법률을 선택하시면, 관련된 필수 의무사항과 주기를 확인할 수 있습니다.</p>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const lawListEl = document.getElementById('lawList');
+            const contentArea = document.getElementById('contentArea');
+            let dbData = null;
+
+            try {
+                const response = await fetch('/api/duties');
+                const result = await response.json();
+                if (result.success && result.data && result.data.laws) {
+                    dbData = result.data.laws;
+                    renderSidebar(dbData);
+                } else {
+                    contentArea.innerHTML = `<div class="empty-state"><h2>데이터를 불러올 수 없습니다.</h2></div>`;
+                }
+            } catch (err) {
+                console.error("Failed to fetch duties:", err);
+                contentArea.innerHTML = `<div class="empty-state"><h2>네트워크 오류가 발생했습니다.</h2></div>`;
+            }
+
+            function renderSidebar(laws) {
+                lawListEl.innerHTML = '';
+                laws.forEach((law, index) => {
+                    const li = document.createElement('li');
+                    li.className = 'law-item';
+                    li.textContent = law.law_name;
+                    li.onclick = () => {
+                        document.querySelectorAll('.law-item').forEach(el => el.classList.remove('active'));
+                        li.classList.add('active');
+                        renderDuties(law);
+                    };
+                    lawListEl.appendChild(li);
+                });
+            }
+
+            function renderDuties(law) {
+                let html = `
+                    <div class="law-title-container">
+                        <h2 class="law-title">${law.law_name}</h2>
+                    </div>
+                    <div class="duties-grid">
+                `;
+
+                if (!law.duties || law.duties.length === 0) {
+                    html += `<p style="color:var(--text-secondary);">등록된 의무 사항이 없습니다.</p>`;
+                } else {
+                    law.duties.forEach(duty => {
+                        html += `
+                            <div class="duty-card">
+                                <div class="duty-header">
+                                    <span class="duty-article">${duty.article}</span>
+                                    <h3 class="duty-title">${duty.duty_title}</h3>
+                                </div>
+                                <p class="duty-desc">${duty.description}</p>
+                                <div class="duty-meta">
+                                    <div class="meta-item">
+                                        <span class="meta-label">점검 주기 / 기한</span>
+                                        <span class="meta-value">⏱️ ${duty.frequency}</span>
+                                    </div>
+                                    <div class="meta-item">
+                                        <span class="meta-label">의무 주체</span>
+                                        <span class="meta-value">👤 ${duty.target}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+
+                html += `</div>`;
+                contentArea.innerHTML = html;
+            }
+        });
+    </script>
+</body>
+</html>
