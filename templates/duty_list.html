@@ -397,6 +397,11 @@
                         body: JSON.stringify({ lsi_seq: lsi_seq, law_name: law_name })
                     });
                     
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`서버 응답 오류: HTTP ${response.status} - ${errorText.substring(0, 100)}`);
+                    }
+                    
                     const result = await response.json();
                     
                     if (result.success) {
