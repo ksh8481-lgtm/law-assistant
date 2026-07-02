@@ -216,8 +216,8 @@ def search_duties():
             for ho in art.findall('.//호내용'):
                 full_text += ho.text + "\n"
                 
-        if len(full_text) > 40000:
-            full_text = full_text[:40000]
+        if len(full_text) > 15000:
+            full_text = full_text[:15000]
             
         if not GEMINI_KEY:
             return jsonify({"success": False, "message": "Gemini API 키가 설정되지 않았습니다."})
