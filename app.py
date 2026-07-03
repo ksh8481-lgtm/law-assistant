@@ -216,23 +216,14 @@ def search_duties():
             for ho in art.findall('.//호내용'):
                 full_text += ho.text + "\n"
                 
-        if len(full_text) > 15000:
-            full_text = full_text[:15000]
+        if len(full_text) > 8000:
+            full_text = full_text[:8000]
             
         if not GEMINI_KEY:
             return jsonify({"success": False, "message": "Gemini API 키가 설정되지 않았습니다."})
             
         genai.configure(api_key=GEMINI_KEY)
-        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        model_name = None
-        for preferred in ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-2.5-pro', 'models/gemini-1.5-pro', 'models/gemini-1.5-flash']:
-            if preferred in available_models:
-                model_name = preferred
-                break
-        if not model_name and available_models:
-            model_name = available_models[0]
-        elif not model_name:
-            model_name = 'models/gemini-2.5-flash'
+        model_name = 'models/gemini-2.5-flash'
     
         model = genai.GenerativeModel(model_name)
         prompt = f"""
@@ -240,6 +231,7 @@ def search_duties():
 {full_text}
 
 이 법령 내용 중에서 '행정/건설 관리기관, 사업주, 지자체 등이 의무적으로 이행해야 하는 사항'(예: 정기 안전점검, 교육 실시, 계획 수립, 결과 통보 등)만 추출하세요.
+(응답 시간 최적화를 위해 가장 중요하고 핵심적인 의무 사항 최대 7개까지만 추출하세요.)
 결과는 오직 아래의 순수 JSON 배열 포맷으로만 반환하세요(마크다운 없이). 의무사항이 없으면 빈 배열 []을 반환하세요.
 [
   {{
