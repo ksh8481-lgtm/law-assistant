@@ -284,6 +284,122 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+    
+        /* Print Styles */
+        @media print {
+            .sidebar, .chat-container, .header-nav, .law-title-container a, .duty-meta, .print-btn {
+                display: none !important;
+            }
+            .main-content {
+                padding: 0 !important;
+                margin: 0 !important;
+                background: white !important;
+            }
+            .duty-card {
+                border: 1px solid #000;
+                break-inside: avoid;
+                page-break-inside: avoid;
+                box-shadow: none !important;
+            }
+            body {
+                display: block !important;
+                height: auto !important;
+                overflow: visible !important;
+            }
+        }
+
+        /* Chat UI Styles */
+        .chat-container {
+            width: 400px;
+            background: #ffffff;
+            border-left: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            box-shadow: -2px 0 10px rgba(0,0,0,0.05);
+            z-index: 10;
+        }
+        
+        @media (max-width: 1200px) {
+            .chat-container { display: none; }
+        }
+
+        .chat-header {
+            background: linear-gradient(135deg, var(--primary-color), #2563eb);
+            color: white;
+            padding: 1.2rem;
+            font-weight: 700;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .chat-messages {
+            flex: 1;
+            padding: 1.5rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            background: #f8fafc;
+        }
+        .chat-msg {
+            max-width: 85%;
+            padding: 0.8rem 1rem;
+            border-radius: 12px;
+            line-height: 1.5;
+            font-size: 0.95rem;
+            word-break: break-word;
+        }
+        .chat-msg.user {
+            background: #2563eb;
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+        .chat-msg.ai {
+            background: white;
+            color: #1e293b;
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border: 1px solid #e2e8f0;
+        }
+        .chat-input-area {
+            padding: 1rem;
+            background: white;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 0.5rem;
+        }
+        .chat-input-area input {
+            flex: 1;
+            padding: 0.8rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            outline: none;
+            font-size: 0.95rem;
+        }
+        .chat-input-area input:focus {
+            border-color: var(--primary-color);
+        }
+        .chat-input-area button {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 0 1.2rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .chat-input-area button:hover {
+            background: var(--primary-dark);
+        }
+        .chat-input-area button:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+        }
+
     </style>
 </head>
 <body>
@@ -317,6 +433,18 @@
             </div>
         </div>
     </main>
+
+    <!-- Right Sidebar Chat -->
+    <aside class="chat-container">
+        <div class="chat-header">💬 재민아이 법률 AI 상담</div>
+        <div class="chat-messages" id="chat-messages">
+            <div class="chat-msg ai">좌측에서 법률을 선택하고 분석을 완료한 후, 궁금한 점을 질문해 주세요! (예: "이 법에서 사업주의 주요 의무가 뭐야?")</div>
+        </div>
+        <div class="chat-input-area">
+            <input type="text" id="chat-input" placeholder="질문을 입력하세요..." autocomplete="off">
+            <button type="button" id="chat-send-btn">전송</button>
+        </div>
+    </aside>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
@@ -396,6 +524,8 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ lsi_seq: lsi_seq, law_name: law_name })
                     });
+                    currentLsiSeq = lsi_seq;
+                    currentLawName = law_name;
                     
                     if (!response.ok) {
                         const errorText = await response.text();
@@ -420,12 +550,16 @@
                 if (e.key === 'Enter') searchLawList();
             });
 
+            let currentLsiSeq = "";
+            let currentLawName = "";
+
             function renderDuties(data) {
                 const lawUrl = `https://www.law.go.kr/법령/${encodeURIComponent(data.law_name)}`;
                 let html = `
                     <div class="law-title-container">
                         <h2 class="law-title">${data.law_name}</h2>
                         <a href="${lawUrl}" target="_blank" style="padding: 0.6rem 1.2rem; background: var(--primary-color); color: white; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.95rem; transition: background 0.2s;">법 원문 보기 🔗</a>
+                        <button class="print-btn" onclick="window.print()" style="padding: 0.6rem 1.2rem; background: #475569; color: white; border: none; border-radius: 6px; font-weight: 600; font-size: 0.95rem; cursor: pointer; margin-left: 0.5rem;">프린트 🖨️</button>
                     </div>
                     <div class="duties-grid">
                 `;
@@ -437,7 +571,7 @@
                         html += `
                             <div class="duty-card">
                                 <div class="duty-header">
-                                    <span class="duty-article">${duty.article}</span>
+                                    <a href="https://www.law.go.kr/lsInfoP.do?lsiSeq=${currentLsiSeq}#J${duty.article.replace(/제|조/g, '').replace('의', '_').trim()}:0" target="_blank" class="duty-article" style="text-decoration:none;" title="클릭 시 법제처 해당 조항으로 이동">${duty.article} 🔗</a>
                                     <h3 class="duty-title">${duty.duty_title}</h3>
                                 </div>
                                 <p class="duty-desc">${duty.description}</p>
@@ -460,6 +594,73 @@
                 contentArea.innerHTML = html;
             }
         });
+    
+            // Chat JS Logic
+            const chatMessages = document.getElementById('chat-messages');
+            const chatInput = document.getElementById('chat-input');
+            const chatSendBtn = document.getElementById('chat-send-btn');
+            let chatHistory = [];
+
+            chatInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendChatMessage();
+                }
+            });
+            chatSendBtn.addEventListener('click', sendChatMessage);
+
+            async function sendChatMessage() {
+                const text = chatInput.value.trim();
+                if (!text) return;
+                
+                if (typeof currentLawName === 'undefined' || !currentLawName) {
+                    alert("먼저 좌측에서 법률을 선택하고 분석을 완료해주세요!");
+                    return;
+                }
+
+                // Add User Message
+                chatInput.value = '';
+                chatInput.disabled = true;
+                chatSendBtn.disabled = true;
+                
+                chatMessages.innerHTML += `<div class="chat-msg user">${text.replace(/</g, "&lt;")}</div>`;
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+                
+                const loadingId = 'loading-' + Date.now();
+                chatMessages.innerHTML += `<div class="chat-msg ai" id="${loadingId}">답변을 생각 중입니다... 🤔</div>`;
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+
+                try {
+                    const res = await fetch('/api/chat/duty_list', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            chat_history: chatHistory,
+                            new_message: text,
+                            law_name: currentLawName
+                        })
+                    });
+                    
+                    const data = await res.json();
+                    document.getElementById(loadingId).remove();
+                    
+                    if (data.success) {
+                        chatMessages.innerHTML += `<div class="chat-msg ai" style="white-space: pre-wrap;">${data.result.replace(/</g, "&lt;")}</div>`;
+                        chatHistory.push({ role: 'user', text: text });
+                        chatHistory.push({ role: 'model', text: data.result });
+                    } else {
+                        chatMessages.innerHTML += `<div class="chat-msg ai" style="color:red;">오류: ${data.message}</div>`;
+                    }
+                } catch (err) {
+                    document.getElementById(loadingId).remove();
+                    chatMessages.innerHTML += `<div class="chat-msg ai" style="color:red;">네트워크 오류가 발생했습니다.</div>`;
+                } finally {
+                    chatInput.disabled = false;
+                    chatSendBtn.disabled = false;
+                    chatInput.focus();
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                }
+            }
+
     </script>
 </body>
 </html>

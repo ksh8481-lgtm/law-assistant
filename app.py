@@ -930,6 +930,45 @@ def api_other_review():
         print(f"Other Review API Error: {e}")
         return jsonify({"success": False, "message": f"서버 오류: {str(e)}"})
 
+
+@app.route('/api/chat/duty_list', methods=['POST'])
+def api_chat_duty_list():
+    try:
+        data = request.json
+        chat_history = data.get('chat_history', [])
+        new_message = data.get('new_message', '')
+        law_name = data.get('law_name', '')
+        
+        if not new_message:
+            return jsonify({"success": False, "message": "질문이 제공되지 않았습니다."}), 400
+            
+        genai.configure(api_key=GEMINI_KEY)
+        
+        contents_payload = []
+        initial_context = f"사용자가 '{law_name}' 법률과 그에 따른 법적 의무 사항에 대해 질문하고 있습니다. 친절하고 정확하게 법률 상담원처럼 답변해주세요."
+        contents_payload.append({"role": "user", "parts": [initial_context]})
+        
+        for msg in chat_history:
+            contents_payload.append({
+                "role": msg["role"],
+                "parts": [msg["text"]]
+            })
+            
+        contents_payload.append({
+            "role": "user",
+            "parts": [new_message]
+        })
+        
+        model_name = 'models/gemini-2.5-flash'
+        model = genai.GenerativeModel(model_name)
+        response = model.generate_content(contents_payload)
+            
+        return jsonify({"success": True, "result": response.text})
+        
+    except Exception as e:
+        print(f"Duty List Chat API Error: {e}")
+        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"})
+
 @app.route('/api/chat/other_review', methods=['POST'])
 def api_chat_other_review():
     try:
