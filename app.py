@@ -228,8 +228,8 @@ def search_duties_chunk():
             
             LAW_TEXT_CACHE[lsi_seq] = full_text
                 
-        # 2. Split into chunks (5,000 chars per chunk for faster processing < 30s)
-        CHUNK_SIZE = 5000
+        # 2. Split into chunks (2,500 chars per chunk for lightning fast processing < 15s)
+        CHUNK_SIZE = 2500
         chunks = [full_text[i:i+CHUNK_SIZE] for i in range(0, len(full_text), CHUNK_SIZE)]
         if not chunks:
             chunks = [""]
@@ -246,19 +246,19 @@ def search_duties_chunk():
         model_name = 'models/gemini-2.5-flash'
         model = genai.GenerativeModel(model_name)
         
-        # 4. Prompt without 7-item limit
+        # 4. Prompt without 7-item limit but enforcing brief output
         prompt = f"""
 다음은 '{exact_law_name}' 법령의 일부 조문입니다 (파트 {chunk_index + 1}/{len(chunks)}):
 {current_chunk}
 
 이 법령 내용 중에서 '행정/건설 관리기관, 사업주, 지자체 등이 의무적으로 이행해야 하는 사항'(예: 정기 안전점검, 교육 실시, 계획 수립, 결과 통보 등)만 모두 추출하세요.
-(이전에는 개수 제한이 있었으나, 이번에는 발견되는 모든 의무사항을 남김없이 전부 추출하세요.)
+(발견되는 모든 의무사항을 남김없이 전부 추출하되, 응답 속도를 위해 내용은 아주 간결하게 요약하세요.)
 결과는 오직 아래의 순수 JSON 배열 포맷으로만 반환하세요(마크다운 없이). 의무사항이 없으면 빈 배열 []을 반환하세요.
 [
   {{
     "article": "제O조",
     "duty_title": "핵심 의무 제목",
-    "description": "구체적인 의무 내용 요약",
+    "description": "구체적인 의무 내용 (최대 30자로 아주 짧게 핵심만 요약)",
     "frequency": "수시 / 연 1회 등 기한",
     "target": "의무 이행 주체"
   }}
