@@ -191,6 +191,97 @@ def search_law_list():
         print("Law List Search Error:", e)
         return jsonify({"success": False, "message": f"법령 목록 검색 오류: {str(e)}"})
 
+
+@app.route('/api/search_duties_chunk', methods=['POST'])
+def search_duties_chunk():
+    try:
+        data = request.get_json(silent=True) or {}
+        lsi_seq = data.get('lsi_seq', '')
+        exact_law_name = data.get('law_name', '')
+        chunk_index = int(data.get('chunk_index', 0))
+        
+        if isinstance(lsi_seq, str): lsi_seq = lsi_seq.strip()
+        if isinstance(exact_law_name, str): exact_law_name = exact_law_name.strip()
+        
+        if not lsi_seq or not exact_law_name:
+            return jsonify({"success": False, "message": "법령일련번호 또는 법률명이 누락되었습니다."})
+        
+        # 1. Fetch XML
+        doc_res = requests.get(f"https://www.law.go.kr/DRF/lawService.do?OC={LAW_KEY}&target=law&type=XML&MST={lsi_seq}", timeout=10)
+        doc_root = ET.fromstring(doc_res.text)
+        
+        # 2. Extract Text
+        articles = doc_root.findall('.//조문단위')
+        full_text = ""
+        for art in articles:
+            art_title = art.findtext('조문내용') or ""
+            full_text += art_title + "\n"
+            for hang in art.findall('.//항내용'):
+                full_text += hang.text + "\n"
+            for ho in art.findall('.//호내용'):
+                full_text += ho.text + "\n"
+                
+        # 3. Split into chunks (10,000 chars per chunk)
+        CHUNK_SIZE = 10000
+        chunks = [full_text[i:i+CHUNK_SIZE] for i in range(0, len(full_text), CHUNK_SIZE)]
+        if not chunks:
+            chunks = [""]
+            
+        if chunk_index >= len(chunks):
+            return jsonify({"success": True, "data": {"duties": [], "has_more": False, "total_chunks": len(chunks)}})
+            
+        current_chunk = chunks[chunk_index]
+            
+        if not GEMINI_KEY:
+            return jsonify({"success": False, "message": "Gemini API 키가 설정되지 않았습니다."})
+            
+        genai.configure(api_key=GEMINI_KEY)
+        model_name = 'models/gemini-2.5-flash'
+        model = genai.GenerativeModel(model_name)
+        
+        # 4. Prompt without 7-item limit
+        prompt = f"""
+다음은 '{exact_law_name}' 법령의 일부 조문입니다 (파트 {chunk_index + 1}/{len(chunks)}):
+{current_chunk}
+
+이 법령 내용 중에서 '행정/건설 관리기관, 사업주, 지자체 등이 의무적으로 이행해야 하는 사항'(예: 정기 안전점검, 교육 실시, 계획 수립, 결과 통보 등)만 모두 추출하세요.
+(이전에는 개수 제한이 있었으나, 이번에는 발견되는 모든 의무사항을 남김없이 전부 추출하세요.)
+결과는 오직 아래의 순수 JSON 배열 포맷으로만 반환하세요(마크다운 없이). 의무사항이 없으면 빈 배열 []을 반환하세요.
+[
+  {{
+    "article": "제O조",
+    "duty_title": "핵심 의무 제목",
+    "description": "구체적인 의무 내용 요약",
+    "frequency": "수시 / 연 1회 등 기한",
+    "target": "의무 이행 주체"
+  }}
+]
+"""
+        response = model.generate_content(prompt)
+        resp_text = response.text.strip()
+        if resp_text.startswith("```json"): resp_text = resp_text[7:]
+        if resp_text.startswith("```"): resp_text = resp_text[3:]
+        if resp_text.endswith("```"): resp_text = resp_text[:-3]
+        
+        try:
+            duties = json.loads(resp_text.strip())
+        except json.JSONDecodeError:
+            print("JSON Decode Error. Raw resp:", resp_text)
+            duties = []
+            
+        result_data = {
+            "law_name": exact_law_name,
+            "duties": duties,
+            "has_more": chunk_index < len(chunks) - 1,
+            "total_chunks": len(chunks)
+        }
+        
+        return jsonify({"success": True, "data": result_data})
+        
+    except Exception as e:
+        print("Chunked Duty Search Error:", e)
+        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"})
+
 @app.route('/api/search_duties', methods=['POST'])
 def search_duties():
     try:

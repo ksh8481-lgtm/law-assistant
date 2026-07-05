@@ -508,40 +508,104 @@
                 });
             }
 
-            // 2. 선택한 법률의 의무 사항 AI 분석
+            // 2. 선택한 법률의 의무 사항 AI 분석 (점진적 Chunk 분석)
             async function analyzeDuties(lsi_seq, law_name) {
+                currentLsiSeq = lsi_seq;
+                currentLawName = law_name;
+                
+                const lawUrl = `https://www.law.go.kr/법령/${encodeURIComponent(law_name)}`;
+                
                 contentArea.innerHTML = `
-                    <div class="empty-state">
-                        <div class="spinner"></div>
-                        <h2>[${law_name}]<br>법제처 원문 다운로드 및 AI 분석 중...</h2>
-                        <p>법령의 내용이 많을 경우 최대 10초까지 소요될 수 있습니다. 잠시만 기다려주세요.</p>
+                    <div class="law-title-container">
+                        <h2 class="law-title">${law_name}</h2>
+                        <a href="${lawUrl}" target="_blank" style="padding: 0.6rem 1.2rem; background: var(--primary-color); color: white; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.95rem; transition: background 0.2s;">법 원문 보기 🔗</a>
+                        <button class="print-btn" onclick="window.print()" style="padding: 0.6rem 1.2rem; background: #475569; color: white; border: none; border-radius: 6px; font-weight: 600; font-size: 0.95rem; cursor: pointer; margin-left: 0.5rem;">프린트 🖨️</button>
                     </div>
+                    
+                    <div id="progress-container" style="background: #e0f2fe; border-left: 4px solid #0ea5e9; padding: 1rem; margin-bottom: 1.5rem; border-radius: 6px; display: flex; align-items: center; gap: 1rem;">
+                        <div class="spinner" style="width:20px; height:20px; margin:0; border-width: 3px; border-left-color: #0ea5e9;"></div>
+                        <span id="progress-text" style="color: #0369a1; font-weight: 600; font-size: 0.95rem;">법제처 원문 다운로드 및 AI 분석 준비 중...</span>
+                    </div>
+                    
+                    <div class="duties-grid" id="duties-grid"></div>
                 `;
-
+                
+                fetchChunk(lsi_seq, law_name, 0);
+            }
+            
+            async function fetchChunk(lsi_seq, law_name, chunkIndex) {
+                const progressText = document.getElementById('progress-text');
+                const progressContainer = document.getElementById('progress-container');
+                const dutiesGrid = document.getElementById('duties-grid');
+                
+                if(progressText) {
+                    progressText.innerText = `법률 내용 분석 중... (파트 ${chunkIndex + 1} 진행 중)`;
+                }
+                
                 try {
-                    const response = await fetch('/api/search_duties', {
+                    const response = await fetch('/api/search_duties_chunk', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ lsi_seq: lsi_seq, law_name: law_name })
+                        body: JSON.stringify({ lsi_seq: lsi_seq, law_name: law_name, chunk_index: chunkIndex })
                     });
-                    currentLsiSeq = lsi_seq;
-                    currentLawName = law_name;
                     
                     if (!response.ok) {
-                        const errorText = await response.text();
-                        throw new Error(`서버 응답 오류: HTTP ${response.status} - ${errorText.substring(0, 100)}`);
+                        if(progressText) progressText.innerText = `서버 응답 오류 (파트 ${chunkIndex + 1})`;
+                        return;
                     }
                     
                     const result = await response.json();
                     
-                    if (result.success) {
-                        renderDuties(result.data);
+                    if (result.success && result.data.duties) {
+                        const duties = result.data.duties;
+                        
+                        if(progressText) {
+                            progressText.innerText = `법률 내용 분석 중... (파트 ${chunkIndex + 1} / ${result.data.total_chunks})`;
+                        }
+                        
+                        duties.forEach(duty => {
+                            const dutyHtml = `
+                                <div class="duty-card">
+                                    <div class="duty-header">
+                                        <a href="https://www.law.go.kr/법령/${encodeURIComponent(law_name)}/${encodeURIComponent(duty.article)}" target="_blank" class="duty-article" style="text-decoration:none;" title="클릭 시 법제처 해당 조항으로 이동">${duty.article} 🔗</a>
+                                        <h3 class="duty-title">${duty.duty_title}</h3>
+                                    </div>
+                                    <p class="duty-desc">${duty.description}</p>
+                                    <div class="duty-meta">
+                                        <div class="meta-item">
+                                            <span class="meta-label">점검 주기 / 기한</span>
+                                            <span class="meta-value">⏱️ ${duty.frequency || '지정되지 않음'}</span>
+                                        </div>
+                                        <div class="meta-item">
+                                            <span class="meta-label">의무 주체</span>
+                                            <span class="meta-value">👤 ${duty.target || '지정되지 않음'}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                            dutiesGrid.innerHTML += dutyHtml;
+                        });
+                        
+                        if (result.data.has_more) {
+                            // Fetch next chunk
+                            fetchChunk(lsi_seq, law_name, chunkIndex + 1);
+                        } else {
+                            // Finished
+                            if(progressContainer) {
+                                progressContainer.style.background = '#dcfce3';
+                                progressContainer.style.borderLeftColor = '#22c55e';
+                                progressContainer.innerHTML = `<span style="color: #166534; font-weight: 600; font-size: 0.95rem;">✅ 해당 법률의 모든 조항에 대한 정밀 분석이 완료되었습니다. (총 ${result.data.total_chunks}개 파트)</span>`;
+                            }
+                            if (dutiesGrid.children.length === 0) {
+                                dutiesGrid.innerHTML = `<p style="color:var(--text-secondary); font-size:1.1rem; text-align:center; padding: 2rem;">이 법령에는 명시된 행정/건설 등 관련 필수 의무 사항이 발견되지 않았습니다.</p>`;
+                            }
+                        }
                     } else {
-                        contentArea.innerHTML = `<div class="empty-state"><h2>오류가 발생했습니다.</h2><p>${result.message}</p></div>`;
+                        if(progressText) progressText.innerText = `오류 발생: ${result.message}`;
                     }
                 } catch (err) {
-                    console.error("Duty analysis failed:", err);
-                    contentArea.innerHTML = `<div class="empty-state"><h2>네트워크 오류가 발생했습니다.</h2></div>`;
+                    console.error("Chunk fetch failed:", err);
+                    if(progressText) progressText.innerText = `네트워크 오류가 발생했습니다. (파트 ${chunkIndex + 1})`;
                 }
             }
 
@@ -553,48 +617,6 @@
             let currentLsiSeq = "";
             let currentLawName = "";
 
-            function renderDuties(data) {
-                const lawUrl = `https://www.law.go.kr/법령/${encodeURIComponent(data.law_name)}`;
-                let html = `
-                    <div class="law-title-container">
-                        <h2 class="law-title">${data.law_name}</h2>
-                        <a href="${lawUrl}" target="_blank" style="padding: 0.6rem 1.2rem; background: var(--primary-color); color: white; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.95rem; transition: background 0.2s;">법 원문 보기 🔗</a>
-                        <button class="print-btn" onclick="window.print()" style="padding: 0.6rem 1.2rem; background: #475569; color: white; border: none; border-radius: 6px; font-weight: 600; font-size: 0.95rem; cursor: pointer; margin-left: 0.5rem;">프린트 🖨️</button>
-                    </div>
-                    <div class="duties-grid">
-                `;
-
-                if (!data.duties || data.duties.length === 0) {
-                    html += `<p style="color:var(--text-secondary); font-size:1.1rem; text-align:center; padding: 2rem;">이 법령에는 명시된 행정/건설 등 관련 필수 의무 사항이 발견되지 않았습니다.</p>`;
-                } else {
-                    data.duties.forEach(duty => {
-                        html += `
-                            <div class="duty-card">
-                                <div class="duty-header">
-                                    <a href="https://www.law.go.kr/법령/${encodeURIComponent(currentLawName)}/${encodeURIComponent(duty.article)}" target="_blank" class="duty-article" style="text-decoration:none;" title="클릭 시 법제처 해당 조항으로 이동">${duty.article} 🔗</a>
-                                    <h3 class="duty-title">${duty.duty_title}</h3>
-                                </div>
-                                <p class="duty-desc">${duty.description}</p>
-                                <div class="duty-meta">
-                                    <div class="meta-item">
-                                        <span class="meta-label">점검 주기 / 기한</span>
-                                        <span class="meta-value">⏱️ ${duty.frequency || '지정되지 않음'}</span>
-                                    </div>
-                                    <div class="meta-item">
-                                        <span class="meta-label">의무 주체</span>
-                                        <span class="meta-value">👤 ${duty.target || '지정되지 않음'}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        `;
-                    });
-                }
-
-                html += `</div>`;
-                contentArea.innerHTML = html;
-            }
-        });
-    
             // Chat JS Logic
             const chatMessages = document.getElementById('chat-messages');
             const chatInput = document.getElementById('chat-input');
