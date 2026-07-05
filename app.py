@@ -192,6 +192,8 @@ def search_law_list():
         return jsonify({"success": False, "message": f"법령 목록 검색 오류: {str(e)}"})
 
 
+LAW_TEXT_CACHE = {}
+
 @app.route('/api/search_duties_chunk', methods=['POST'])
 def search_duties_chunk():
     try:
@@ -206,23 +208,28 @@ def search_duties_chunk():
         if not lsi_seq or not exact_law_name:
             return jsonify({"success": False, "message": "법령일련번호 또는 법률명이 누락되었습니다."})
         
-        # 1. Fetch XML
-        doc_res = requests.get(f"https://www.law.go.kr/DRF/lawService.do?OC={LAW_KEY}&target=law&type=XML&MST={lsi_seq}", timeout=10)
-        doc_root = ET.fromstring(doc_res.text)
+        # 1. Fetch XML (with memory cache to prevent rate limits)
+        global LAW_TEXT_CACHE
+        full_text = LAW_TEXT_CACHE.get(lsi_seq)
         
-        # 2. Extract Text
-        articles = doc_root.findall('.//조문단위')
-        full_text = ""
-        for art in articles:
-            art_title = art.findtext('조문내용') or ""
-            full_text += art_title + "\n"
-            for hang in art.findall('.//항내용'):
-                full_text += hang.text + "\n"
-            for ho in art.findall('.//호내용'):
-                full_text += ho.text + "\n"
+        if not full_text:
+            doc_res = requests.get(f"https://www.law.go.kr/DRF/lawService.do?OC={LAW_KEY}&target=law&type=XML&MST={lsi_seq}", timeout=10)
+            doc_root = ET.fromstring(doc_res.text)
+            
+            articles = doc_root.findall('.//조문단위')
+            full_text = ""
+            for art in articles:
+                art_title = art.findtext('조문내용') or ""
+                full_text += art_title + "\\n"
+                for hang in art.findall('.//항내용'):
+                    full_text += hang.text + "\\n"
+                for ho in art.findall('.//호내용'):
+                    full_text += ho.text + "\\n"
+            
+            LAW_TEXT_CACHE[lsi_seq] = full_text
                 
-        # 3. Split into chunks (10,000 chars per chunk)
-        CHUNK_SIZE = 10000
+        # 2. Split into chunks (5,000 chars per chunk for faster processing < 30s)
+        CHUNK_SIZE = 5000
         chunks = [full_text[i:i+CHUNK_SIZE] for i in range(0, len(full_text), CHUNK_SIZE)]
         if not chunks:
             chunks = [""]
