@@ -571,7 +571,7 @@
                         html += `
                             <div class="duty-card">
                                 <div class="duty-header">
-                                    <a href="https://www.law.go.kr/lsInfoP.do?lsiSeq=${currentLsiSeq}#J${duty.article.replace(/제|조/g, '').replace('의', '_').trim()}:0" target="_blank" class="duty-article" style="text-decoration:none;" title="클릭 시 법제처 해당 조항으로 이동">${duty.article} 🔗</a>
+                                    <a href="https://www.law.go.kr/법령/${encodeURIComponent(currentLawName)}/${encodeURIComponent(duty.article)}" target="_blank" class="duty-article" style="text-decoration:none;" title="클릭 시 법제처 해당 조항으로 이동">${duty.article} 🔗</a>
                                     <h3 class="duty-title">${duty.duty_title}</h3>
                                 </div>
                                 <p class="duty-desc">${duty.description}</p>
