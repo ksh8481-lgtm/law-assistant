@@ -400,7 +400,22 @@
             cursor: not-allowed;
         }
 
-    </style>
+    
+        @media print {
+            body.selective-print .duty-card:not(.print-selected) {
+                display: none !important;
+            }
+            body.selective-print .target-section:not(:has(.print-selected)) {
+                display: none !important;
+            }
+            .print-checkbox {
+                display: none !important;
+            }
+            .print-btn {
+                display: none !important;
+            }
+        }
+</style>
 </head>
 <body>
 
@@ -519,7 +534,7 @@
                     <div class="law-title-container">
                         <h2 class="law-title">${law_name}</h2>
                         <a href="${lawUrl}" target="_blank" style="padding: 0.6rem 1.2rem; background: var(--primary-color); color: white; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.95rem; transition: background 0.2s;">법 원문 보기 🔗</a>
-                        <button class="print-btn" onclick="window.print()" style="padding: 0.6rem 1.2rem; background: #475569; color: white; border: none; border-radius: 6px; font-weight: 600; font-size: 0.95rem; cursor: pointer; margin-left: 0.5rem;">프린트 🖨️</button>
+                        <button class="print-btn" onclick="window.handleSelectivePrint()" style="padding: 0.6rem 1.2rem; background: #475569; color: white; border: none; border-radius: 6px; font-weight: 600; font-size: 0.95rem; cursor: pointer; margin-left: 0.5rem;">프린트 🖨️</button>
                     </div>
                     
                     <div id="progress-container" style="background: #e0f2fe; border-left: 4px solid #0ea5e9; padding: 1rem; margin-bottom: 1.5rem; border-radius: 6px; display: flex; align-items: center; gap: 1rem;">
@@ -640,7 +655,8 @@
                             const grid = section.querySelector('.duties-grid');
                             const dutyHtml = `
                                 <div class="duty-card">
-                                    <div class="duty-header">
+                                    <div class="duty-header" style="position: relative; padding-right: 30px;">
+                                        <input type="checkbox" class="print-checkbox" title="선택 프린트 포함" style="position: absolute; right: 0; top: 0; width: 1.2rem; height: 1.2rem; cursor: pointer; accent-color: var(--primary-color);">
                                         <a href="https://www.law.go.kr/법령/${encodeURIComponent(law_name)}/${encodeURIComponent(duty.article)}" target="_blank" class="duty-article" style="text-decoration:none;" title="클릭 시 법제처 해당 조항으로 이동">${duty.article} 🔗</a>
                                         <h3 class="duty-title">${duty.duty_title}</h3>
                                     </div>
@@ -760,6 +776,38 @@
                     chatMessages.scrollTop = chatMessages.scrollHeight;
                 }
             }
+
+    
+        // Selective Print logic
+        window.handleSelectivePrint = function() {
+            const checkboxes = document.querySelectorAll('.print-checkbox');
+            let anyChecked = false;
+            checkboxes.forEach(cb => {
+                if (cb.checked) {
+                    anyChecked = true;
+                    cb.closest('.duty-card').classList.add('print-selected');
+                } else {
+                    cb.closest('.duty-card').classList.remove('print-selected');
+                }
+            });
+            
+            if (anyChecked) {
+                document.body.classList.add('selective-print');
+            } else {
+                const confirmAll = confirm("체크된 항목이 없습니다. 현재 화면에 보이는 모든 내용을 프린트하시겠습니까?");
+                if(!confirmAll) return;
+                document.body.classList.remove('selective-print');
+            }
+            
+            window.print();
+            
+            // Cleanup
+            document.body.classList.remove('selective-print');
+            checkboxes.forEach(cb => {
+                const card = cb.closest('.duty-card');
+                if (card) card.classList.remove('print-selected');
+            });
+        };
 
     </script>
 </body>
