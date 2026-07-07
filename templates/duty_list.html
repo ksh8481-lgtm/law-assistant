@@ -508,7 +508,7 @@
                 });
             }
 
-            // 2. 선택한 법률의 의무 사항 AI 분석 (점진적 Chunk 분석 및 주체별 그룹화)
+            // 2. 선택한 법률의 의무 사항 AI 분석 (점진적 Chunk 분석 및 주체별 그룹화 - Dropdown 방식)
             async function analyzeDuties(lsi_seq, law_name) {
                 currentLsiSeq = lsi_seq;
                 currentLawName = law_name;
@@ -527,30 +527,31 @@
                         <span id="progress-text" style="color: #0369a1; font-weight: 600; font-size: 0.95rem;">법제처 원문 다운로드 및 AI 분석 준비 중...</span>
                     </div>
                     
-                    <!-- 필터바 -->
-                    <div id="filter-bar" style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
-                        <button class="filter-btn active" data-target="all" style="padding: 0.5rem 1rem; border: none; border-radius: 20px; background: var(--primary-color); color: white; cursor: pointer; font-weight: 600; font-size: 0.9rem; transition: all 0.2s ease;">전체보기</button>
+                    <!-- 셀렉트 박스 필터바 -->
+                    <div id="filter-bar" style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.8rem; background: #f8fafc; padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                        <label for="target-select" style="font-weight:700; color:var(--text-color); font-size: 1.05rem;">🎯 의무 주체 필터링:</label>
+                        <select id="target-select" style="padding: 0.5rem 1rem; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 1rem; cursor: pointer; min-width: 200px; background: white; color: var(--text-color); font-weight: 500; outline: none; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                            <option value="all">전체보기 (0건)</option>
+                        </select>
                     </div>
 
                     <!-- 타겟별 섹션 컨테이너 -->
                     <div id="target-sections-container"></div>
                 `;
                 
-                // Set up "전체보기" button click
-                document.querySelector('.filter-btn[data-target="all"]').onclick = function() {
-                    document.querySelectorAll('.filter-btn').forEach(btn => {
-                        btn.style.background = 'white';
-                        btn.style.color = 'var(--text-color)';
-                        btn.style.border = '1px solid var(--border-color)';
-                        btn.classList.remove('active');
-                    });
-                    this.style.background = 'var(--primary-color)';
-                    this.style.color = 'white';
-                    this.style.border = 'none';
-                    this.classList.add('active');
-                    
+                const targetSelect = document.getElementById('target-select');
+                targetSelect.onchange = function() {
+                    const selectedTarget = this.value;
                     document.querySelectorAll('.target-section').forEach(sec => {
-                        sec.style.display = 'block';
+                        if (selectedTarget === 'all') {
+                            sec.style.display = 'block';
+                        } else {
+                            if (sec.id === selectedTarget) {
+                                sec.style.display = 'block';
+                            } else {
+                                sec.style.display = 'none';
+                            }
+                        }
                     });
                 };
                 
@@ -560,7 +561,7 @@
             async function fetchChunk(lsi_seq, law_name, chunkIndex) {
                 const progressText = document.getElementById('progress-text');
                 const progressContainer = document.getElementById('progress-container');
-                const filterBar = document.getElementById('filter-bar');
+                const targetSelect = document.getElementById('target-select');
                 const targetContainer = document.getElementById('target-sections-container');
                 
                 if(progressText) {
@@ -607,54 +608,33 @@
                                 `;
                                 targetContainer.appendChild(section);
                                 
-                                // 필터 버튼 동적 생성
-                                const filterBtn = document.createElement('button');
-                                filterBtn.className = 'filter-btn';
-                                filterBtn.dataset.target = safeTargetId;
-                                filterBtn.style.padding = '0.5rem 1rem';
-                                filterBtn.style.border = '1px solid var(--border-color)';
-                                filterBtn.style.borderRadius = '20px';
-                                filterBtn.style.background = 'white';
-                                filterBtn.style.color = 'var(--text-color)';
-                                filterBtn.style.cursor = 'pointer';
-                                filterBtn.style.fontWeight = '500';
-                                filterBtn.style.fontSize = '0.9rem';
-                                filterBtn.style.transition = 'all 0.2s ease';
-                                filterBtn.innerHTML = `${rawTarget} <span class="badge" style="background:var(--primary-light); color:var(--primary-color); padding:0.15rem 0.5rem; border-radius:12px; font-size:0.8rem; margin-left:4px; font-weight:700;">0</span>`;
-                                
-                                filterBtn.onclick = function() {
-                                    document.querySelectorAll('.filter-btn').forEach(btn => {
-                                        btn.style.background = 'white';
-                                        btn.style.color = 'var(--text-color)';
-                                        btn.style.border = '1px solid var(--border-color)';
-                                        btn.classList.remove('active');
-                                    });
-                                    this.style.background = 'var(--primary-color)';
-                                    this.style.color = 'white';
-                                    this.style.border = 'none';
-                                    this.classList.add('active');
-                                    
-                                    document.querySelectorAll('.target-section').forEach(sec => {
-                                        sec.style.display = 'none';
-                                    });
-                                    document.getElementById(safeTargetId).style.display = 'block';
-                                };
-                                filterBar.appendChild(filterBtn);
+                                // 옵션(Option) 동적 생성
+                                const option = document.createElement('option');
+                                option.value = safeTargetId;
+                                option.id = `option-${safeTargetId}`;
+                                option.innerHTML = `${rawTarget} (0건)`;
+                                targetSelect.appendChild(option);
                                 
                                 // 만약 현재 '전체보기'가 아니라 특정 필터가 켜져있다면, 새로 생긴 그룹도 숨김 처리
-                                const activeBtn = document.querySelector('.filter-btn.active');
-                                if (activeBtn && activeBtn.dataset.target !== 'all' && activeBtn.dataset.target !== safeTargetId) {
+                                const activeVal = targetSelect.value;
+                                if (activeVal !== 'all' && activeVal !== safeTargetId) {
                                     section.style.display = 'none';
                                 }
                             }
                             
-                            // 카운트 증가
+                            // 타겟 개별 카운트 증가
                             const countSpan = section.querySelector('.target-count');
                             const currentCount = parseInt(countSpan.textContent) + 1;
                             countSpan.textContent = currentCount;
                             
-                            const btnBadge = document.querySelector(`.filter-btn[data-target="${safeTargetId}"] .badge`);
-                            if(btnBadge) btnBadge.textContent = currentCount;
+                            const optionEl = document.getElementById(`option-${safeTargetId}`);
+                            if(optionEl) optionEl.innerHTML = `${rawTarget} (${currentCount}건)`;
+                            
+                            // 전체보기 카운트 증가
+                            const allOption = targetSelect.querySelector('option[value="all"]');
+                            if(allOption) {
+                                // Extract current number using regex or simple split, but simpler to just count .duty-card
+                            }
                             
                             // 카드 삽입
                             const grid = section.querySelector('.duties-grid');
@@ -674,6 +654,11 @@
                                 </div>
                             `;
                             grid.innerHTML += dutyHtml;
+                            
+                            // Update total duties safely after insertion
+                            const totalDuties = document.querySelectorAll('.duty-card').length;
+                            const allOptionEl = targetSelect.querySelector('option[value="all"]');
+                            if(allOptionEl) allOptionEl.innerHTML = `전체보기 (총 ${totalDuties}건)`;
                         });
                         
                         if (result.data.has_more) {
@@ -688,6 +673,7 @@
                             }
                             if (targetContainer.children.length === 0) {
                                 targetContainer.innerHTML = `<p style="color:var(--text-secondary); font-size:1.1rem; text-align:center; padding: 2rem;">이 법령에는 명시된 행정/건설 등 관련 필수 의무 사항이 발견되지 않았습니다.</p>`;
+                                targetSelect.parentElement.style.display = 'none'; // Hide filter bar if empty
                             }
                         }
                     } else {
