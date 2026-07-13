@@ -256,6 +256,27 @@
             transition: background 0.3s;
         }
         .chat-input-area button:hover { background: var(--primary-hover); }
+    
+        @media print {
+            header, .main-card, .agents-container, .print-btn, .chat-container {
+                display: none !important;
+            }
+            .result-box {
+                box-shadow: none !important;
+                border: none !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+            }
+            body {
+                background: white !important;
+            }
+            .container {
+                padding: 0 !important;
+                max-width: 100% !important;
+            }
+        }
+
     </style>
 </head>
 <body>
@@ -301,7 +322,10 @@
 
         <!-- Result Box -->
         <div class="result-box" id="result-box" style="display: none;">
-            <h3 style="margin-bottom: 1rem; color: #1e293b; border-bottom: 2px solid var(--primary); padding-bottom: 0.5rem;">법률 검토 보고서</h3>
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--primary); padding-bottom: 0.5rem; margin-bottom: 1rem;">
+                <h3 style="color: #1e293b; margin: 0;">법률 검토 보고서</h3>
+                <button class="print-btn" onclick="window.print()" style="padding: 0.5rem 1rem; background: #475569; color: white; border: none; border-radius: 6px; font-weight: 600; cursor: pointer;">프린트 🖨️</button>
+            </div>
             <div id="result-content" class="markdown-body"></div>
             
             <!-- Chat Box -->
