@@ -990,12 +990,32 @@ def api_other_review():
         genai.configure(api_key=GEMINI_KEY)
         
         uploaded_file = None
+        file_text = ""
         if file_obj and file_obj.filename:
             filename = werkzeug.utils.secure_filename(file_obj.filename)
             temp_dir = tempfile.gettempdir()
             temp_path = os.path.join(temp_dir, filename)
             file_obj.save(temp_path)
-            uploaded_file = genai.upload_file(path=temp_path, display_name=filename)
+            
+            try:
+                uploaded_file = genai.upload_file(path=temp_path, display_name=filename)
+            except Exception as e:
+                print(f"genai.upload_file failed: {e}. Falling back to local extraction.")
+                try:
+                    import fitz
+                    doc = fitz.open(temp_path)
+                    for page in doc:
+                        file_text += page.get_text() + "\n"
+                except Exception:
+                    try:
+                        with open(temp_path, 'r', encoding='utf-8') as f:
+                            file_text = f.read()
+                    except:
+                        pass
+                
+                if file_text:
+                    text_content += f"\n\n[첨부 문서 내용]\n{file_text[:30000]}"
+                    
             os.remove(temp_path)
             
         try:
