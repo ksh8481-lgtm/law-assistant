@@ -387,6 +387,49 @@ def fetch_law_data(law_key, search_query="국토의 계획 및 이용에 관한 
             return "연관 법령을 찾지 못했습니다."
     except Exception as e:
         return "법제처 API 통신 중 오류가 발생하여 자체 지식을 활용합니다."
+
+def download_law_to_db(law_name, law_key, md_path):
+    import os
+    import xml.etree.ElementTree as ET
+    import urllib.parse
+    import requests
+    try:
+        url = f'https://www.law.go.kr/DRF/lawSearch.do?OC={law_key}&target=law&type=XML&query={urllib.parse.quote(law_name)}'
+        res = requests.get(url, timeout=5)
+        root = ET.fromstring(res.text)
+        law = root.find('.//law')
+        if law is None:
+            return False
+        lsi_seq = law.find('법령일련번호').text
+        
+        doc_url = f'https://www.law.go.kr/DRF/lawService.do?OC={law_key}&target=law&type=XML&MST={lsi_seq}'
+        doc_res = requests.get(doc_url, timeout=10)
+        doc_root = ET.fromstring(doc_res.text)
+        
+        with open(md_path, 'w', encoding='utf-8') as f:
+            f.write(f'# {law_name}\n\n')
+            for art in doc_root.findall('.//조문단위'):
+                num = art.findtext('조문번호')
+                title = art.findtext('조문제목')
+                body = art.findtext('조문내용')
+                title_str = f'({title})' if title else ''
+                f.write(f'### 제{num}조 {title_str}\n{body}\n\n')
+                
+                for hang in art.findall('.//항'):
+                    hang_body = hang.findtext('항내용')
+                    if hang_body: f.write(f'{hang_body}\n')
+                    for ho in hang.findall('.//호'):
+                        ho_body = ho.findtext('호내용')
+                        if ho_body: f.write(f'  {ho_body}\n')
+                    for mok in hang.findall('.//목'):
+                        mok_body = mok.findtext('목내용')
+                        if mok_body: f.write(f'    {mok_body}\n')
+                f.write('\n')
+        return True
+    except Exception as e:
+        print(f"Auto-download failed for {law_name}: {e}")
+        return False
+
 def fetch_moleg_context(text, law_key):
     if not law_key:
         return ""
@@ -420,17 +463,29 @@ def fetch_moleg_context(text, law_key):
         laws = []
         if law_res.status_code == 200:
             law_root = ET.fromstring(law_res.content)
+            count = 0
             for law in law_root.findall('.//law'):
                 name = law.find('법령명한글')
                 if name is not None and name.text:
-                    link = f"https://www.law.go.kr/법령/{urllib.parse.quote(name.text)}"
-                    laws.append(f"[{name.text}]({link})")
+                    law_name = name.text
+                    link = f"https://www.law.go.kr/법령/{urllib.parse.quote(law_name)}"
+                    laws.append(f"[{law_name}]({link})")
+                    
+                    # Auto-download top 1 missing law
+                    if count < 1:
+                        clean_name = law_name.replace(" ", "").replace("·", "").replace("ㆍ", "")
+                        md_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'laws', f"{clean_name}.md")
+                        if not os.path.exists(md_path):
+                            print(f"Auto-downloading missing law: {law_name}")
+                            download_law_to_db(law_name, law_key, md_path)
+                        count += 1
         context = f"[법제처 API 실시간 RAG 검색 결과 (키워드: {keyword})]\n"
         if laws: context += f"- 현행 법령: {', '.join(laws[:10])}\n"
         return context
     except Exception as e:
         print(f"MOLEG RAG Error: {e}")
         return ""
+
 
 def fetch_moleg_context(query, api_key="ksh8481"):
     try:
