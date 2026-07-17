@@ -533,14 +533,21 @@ def fetch_moleg_precedents(query, api_key="ksh8481", uploaded_file=None):
         
         # Track 1: 정규식으로 문서 내 사건번호 추출 (예: 2010두11641)
         raw_case_numbers = re.findall(r'\d{4}\s*[가-힣]+\s*\d+', query)
-        case_numbers = [re.sub(r'\s+', '', case) for case in raw_case_numbers]
+        case_numbers = []
+        for case in raw_case_numbers:
+            clean_case = re.sub(r'\s+', '', case)
+            if not any(c in clean_case for c in ['년', '월', '일', '조', '항', '호', '목']):
+                case_numbers.append(clean_case)
         
         # Track 1.5: 파이썬 정규식이 빈손이라면(스캔본 PDF 등), 시력이 좋은 AI(Gemini Vision)에게 문서를 보여주고 추출 요청!
         if not case_numbers and uploaded_file:
             llm_cases_str = extract_cases_via_llm(query, uploaded_file)
             if llm_cases_str:
                 raw_case_numbers = re.findall(r'\d{4}[가-힣]+\d+', llm_cases_str)
-                case_numbers = [re.sub(r'\s+', '', case) for case in raw_case_numbers]
+                for case in raw_case_numbers:
+                    clean_case = re.sub(r'\s+', '', case)
+                    if not any(c in clean_case for c in ['년', '월', '일', '조', '항', '호', '목']):
+                        case_numbers.append(clean_case)
                 
         unique_cases = list(dict.fromkeys(case_numbers))[:3] # 중복제거, 최대 3개로 제한 (타임아웃 방지)
         
