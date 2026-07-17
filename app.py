@@ -499,6 +499,64 @@ def fetch_moleg_context(query, api_key="ksh8481"):
         print(f"MOLEG API fallback error: {e}")
         return "[법제처 API 검색 실패: 시스템 오류가 발생했습니다.]"
 
+def fetch_moleg_precedents(query, api_key="ksh8481"):
+    try:
+        import urllib.parse
+        import xml.etree.ElementTree as ET
+        import requests
+        
+        keywords = extract_keywords(query)
+        if not keywords:
+            return ""
+            
+        precedent_text = ""
+        prec_ids = []
+        
+        for keyword in keywords[:2]:
+            try:
+                search_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={api_key}&target=prec&type=XML&query={urllib.parse.quote(keyword)}"
+                res = requests.get(search_url, timeout=3)
+                res.encoding = 'utf-8'
+                root = ET.fromstring(res.text)
+                
+                for prec in root.findall('prec')[:2]:
+                    prec_id = prec.findtext('판례일련번호')
+                    if prec_id and prec_id not in prec_ids:
+                        prec_ids.append(prec_id)
+            except:
+                continue
+                
+        if not prec_ids:
+            return "[법제처 판례 API: 검색된 관련 판례가 없습니다.]"
+            
+        for prec_id in prec_ids[:3]:
+            try:
+                detail_url = f"https://www.law.go.kr/DRF/lawService.do?OC={api_key}&target=prec&ID={prec_id}&type=XML"
+                res = requests.get(detail_url, timeout=3)
+                res.encoding = 'utf-8'
+                root = ET.fromstring(res.text)
+                
+                case_no = root.findtext('사건번호', '')
+                case_name = root.findtext('사건명', '')
+                summary = root.findtext('판결요지', '')
+                if not summary:
+                    summary = root.findtext('판례내용', '')
+                    if summary:
+                        summary = summary[:1000] + "..."
+                
+                if case_no:
+                    precedent_text += f"### 판례: {case_name} ({case_no})\n"
+                    precedent_text += f"{summary}\n\n"
+            except:
+                continue
+                
+        if precedent_text:
+            return f"[법제처 실시간 판례 검색 결과]\n{precedent_text}"
+        return ""
+    except Exception as e:
+        print(f"MOLEG Prec API Error: {e}")
+        return ""
+
 def fetch_local_law_data(query, moleg_context):
     import glob
     import os
@@ -1025,6 +1083,7 @@ def api_other_review():
             models_to_try = ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']
             
         moleg_context = fetch_moleg_context(text_content, os.environ.get('MOLEG_API_KEY', ''))
+        precedent_context = fetch_moleg_precedents(text_content, os.environ.get('MOLEG_API_KEY', ''))
         local_law_context = fetch_local_law_data(text_content, moleg_context)
         
         raw_text = text_content.strip()
@@ -1047,6 +1106,8 @@ def api_other_review():
 
 {moleg_context}
 
+{precedent_context}
+
 [로컬 법령 데이터베이스 (조문 본문 및 별표/서식)]
 {local_law_context}
 
@@ -1056,12 +1117,9 @@ def api_other_review():
   - ⚖️ 법령 조문 링크: 법률의 성격에 따라 URL 형식을 엄격히 구분하여 반드시 **제X조**까지 구체적으로 연결되도록 작성하십시오. (띄어쓰기는 그대로 유지합니다)
     - **법률, 시행령, 시행규칙**인 경우 (예: ~법, ~령, ~규칙): `[법령명 제X조](https://www.law.go.kr/법령/법령명/제X조)`
     - **고시, 훈령, 예규, 지침, 기준**인 경우 (예: ~고시, ~기준, ~지침): `[행정규칙명 제X조](https://www.law.go.kr/행정규칙/행정규칙명/제X조)`
-3. 🔎 **[판례 검색] 오직 사설 판례 엔진(케이스노트)만 활용**:
-  - 구글 검색 도구를 사용할 때 반드시 `site:casenote.kr 검색어` 형식으로 검색어에 케이스노트 도메인을 강제하여 실제 존재하는 판례만 찾으십시오.
-  - 🚨 **[가짜 판례 창작 절대 금지]**: 케이스노트에서 검색되지 않은 사건번호나 판례를 AI가 임의로 창작(할루시네이션)하면 절대 안 됩니다! 검색 결과가 없으면 "현재 쟁점과 관련된 대법원 판례를 찾을 수 없습니다."라고만 출력하십시오.
-  - 🚨 **[링크 생성 규칙]**: 검색된 실제 판례가 있다면 링크는 무조건 **검색 결과 페이지**로 연결되도록 아래 포맷을 엄격히 지켜 작성하십시오.
-    - 포맷: `[판례명(사건번호)](https://casenote.kr/search/?q=사건번호)`
-    - 예시: `[대법원 2014. 11. 13. 선고 2014다87955 판결](https://casenote.kr/search/?q=2014다87955)`
+3. 🔎 **[판례 인용] 제공된 판례 데이터베이스 활용**:
+  - 제공된 [법제처 실시간 판례 검색 결과]에 포함된 원문 판례를 100% 신뢰하여 답변에 인용하십시오.
+  - 🚨 **[가짜 판례 창작 절대 금지]**: 제공된 데이터베이스에 관련된 판례가 없다면, 절대 임의로 사건번호를 지어내거나(할루시네이션) 인터넷 검색을 시도하지 마십시오. 판례가 제공되지 않은 경우 "현재 쟁점과 관련된 대법원 판례 데이터가 제공되지 않았습니다."라고만 출력하십시오.
 4. 응답 구조 및 모드:
   {mode_instruction}
 5. 🚨 **[할루시네이션(환각) 원천 차단]**: 만약 사용자가 질의한 특정 법률의 원문이 [로컬 법령 데이터베이스]에 제공되지 않았다면, **절대로 조항 번호(예: 제X조)나 구체적 내용을 스스로 창작하거나 유추해서 적지 마십시오!** 이 경우 일반적인 법리와 절차만 설명하고, 반드시 "해당 법률의 원문 데이터가 로컬 DB에 없어 정확한 조항 번호는 법제처(law.go.kr)를 직접 참조하시기 바랍니다."라고 명시하십시오.
@@ -1072,7 +1130,7 @@ def api_other_review():
 - 
 ### 3. 관련 법령 및 핵심 판례 (Applicable Laws & Key Precedents)
 - 법령은 [법제처 API 실시간 RAG 검색 결과] 및 [로컬 법령 데이터베이스]를 바탕으로 상세 설명. 
-- 판례는 케이스노트 검색을 통해 발굴한 **실제 판례** 요점을 상세히 설명하고 출처 링크 첨부. (단, 검색 결과가 없으면 변명 없이 "관련 판례 없음"만 명시할 것.)
+- 판례는 [법제처 실시간 판례 검색 결과]에 제시된 판례만 인용하여 요점을 상세히 설명하십시오. (제공된 결과가 없으면 "관련 판례 없음"만 명시할 것.)
 ### 4. 공무원 행동 지침 및 결론 (Action Plan)
 - 
 
@@ -1088,7 +1146,7 @@ def api_other_review():
         for m in models_to_try:
             try:
                 try:
-                    model = genai.GenerativeModel(model_name=m, tools='google_search_retrieval')
+                    model = genai.GenerativeModel(model_name=m)
                     response = model.generate_content(contents_payload)
                     break
                 except Exception as tool_e:
