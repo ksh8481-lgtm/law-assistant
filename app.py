@@ -545,7 +545,8 @@ def fetch_moleg_precedents(query, api_key="ksh8481"):
                         summary = summary[:1000] + "..."
                 
                 if case_no:
-                    precedent_text += f"### 판례: {case_name} ({case_no})\n"
+                    link = f"https://casenote.kr/search/?q={urllib.parse.quote(case_no)}"
+                    precedent_text += f"### [판례: {case_name} ({case_no})]({link})\n"
                     precedent_text += f"{summary}\n\n"
             except:
                 continue
@@ -1119,6 +1120,7 @@ def api_other_review():
     - **고시, 훈령, 예규, 지침, 기준**인 경우 (예: ~고시, ~기준, ~지침): `[행정규칙명 제X조](https://www.law.go.kr/행정규칙/행정규칙명/제X조)`
 3. 🔎 **[판례 인용] 제공된 판례 데이터베이스 활용**:
   - 제공된 [법제처 실시간 판례 검색 결과]에 포함된 원문 판례를 100% 신뢰하여 답변에 인용하십시오.
+  - 인용 시 반드시 제공된 하이퍼링크 형식 `[판례명(사건번호)](링크)`을 그대로 유지하여 클릭할 수 있도록 만드십시오.
   - 🚨 **[가짜 판례 창작 절대 금지]**: 제공된 데이터베이스에 관련된 판례가 없다면, 절대 임의로 사건번호를 지어내거나(할루시네이션) 인터넷 검색을 시도하지 마십시오. 판례가 제공되지 않은 경우 "현재 쟁점과 관련된 대법원 판례 데이터가 제공되지 않았습니다."라고만 출력하십시오.
 4. 응답 구조 및 모드:
   {mode_instruction}
