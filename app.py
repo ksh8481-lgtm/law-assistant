@@ -495,28 +495,53 @@ def fetch_moleg_precedents(query, api_key="ksh8481"):
         import urllib.parse
         import xml.etree.ElementTree as ET
         import requests
+        import re
         
-        keyword = extract_keyword_via_llm(query)
-        if not keyword:
-            return ""
-            
         precedent_text = ""
         prec_ids = []
         
-        try:
-            search_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={api_key}&target=prec&type=XML&query={urllib.parse.quote(keyword)}"
-            res = requests.get(search_url, timeout=3)
-            res.encoding = 'utf-8'
-            root = ET.fromstring(res.text)
-            
-            for prec in root.findall('prec')[:3]:
-                prec_id = prec.findtext('판례일련번호')
-                if prec_id and prec_id not in prec_ids:
-                    prec_ids.append(prec_id)
-        except:
-            pass
-            
+        # Track 1: 정규식으로 문서 내 사건번호 추출 (예: 2010두11641)
+        case_numbers = re.findall(r'\d{4}[가-힣]+\d+', query)
+        unique_cases = list(dict.fromkeys(case_numbers))[:5] # 중복제거, 최대 5개
+        
+        if unique_cases:
+            precedent_text += "[문서 내 인용된 사건번호 추적 결과]\n"
+            for case_no_query in unique_cases:
+                try:
+                    search_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={api_key}&target=prec&type=XML&query={urllib.parse.quote(case_no_query)}"
+                    res = requests.get(search_url, timeout=3)
+                    res.encoding = 'utf-8'
+                    root = ET.fromstring(res.text)
+                    
+                    found = False
+                    for prec in root.findall('prec')[:1]: # 사건번호는 특정되므로 첫 번째 결과만
+                        prec_id = prec.findtext('판례일련번호')
+                        if prec_id and prec_id not in prec_ids:
+                            prec_ids.append(prec_id)
+                            found = True
+                    if not found:
+                        precedent_text += f" - 🚨주의: {case_no_query}는 대법원 판례 DB에서 검색되지 않거나 존재하지 않는 가짜 사건번호일 가능성이 높습니다.\n"
+                except:
+                    continue
+        
+        # Track 2: 사건번호가 없으면 키워드로 일반 검색
         if not prec_ids:
+            keyword = extract_keyword_via_llm(query)
+            if keyword:
+                try:
+                    search_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={api_key}&target=prec&type=XML&query={urllib.parse.quote(keyword)}"
+                    res = requests.get(search_url, timeout=3)
+                    res.encoding = 'utf-8'
+                    root = ET.fromstring(res.text)
+                    
+                    for prec in root.findall('prec')[:3]:
+                        prec_id = prec.findtext('판례일련번호')
+                        if prec_id and prec_id not in prec_ids:
+                            prec_ids.append(prec_id)
+                except:
+                    pass
+
+        if not prec_ids and not unique_cases:
             return "[법제처 판례 API: 검색된 관련 판례가 없습니다.]"
             
         for prec_id in prec_ids:
@@ -1109,7 +1134,8 @@ def api_other_review():
     - **법률, 시행령, 시행규칙**인 경우 (예: ~법, ~령, ~규칙): `[법령명 제X조](https://www.law.go.kr/법령/법령명/제X조)`
     - **고시, 훈령, 예규, 지침, 기준**인 경우 (예: ~고시, ~기준, ~지침): `[행정규칙명 제X조](https://www.law.go.kr/행정규칙/행정규칙명/제X조)`
 3. 🔎 **[판례 인용] 제공된 판례 데이터베이스 활용**:
-  - 제공된 [법제처 실시간 판례 검색 결과]에 포함된 원문 판례를 100% 신뢰하여 답변에 인용하십시오.
+  - 만약 사용자가 첨부한 문서에 특정한 사건번호(판례)가 인용되어 있다면, [법제처 실시간 판례 검색 결과] 중 **[문서 내 인용된 사건번호 추적 결과]**를 최우선으로 확인하고 답변에 분석/반영하십시오. (가짜 판례로 판명된 경우 그 사실을 지적하십시오.)
+  - 제공된 원문 판례를 100% 신뢰하여 답변에 인용하십시오.
   - 인용 시 반드시 제공된 하이퍼링크 형식 `[판례명(사건번호)](링크)`을 그대로 유지하여 클릭할 수 있도록 만드십시오.
   - 🚨 **[가짜 판례 창작 절대 금지]**: 제공된 데이터베이스에 관련된 판례가 없다면, 절대 임의로 사건번호를 지어내거나(할루시네이션) 인터넷 검색을 시도하지 마십시오. 판례가 제공되지 않은 경우 "현재 쟁점과 관련된 대법원 판례 데이터가 제공되지 않았습니다."라고만 출력하십시오.
 4. 응답 구조 및 모드:
