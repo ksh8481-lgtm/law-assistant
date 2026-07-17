@@ -5,3 +5,4 @@ google-generativeai
 python-dotenv==1.0.0
 gunicorn==21.2.0
 pymupdf
+PyPDF2

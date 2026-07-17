@@ -502,7 +502,8 @@ def fetch_moleg_precedents(query, api_key="ksh8481"):
         prec_ids = []
         
         # Track 1: 정규식으로 문서 내 사건번호 추출 (예: 2010두11641)
-        case_numbers = re.findall(r'\d{4}[가-힣]+\d+', query)
+        raw_case_numbers = re.findall(r'\d{4}\s*[가-힣]+\s*\d+', query)
+        case_numbers = [re.sub(r'\s+', '', case) for case in raw_case_numbers]
         unique_cases = list(dict.fromkeys(case_numbers))[:3] # 중복제거, 최대 3개로 제한 (타임아웃 방지)
         
         if unique_cases:
@@ -1090,12 +1091,22 @@ def api_other_review():
                 doc = fitz.open(temp_path)
                 for page in doc:
                     file_text += page.get_text() + "\n"
-            except Exception:
+            except Exception as e:
+                print(f"PyMuPDF error: {e}")
                 try:
-                    with open(temp_path, 'r', encoding='utf-8') as f:
-                        file_text = f.read()
-                except:
-                    pass
+                    import PyPDF2
+                    with open(temp_path, 'rb') as f:
+                        reader = PyPDF2.PdfReader(f)
+                        for page in reader.pages:
+                            text = page.extract_text()
+                            if text: file_text += text + "\n"
+                except Exception as e2:
+                    print(f"PyPDF2 error: {e2}")
+                    try:
+                        with open(temp_path, 'r', encoding='utf-8') as f:
+                            file_text = f.read()
+                    except:
+                        pass
             
             # genai.upload_file이 실패했을 때만 프롬프트에 직접 텍스트 첨부
             if not uploaded_file and file_text:
