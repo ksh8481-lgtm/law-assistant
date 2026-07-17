@@ -430,12 +430,10 @@ def download_law_to_db(law_name, law_key, md_path):
         print(f"Auto-download failed for {law_name}: {e}")
         return False
 
-def fetch_moleg_context(text, law_key):
-    if not law_key:
-        return ""
+def extract_keyword_via_llm(text):
     try:
         genai.configure(api_key=GEMINI_KEY)
-        kw_prompt = f"다음 텍스트에서 대한민국 법제처 판례/법령 검색에 가장 적합한 핵심 명사 키워드 딱 1개(예: 하도급, 가압류, 직불)만 추출해. 다른 말은 절대 하지마.\n텍스트: {text}"
+        kw_prompt = f"다음 텍스트에서 대한민국 법제처 판례/법령 검색에 가장 적합한 핵심 명사 키워드 딱 1개(예: 영업손실보상, 하도급, 직불)만 추출해. 다른 말은 절대 하지마.\n텍스트: {text[:3000]}"
         
         try:
             available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
@@ -443,22 +441,28 @@ def fetch_moleg_context(text, law_key):
         except:
             models_to_try = ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']
             
-        kw_res = None
         for m in models_to_try:
             try:
                 model = genai.GenerativeModel(m)
                 kw_res = model.generate_content(kw_prompt)
-                break
+                keyword = kw_res.text.strip().replace("'", "").replace('"', "")
+                if len(keyword) > 10: keyword = keyword[:10]
+                if keyword: return keyword
             except Exception as e:
                 continue
-                
-        if not kw_res:
-            return ""
+    except Exception as e:
+        pass
+    return ""
+
+def fetch_moleg_context(text, law_key="ksh8481"):
+    if not law_key:
+        return ""
+    try:
+        keyword = extract_keyword_via_llm(text)
+        if not keyword:
+            return "[법제처 API 검색 실패: 핵심 키워드를 추출하지 못했습니다.]"
             
-        keyword = kw_res.text.strip().replace("'", "").replace('"', "")
-        if len(keyword) > 10: keyword = keyword[:10]
-        
-        law_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={law_key}&target=law&type=XML&query={keyword}"
+        law_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={law_key}&target=law&type=XML&query={urllib.parse.quote(keyword)}"
         law_res = requests.get(law_url, timeout=3)
         laws = []
         if law_res.status_code == 200:
@@ -486,50 +490,36 @@ def fetch_moleg_context(text, law_key):
         print(f"MOLEG RAG Error: {e}")
         return ""
 
-
-def fetch_moleg_context(query, api_key="ksh8481"):
-    try:
-        # Extract keywords for MOLEG API
-        keywords = extract_keywords(query)
-        if not keywords:
-            return "[법제처 API 검색 실패: 핵심 키워드를 추출하지 못했습니다.]"
-            
-        return query_moleg_api(keywords, api_key)
-    except Exception as e:
-        print(f"MOLEG API fallback error: {e}")
-        return "[법제처 API 검색 실패: 시스템 오류가 발생했습니다.]"
-
 def fetch_moleg_precedents(query, api_key="ksh8481"):
     try:
         import urllib.parse
         import xml.etree.ElementTree as ET
         import requests
         
-        keywords = extract_keywords(query)
-        if not keywords:
+        keyword = extract_keyword_via_llm(query)
+        if not keyword:
             return ""
             
         precedent_text = ""
         prec_ids = []
         
-        for keyword in keywords[:2]:
-            try:
-                search_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={api_key}&target=prec&type=XML&query={urllib.parse.quote(keyword)}"
-                res = requests.get(search_url, timeout=3)
-                res.encoding = 'utf-8'
-                root = ET.fromstring(res.text)
-                
-                for prec in root.findall('prec')[:2]:
-                    prec_id = prec.findtext('판례일련번호')
-                    if prec_id and prec_id not in prec_ids:
-                        prec_ids.append(prec_id)
-            except:
-                continue
-                
+        try:
+            search_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={api_key}&target=prec&type=XML&query={urllib.parse.quote(keyword)}"
+            res = requests.get(search_url, timeout=3)
+            res.encoding = 'utf-8'
+            root = ET.fromstring(res.text)
+            
+            for prec in root.findall('prec')[:3]:
+                prec_id = prec.findtext('판례일련번호')
+                if prec_id and prec_id not in prec_ids:
+                    prec_ids.append(prec_id)
+        except:
+            pass
+            
         if not prec_ids:
             return "[법제처 판례 API: 검색된 관련 판례가 없습니다.]"
             
-        for prec_id in prec_ids[:3]:
+        for prec_id in prec_ids:
             try:
                 detail_url = f"https://www.law.go.kr/DRF/lawService.do?OC={api_key}&target=prec&ID={prec_id}&type=XML"
                 res = requests.get(detail_url, timeout=3)
