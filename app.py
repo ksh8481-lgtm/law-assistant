@@ -454,6 +454,36 @@ def extract_keyword_via_llm(text):
         pass
     return ""
 
+
+def extract_cases_via_llm(text, uploaded_file=None):
+    try:
+        genai.configure(api_key=GEMINI_KEY)
+        kw_prompt = "다음 텍스트나 첨부된 문서에서 인용된 '대법원 판례 사건번호(예: 2010두11641)'를 모두 찾아내어 쉼표로 구분해 줘. 판례가 없으면 '없음'이라고 해.\n텍스트: " + text[:3000]
+        
+        contents_payload = [kw_prompt]
+        if uploaded_file:
+            contents_payload.append(uploaded_file)
+            
+        try:
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
+            models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-flash' in x else 1 if '1.5-pro' in x else 2 if '2.5-flash' in x else 3 if 'pro' in x else 4))
+        except:
+            models_to_try = ['models/gemini-1.5-flash', 'models/gemini-2.5-flash', 'models/gemini-2.0-flash']
+            
+        for m in models_to_try:
+            try:
+                model = genai.GenerativeModel(m)
+                res = model.generate_content(contents_payload)
+                result_text = res.text.strip().replace(" ", "").replace("'", "").replace('"', "")
+                if '없음' not in result_text and len(result_text) > 4:
+                    return result_text
+                return ""
+            except Exception as e:
+                continue
+    except Exception as e:
+        pass
+    return ""
+
 def fetch_moleg_context(text, law_key="ksh8481"):
     if not law_key:
         return ""
@@ -490,7 +520,7 @@ def fetch_moleg_context(text, law_key="ksh8481"):
         print(f"MOLEG RAG Error: {e}")
         return ""
 
-def fetch_moleg_precedents(query, api_key="ksh8481"):
+def fetch_moleg_precedents(query, api_key="ksh8481", uploaded_file=None):
     try:
         import urllib.parse
         import xml.etree.ElementTree as ET
@@ -504,6 +534,14 @@ def fetch_moleg_precedents(query, api_key="ksh8481"):
         # Track 1: 정규식으로 문서 내 사건번호 추출 (예: 2010두11641)
         raw_case_numbers = re.findall(r'\d{4}\s*[가-힣]+\s*\d+', query)
         case_numbers = [re.sub(r'\s+', '', case) for case in raw_case_numbers]
+        
+        # Track 1.5: 파이썬 정규식이 빈손이라면(스캔본 PDF 등), 시력이 좋은 AI(Gemini Vision)에게 문서를 보여주고 추출 요청!
+        if not case_numbers and uploaded_file:
+            llm_cases_str = extract_cases_via_llm(query, uploaded_file)
+            if llm_cases_str:
+                raw_case_numbers = re.findall(r'\d{4}[가-힣]+\d+', llm_cases_str)
+                case_numbers = [re.sub(r'\s+', '', case) for case in raw_case_numbers]
+                
         unique_cases = list(dict.fromkeys(case_numbers))[:3] # 중복제거, 최대 3개로 제한 (타임아웃 방지)
         
         if unique_cases:
@@ -1113,7 +1151,7 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
         full_query_for_rag = text_content + "\n" + file_text
             
         moleg_context = fetch_moleg_context(full_query_for_rag, os.environ.get('MOLEG_API_KEY', ''))
-        precedent_context = fetch_moleg_precedents(full_query_for_rag, os.environ.get('MOLEG_API_KEY', ''))
+        precedent_context = fetch_moleg_precedents(full_query_for_rag, os.environ.get('MOLEG_API_KEY', ''), uploaded_file)
         local_law_context = fetch_local_law_data(full_query_for_rag, moleg_context)
         
         raw_text = text_content.strip()
