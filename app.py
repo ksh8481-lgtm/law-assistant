@@ -1074,22 +1074,25 @@ def api_other_review():
             try:
                 uploaded_file = genai.upload_file(path=temp_path, display_name=filename)
             except Exception as e:
-                print(f"genai.upload_file failed: {e}. Falling back to local extraction.")
-                try:
-                    import fitz
-                    doc = fitz.open(temp_path)
-                    for page in doc:
-                        file_text += page.get_text() + "\n"
-                except Exception:
-                    try:
-                        with open(temp_path, 'r', encoding='utf-8') as f:
-                            file_text = f.read()
-                    except:
-                        pass
+                print(f"genai.upload_file failed: {e}")
                 
-                if file_text:
-                    text_content += f"\n\n[첨부 문서 내용]\n{file_text[:30000]}"
-                    
+            # 항상 로컬 파이썬 환경에서도 텍스트를 추출 (RAG 및 정규식 스캔용)
+            try:
+                import fitz
+                doc = fitz.open(temp_path)
+                for page in doc:
+                    file_text += page.get_text() + "\n"
+            except Exception:
+                try:
+                    with open(temp_path, 'r', encoding='utf-8') as f:
+                        file_text = f.read()
+                except:
+                    pass
+            
+            # genai.upload_file이 실패했을 때만 프롬프트에 직접 텍스트 첨부
+            if not uploaded_file and file_text:
+                text_content += f"\n\n[첨부 문서 내용]\n{file_text[:30000]}"
+                
             os.remove(temp_path)
             
         try:
@@ -1098,9 +1101,12 @@ def api_other_review():
         except:
             models_to_try = ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']
             
-        moleg_context = fetch_moleg_context(text_content, os.environ.get('MOLEG_API_KEY', ''))
-        precedent_context = fetch_moleg_precedents(text_content, os.environ.get('MOLEG_API_KEY', ''))
-        local_law_context = fetch_local_law_data(text_content, moleg_context)
+        # RAG 검색 시에는 파일 내 텍스트까지 합쳐서 분석!
+        full_query_for_rag = text_content + "\n" + file_text
+            
+        moleg_context = fetch_moleg_context(full_query_for_rag, os.environ.get('MOLEG_API_KEY', ''))
+        precedent_context = fetch_moleg_precedents(full_query_for_rag, os.environ.get('MOLEG_API_KEY', ''))
+        local_law_context = fetch_local_law_data(full_query_for_rag, moleg_context)
         
         raw_text = text_content.strip()
         has_file = bool((file_obj and file_obj.filename) or file_text or uploaded_file)
