@@ -381,7 +381,7 @@
             }
 
             try {
-                // 실제 백엔드 AI 통신 (FormData 전송)
+                // 실제 백엔드 AI 통신 (FormData 전송) - Async Polling
                 const response = await fetch('/api/analyze/other_review', {
                     method: 'POST',
                     body: formData
@@ -389,25 +389,53 @@
 
                 const data = await response.json();
                 
-                agentMain.className = 'agent-card done';
-                document.querySelector('.submit-btn').disabled = false;
-                document.querySelector('.submit-btn').textContent = "AI 통합 검토 시작";
-
-                if(data.success) {
-                    resultBox.style.display = 'block';
-                    document.getElementById('result-content').innerHTML = marked.parse(data.result);
-                    
-                    // 채팅 세션 데이터 저장
-                    currentFileName = data.file_name || '';
-                    initialContext = data.initial_context || '';
-                    chatSessionHistory = [
-                        { role: 'model', text: data.result }
-                    ];
-                    
-                    resultBox.scrollIntoView({ behavior: 'smooth' });
-                } else {
+                if(!data.success) {
                     alert("오류 발생: " + data.message);
+                    document.querySelector('.submit-btn').disabled = false;
+                    document.querySelector('.submit-btn').textContent = "AI 통합 검토 시작";
+                    return;
                 }
+                
+                const jobId = data.job_id;
+                document.querySelector('.submit-btn').textContent = "검토 중... (최대 1~2분 소요)";
+                
+                const checkStatus = async () => {
+                    try {
+                        const statusRes = await fetch(`/api/analyze/other_review_status/${jobId}`);
+                        const statusData = await statusRes.json();
+                        
+                        if (statusData.status === 'completed') {
+                            agentMain.className = 'agent-card done';
+                            document.querySelector('.submit-btn').disabled = false;
+                            document.querySelector('.submit-btn').textContent = "AI 통합 검토 시작";
+                            
+                            resultBox.style.display = 'block';
+                            document.getElementById('result-content').innerHTML = marked.parse(statusData.result);
+                            
+                            // 채팅 세션 데이터 저장
+                            currentFileName = statusData.file_name || '';
+                            initialContext = statusData.initial_context || '';
+                            chatSessionHistory = [
+                                { role: 'model', text: statusData.result }
+                            ];
+                            
+                            resultBox.scrollIntoView({ behavior: 'smooth' });
+                        } else if (statusData.status === 'error') {
+                            alert("검토 중 오류 발생: " + statusData.message);
+                            document.querySelector('.submit-btn').disabled = false;
+                            document.querySelector('.submit-btn').textContent = "AI 통합 검토 시작";
+                        } else {
+                            // 계속 폴링
+                            setTimeout(checkStatus, 2000);
+                        }
+                    } catch (e) {
+                        alert("상태 확인 실패: " + e);
+                        document.querySelector('.submit-btn').disabled = false;
+                        document.querySelector('.submit-btn').textContent = "AI 통합 검토 시작";
+                    }
+                };
+                
+                setTimeout(checkStatus, 2000);
 
             } catch(error) {
                 alert("서버 통신 실패: " + error);

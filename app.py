@@ -1056,30 +1056,19 @@ def analyze_status(job_id):
 import tempfile
 import werkzeug.utils
 
-@app.route('/api/analyze/other_review', methods=['POST'])
-def api_other_review():
+
+def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists):
     try:
-        if request.content_type and 'multipart/form-data' in request.content_type:
-            text_content = request.form.get('text', '')
-            file_obj = request.files.get('file')
-        else:
-            data = request.json or {}
-            text_content = data.get('text', '')
-            file_obj = None
-            
-        if not text_content and not file_obj:
-            return jsonify({"success": False, "message": "검토할 내용이나 파일이 제공되지 않았습니다."}), 400
-            
+        import os
+        import tempfile
+        import google.generativeai as genai
+        
         genai.configure(api_key=GEMINI_KEY)
         
         uploaded_file = None
         file_text = ""
-        if file_obj and file_obj.filename:
-            filename = werkzeug.utils.secure_filename(file_obj.filename)
-            temp_dir = tempfile.gettempdir()
-            temp_path = os.path.join(temp_dir, filename)
-            file_obj.save(temp_path)
-            
+        
+        if temp_path and os.path.exists(temp_path):
             try:
                 uploaded_file = genai.upload_file(path=temp_path, display_name=filename)
             except Exception as e:
@@ -1128,7 +1117,7 @@ def api_other_review():
         local_law_context = fetch_local_law_data(full_query_for_rag, moleg_context)
         
         raw_text = text_content.strip()
-        has_file = bool((file_obj and file_obj.filename) or file_text or uploaded_file)
+        has_file = bool(file_obj_exists or file_text or uploaded_file)
         dummy_phrases = ["이네용", "이거", "이거 분석해줘", "분석해줘", "검토해줘"]
         has_text = bool(raw_text and raw_text not in dummy_phrases and len(raw_text) > 5)
 
@@ -1206,55 +1195,83 @@ def api_other_review():
             raise Exception(f"모든 AI 모델이 요청 한도 초과 또는 오류로 실패했습니다. 마지막 오류: {last_err}")
             
         file_name = uploaded_file.name if uploaded_file else ""
-        return jsonify({
-            "success": True, 
-            "result": response.text, 
-            "file_name": file_name, 
-            "initial_context": prompt
-        })
-        
+        JOBS[job_id] = {
+            "status": "completed",
+            "result": response.text,
+            "file_name": file_name,
+            "initial_context": full_query_for_rag
+        }
     except Exception as e:
-        print(f"Other Review API Error: {e}")
-        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"})
+        print(f"run_other_review error: {e}")
+        JOBS[job_id] = {"status": "error", "message": str(e)}
 
-
-@app.route('/api/chat/duty_list', methods=['POST'])
-def api_chat_duty_list():
+@app.route('/api/analyze/other_review', methods=['POST'])
+def api_other_review():
     try:
-        data = request.json
-        chat_history = data.get('chat_history', [])
-        new_message = data.get('new_message', '')
-        law_name = data.get('law_name', '')
+        import tempfile
+        import werkzeug.utils
+        import uuid
+        import os
+        import threading
         
-        if not new_message:
-            return jsonify({"success": False, "message": "질문이 제공되지 않았습니다."}), 400
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            text_content = request.form.get('text', '')
+            file_obj = request.files.get('file')
+        else:
+            data = request.json or {}
+            text_content = data.get('text', '')
+            file_obj = None
             
-        genai.configure(api_key=GEMINI_KEY)
-        
-        contents_payload = []
-        initial_context = f"사용자가 '{law_name}' 법률과 그에 따른 법적 의무 사항에 대해 질문하고 있습니다. 친절하고 정확하게 법률 상담원처럼 답변해주세요."
-        contents_payload.append({"role": "user", "parts": [initial_context]})
-        
-        for msg in chat_history:
-            contents_payload.append({
-                "role": msg["role"],
-                "parts": [msg["text"]]
-            })
+        if not text_content and not file_obj:
+            return jsonify({"success": False, "message": "검토할 내용이나 파일이 제공되지 않았습니다."}), 400
             
-        contents_payload.append({
-            "role": "user",
-            "parts": [new_message]
+        temp_path = None
+        filename = None
+        file_obj_exists = False
+        
+        if file_obj and file_obj.filename:
+            file_obj_exists = True
+            filename = werkzeug.utils.secure_filename(file_obj.filename)
+            temp_dir = tempfile.gettempdir()
+            temp_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{filename}")
+            file_obj.save(temp_path)
+            
+        job_id = str(uuid.uuid4())
+        JOBS[job_id] = {"status": "processing"}
+        
+        thread = threading.Thread(target=run_other_review, args=(job_id, text_content, temp_path, filename, file_obj_exists))
+        thread.start()
+        
+        return jsonify({"success": True, "job_id": job_id})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route('/api/analyze/other_review_status/<job_id>', methods=['GET'])
+def other_review_status(job_id):
+    if job_id not in JOBS:
+        return jsonify({"status": "error", "message": "존재하지 않는 작업입니다."}), 404
+    
+    job_info = JOBS[job_id]
+    
+    if job_info["status"] == "completed":
+        result = job_info.get("result", "")
+        file_name = job_info.get("file_name", "")
+        initial_context = job_info.get("initial_context", "")
+        del JOBS[job_id]
+        return jsonify({
+            "status": "completed", 
+            "result": result,
+            "file_name": file_name,
+            "initial_context": initial_context
         })
         
-        model_name = 'models/gemini-2.5-flash'
-        model = genai.GenerativeModel(model_name)
-        response = model.generate_content(contents_payload)
-            
-        return jsonify({"success": True, "result": response.text})
+    elif job_info["status"] == "error":
+        error_msg = job_info.get("message", "알 수 없는 오류")
+        del JOBS[job_id]
+        return jsonify({"status": "error", "message": error_msg})
         
-    except Exception as e:
-        print(f"Duty List Chat API Error: {e}")
-        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"})
+    else:
+        return jsonify({"status": "processing"})
 
 @app.route('/api/chat/other_review', methods=['POST'])
 def api_chat_other_review():
