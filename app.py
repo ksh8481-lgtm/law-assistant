@@ -1157,8 +1157,8 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
         # RAG 검색 시에는 파일 내 텍스트까지 합쳐서 분석!
         full_query_for_rag = text_content + "\n" + file_text
             
-        moleg_context = fetch_moleg_context(full_query_for_rag, os.environ.get('MOLEG_API_KEY', ''))
-        precedent_context = fetch_moleg_precedents(full_query_for_rag, os.environ.get('MOLEG_API_KEY', ''), uploaded_file)
+        moleg_context = fetch_moleg_context(full_query_for_rag, LAW_KEY)
+        precedent_context = fetch_moleg_precedents(full_query_for_rag, LAW_KEY, uploaded_file)
         local_law_context = fetch_local_law_data(full_query_for_rag, moleg_context)
         
         raw_text = text_content.strip()
