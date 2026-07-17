@@ -496,33 +496,37 @@ def fetch_moleg_precedents(query, api_key="ksh8481"):
         import xml.etree.ElementTree as ET
         import requests
         import re
+        import concurrent.futures
         
         precedent_text = ""
         prec_ids = []
         
         # Track 1: 정규식으로 문서 내 사건번호 추출 (예: 2010두11641)
         case_numbers = re.findall(r'\d{4}[가-힣]+\d+', query)
-        unique_cases = list(dict.fromkeys(case_numbers))[:5] # 중복제거, 최대 5개
+        unique_cases = list(dict.fromkeys(case_numbers))[:3] # 중복제거, 최대 3개로 제한 (타임아웃 방지)
         
         if unique_cases:
             precedent_text += "[문서 내 인용된 사건번호 추적 결과]\n"
-            for case_no_query in unique_cases:
+            def search_case(case_no_query):
                 try:
                     search_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={api_key}&target=prec&type=XML&query={urllib.parse.quote(case_no_query)}"
                     res = requests.get(search_url, timeout=3)
                     res.encoding = 'utf-8'
                     root = ET.fromstring(res.text)
-                    
-                    found = False
-                    for prec in root.findall('prec')[:1]: # 사건번호는 특정되므로 첫 번째 결과만
-                        prec_id = prec.findtext('판례일련번호')
-                        if prec_id and prec_id not in prec_ids:
-                            prec_ids.append(prec_id)
-                            found = True
-                    if not found:
-                        precedent_text += f" - 🚨주의: {case_no_query}는 대법원 판례 DB에서 검색되지 않거나 존재하지 않는 가짜 사건번호일 가능성이 높습니다.\n"
+                    for prec in root.findall('prec')[:1]:
+                        return (case_no_query, prec.findtext('판례일련번호'))
                 except:
-                    continue
+                    pass
+                return (case_no_query, None)
+                
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                results = executor.map(search_case, unique_cases)
+                for case_no_query, prec_id in results:
+                    if prec_id:
+                        if prec_id not in prec_ids:
+                            prec_ids.append(prec_id)
+                    else:
+                        precedent_text += f" - 🚨주의: {case_no_query}는 대법원 판례 DB에서 검색되지 않거나 존재하지 않는 가짜 사건번호일 가능성이 높습니다.\n"
         
         # Track 2: 사건번호가 없으면 키워드로 일반 검색
         if not prec_ids:
@@ -533,7 +537,6 @@ def fetch_moleg_precedents(query, api_key="ksh8481"):
                     res = requests.get(search_url, timeout=3)
                     res.encoding = 'utf-8'
                     root = ET.fromstring(res.text)
-                    
                     for prec in root.findall('prec')[:3]:
                         prec_id = prec.findtext('판례일련번호')
                         if prec_id and prec_id not in prec_ids:
@@ -544,7 +547,7 @@ def fetch_moleg_precedents(query, api_key="ksh8481"):
         if not prec_ids and not unique_cases:
             return "[법제처 판례 API: 검색된 관련 판례가 없습니다.]"
             
-        for prec_id in prec_ids:
+        def fetch_detail(prec_id):
             try:
                 detail_url = f"https://www.law.go.kr/DRF/lawService.do?OC={api_key}&target=prec&ID={prec_id}&type=XML"
                 res = requests.get(detail_url, timeout=3)
@@ -558,14 +561,19 @@ def fetch_moleg_precedents(query, api_key="ksh8481"):
                     summary = root.findtext('판례내용', '')
                     if summary:
                         summary = summary[:1000] + "..."
-                
                 if case_no:
                     link = f"https://casenote.kr/search/?q={urllib.parse.quote(case_no)}"
-                    precedent_text += f"### [판례: {case_name} ({case_no})]({link})\n"
-                    precedent_text += f"{summary}\n\n"
+                    return f"### [판례: {case_name} ({case_no})]({link})\n{summary}\n\n"
             except:
-                continue
-                
+                pass
+            return ""
+
+        if prec_ids:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                results = executor.map(fetch_detail, prec_ids)
+                for res in results:
+                    if res: precedent_text += res
+                    
         if precedent_text:
             return f"[법제처 실시간 판례 검색 결과]\n{precedent_text}"
         return ""
