@@ -1028,7 +1028,7 @@ def api_other_review():
         local_law_context = fetch_local_law_data(text_content, moleg_context)
         
         raw_text = text_content.strip()
-        has_file = bool(file_text or uploaded_file)
+        has_file = bool((file_obj and file_obj.filename) or file_text or uploaded_file)
         dummy_phrases = ["이네용", "이거", "이거 분석해줘", "분석해줘", "검토해줘"]
         has_text = bool(raw_text and raw_text not in dummy_phrases and len(raw_text) > 5)
 
