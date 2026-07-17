@@ -1027,7 +1027,7 @@ def api_other_review():
         moleg_context = fetch_moleg_context(text_content, os.environ.get('MOLEG_API_KEY', ''))
         local_law_context = fetch_local_law_data(text_content, moleg_context)
         
-        raw_text = data.get('text', '').strip()
+        raw_text = text_content.strip()
         has_file = bool(file_text or uploaded_file)
         dummy_phrases = ["이네용", "이거", "이거 분석해줘", "분석해줘", "검토해줘"]
         has_text = bool(raw_text and raw_text not in dummy_phrases and len(raw_text) > 5)
