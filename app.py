@@ -704,8 +704,6 @@ def run_analysis(job_id, data):
         - 「해양환경관리법」 (해역이용협의 등)
         - 「해양조사와 해양정보 활용에 관한 법률」 등 해상 인허가 관련 필수 법령
 """
-        
-        law_context = fetch_law_data(LAW_KEY, "국토의 계획 및 이용에 관한 법률")
         # 모든 DB 변수 추출
         all_rule_vars = get_all_variables()
         vars_instruction = ", ".join(all_rule_vars)
@@ -752,8 +750,14 @@ def run_analysis(job_id, data):
             scale_permits_str = "\n".join(law_lines)
             scale_permits_str = f"\n        **[지식 기반(Knowledge Base) 강제 적용 목록]**\n        서버의 룰 엔진이 매칭한 절대 누락되어서는 안 될 필수 목록입니다. 이 항목들은 반드시 최종 보고서 JSON의 적절한 phase 배열에 포함시키세요:\n{scale_permits_str}\n"
 
-        # 국토계획법 등 기본 정보 패치
-        law_context = fetch_law_data(LAW_KEY, "국토의 계획 및 이용에 관한 법률")
+        # 국토계획법 등 기본 정보 패치 -> MCP 에이전트 자율 검색으로 업그레이드
+        from mcp_agent_sync import get_mcp_context_sync
+        mcp_query = f"'{project_type}' 사업에 적용되는 '{zoning_context}' 관련 법령과 필수 인허가 절차를 최대한 상세히 찾아줘."
+        if public_water_area > 0:
+            mcp_query += " 해상 및 공유수면 공사가 포함되어 있으니 이와 관련된 해양 인허가 법령을 반드시 찾아줘."
+            
+        mcp_rag_context = get_mcp_context_sync(mcp_query)
+        law_context = f"[법제처 API 기반 MCP 에이전트 실시간 검색 결과]\n{mcp_rag_context}"
 
         prompt = f"""
         당신은 대한민국 시설직 공무원을 돕는 최고 수준의 법규 검토 AI 전문가입니다.
@@ -782,7 +786,7 @@ def run_analysis(job_id, data):
 
         **[법령 조항 번호 명시 (매우 중요)]**
         1. 당신이 도출한 필수 법적 절차에 대해, **정확한 조항 번호(예: 제8조, 제10조 제1항 등)를 반드시 기재**하십시오.
-        2. 제공된 텍스트(컨텍스트)에 법률 조문이 충분하지 않더라도, **구글 검색 도구(Google Search Retrieval)를 적극 활용하여 대한민국 법제처(law.go.kr) 등 공식 사이트의 최신 법령을 실시간으로 검색**하십시오.
+        2. 제공된 텍스트(컨텍스트)에 있는 [법제처 API 기반 MCP 에이전트 실시간 검색 결과]의 법률 원문을 최우선으로 적극 참고하십시오. 만약 조문이 충분하지 않다면, **구글 검색 도구(Google Search Retrieval)를 함께 활용**하여 최신 현행 법령을 찾아내십시오.
         3. 🚨 **[현행법령 확인 의무]**: 검색 시 반드시 연혁법령이나 폐지된 법률이 아닌 **"현행법령(현재 시행 중인 법률)"**인지 확인해야 합니다. 만약 옛날 블로그 글이나 구법(폐지된 법)의 조항이라면 절대 사용하지 말고, 현행 법제처 기준으로 재확인하십시오.
         4. 조항 번호를 기재할 때는 절대 "컨텍스트에 없어서~"와 같은 변명이나 사과문, 해명글을 적지 마십시오. 전문적인 보고서 문체만을 유지하세요.
 
