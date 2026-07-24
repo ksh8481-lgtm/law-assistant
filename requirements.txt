@@ -6,3 +6,8 @@ python-dotenv==1.0.0
 gunicorn==21.2.0
 pymupdf
 PyPDF2
+mcp
+fastmcp
+langchain-core
+langchain-google-genai
+langgraph

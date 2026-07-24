@@ -484,148 +484,6 @@ def extract_cases_via_llm(text, uploaded_file=None):
         pass
     return ""
 
-def fetch_moleg_context(text, law_key="ksh8481"):
-    if not law_key:
-        return ""
-    try:
-        keyword = extract_keyword_via_llm(text)
-        if not keyword:
-            return "[법제처 API 검색 실패: 핵심 키워드를 추출하지 못했습니다.]"
-            
-        law_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={law_key}&target=law&type=XML&query={urllib.parse.quote(keyword)}"
-        law_res = requests.get(law_url, timeout=3)
-        laws = []
-        if law_res.status_code == 200:
-            law_root = ET.fromstring(law_res.content)
-            count = 0
-            for law in law_root.findall('.//law'):
-                name = law.find('법령명한글')
-                if name is not None and name.text:
-                    law_name = name.text
-                    link = f"https://www.law.go.kr/법령/{urllib.parse.quote(law_name)}"
-                    laws.append(f"[{law_name}]({link})")
-                    
-                    # Auto-download top 1 missing law
-                    if count < 1:
-                        clean_name = law_name.replace(" ", "").replace("·", "").replace("ㆍ", "")
-                        md_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'laws', f"{clean_name}.md")
-                        if not os.path.exists(md_path):
-                            print(f"Auto-downloading missing law: {law_name}")
-                            download_law_to_db(law_name, law_key, md_path)
-                        count += 1
-        context = f"[법제처 API 실시간 RAG 검색 결과 (키워드: {keyword})]\n"
-        if laws: context += f"- 현행 법령: {', '.join(laws[:10])}\n"
-        return context
-    except Exception as e:
-        print(f"MOLEG RAG Error: {e}")
-        return ""
-
-def fetch_moleg_precedents(query, api_key="ksh8481", uploaded_file=None):
-    try:
-        import urllib.parse
-        import xml.etree.ElementTree as ET
-        import requests
-        import re
-        import concurrent.futures
-        
-        precedent_text = ""
-        prec_ids = []
-        
-        # Track 1: 정규식으로 문서 내 사건번호 추출 (예: 2010두11641)
-        raw_case_numbers = re.findall(r'\d{4}\s*[가-힣]+\s*\d+', query)
-        case_numbers = []
-        for case in raw_case_numbers:
-            clean_case = re.sub(r'\s+', '', case)
-            if not any(c in clean_case for c in ['년', '월', '일', '조', '항', '호', '목']):
-                case_numbers.append(clean_case)
-        
-        # Track 1.5: 파이썬 정규식이 빈손이라면(스캔본 PDF 등), 시력이 좋은 AI(Gemini Vision)에게 문서를 보여주고 추출 요청!
-        if not case_numbers and uploaded_file:
-            llm_cases_str = extract_cases_via_llm(query, uploaded_file)
-            if llm_cases_str:
-                raw_case_numbers = re.findall(r'\d{4}[가-힣]+\d+', llm_cases_str)
-                for case in raw_case_numbers:
-                    clean_case = re.sub(r'\s+', '', case)
-                    if not any(c in clean_case for c in ['년', '월', '일', '조', '항', '호', '목']):
-                        case_numbers.append(clean_case)
-                
-        unique_cases = list(dict.fromkeys(case_numbers))[:3] # 중복제거, 최대 3개로 제한 (타임아웃 방지)
-        
-        if unique_cases:
-            precedent_text += "[문서 내 인용된 사건번호 추적 결과]\n"
-            def search_case(case_no_query):
-                try:
-                    search_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={api_key}&target=prec&type=XML&query={urllib.parse.quote(case_no_query)}"
-                    res = requests.get(search_url, timeout=3)
-                    res.encoding = 'utf-8'
-                    root = ET.fromstring(res.text)
-                    for prec in root.findall('prec')[:1]:
-                        return (case_no_query, prec.findtext('판례일련번호'))
-                except:
-                    pass
-                return (case_no_query, None)
-                
-            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-                results = executor.map(search_case, unique_cases)
-                for case_no_query, prec_id in results:
-                    if prec_id:
-                        if prec_id not in prec_ids:
-                            prec_ids.append(prec_id)
-                    else:
-                        precedent_text += f" - 🚨주의: {case_no_query}는 대법원 판례 DB에서 검색되지 않거나 존재하지 않는 가짜 사건번호일 가능성이 높습니다.\n"
-        
-        # Track 2: 사건번호가 없으면 키워드로 일반 검색
-        if not prec_ids:
-            keyword = extract_keyword_via_llm(query)
-            if keyword:
-                try:
-                    search_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={api_key}&target=prec&type=XML&query={urllib.parse.quote(keyword)}"
-                    res = requests.get(search_url, timeout=3)
-                    res.encoding = 'utf-8'
-                    root = ET.fromstring(res.text)
-                    for prec in root.findall('prec')[:3]:
-                        prec_id = prec.findtext('판례일련번호')
-                        if prec_id and prec_id not in prec_ids:
-                            prec_ids.append(prec_id)
-                except:
-                    pass
-
-        if not prec_ids and not unique_cases:
-            return "[법제처 판례 API: 검색된 관련 판례가 없습니다.]"
-            
-        def fetch_detail(prec_id):
-            try:
-                detail_url = f"https://www.law.go.kr/DRF/lawService.do?OC={api_key}&target=prec&ID={prec_id}&type=XML"
-                res = requests.get(detail_url, timeout=3)
-                res.encoding = 'utf-8'
-                root = ET.fromstring(res.text)
-                
-                case_no = root.findtext('사건번호', '')
-                case_name = root.findtext('사건명', '')
-                summary = root.findtext('판결요지', '')
-                if not summary:
-                    summary = root.findtext('판례내용', '')
-                    if summary:
-                        summary = summary[:1000] + "..."
-                if case_no:
-                    link = f"https://casenote.kr/search/?q={urllib.parse.quote(case_no)}"
-                    return f"### [판례: {case_name} ({case_no})]({link})\n{summary}\n\n"
-            except:
-                pass
-            return ""
-
-        if prec_ids:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-                results = executor.map(fetch_detail, prec_ids)
-                for res in results:
-                    if res: precedent_text += res
-                    
-        if precedent_text:
-            return f"[법제처 실시간 판례 검색 결과]\n{precedent_text}"
-        return ""
-    except Exception as e:
-        print(f"MOLEG Prec API Error: {e}")
-        return ""
 
 def fetch_local_law_data(query, moleg_context):
     import glob
@@ -1157,8 +1015,13 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
         # RAG 검색 시에는 파일 내 텍스트까지 합쳐서 분석!
         full_query_for_rag = text_content + "\n" + file_text
             
-        moleg_context = fetch_moleg_context(full_query_for_rag, LAW_KEY)
-        precedent_context = fetch_moleg_precedents(full_query_for_rag, LAW_KEY, uploaded_file)
+        from mcp_agent_sync import get_mcp_context_sync
+        
+        # Call the new MCP Agent to search both laws and precedents
+        mcp_rag_context = get_mcp_context_sync(full_query_for_rag)
+        
+        moleg_context = f"[법제처 API 실시간 RAG 검색 결과 (MCP Agent)]\n{mcp_rag_context}"
+        precedent_context = "" # Merged into moleg_context
         local_law_context = fetch_local_law_data(full_query_for_rag, moleg_context)
         
         raw_text = text_content.strip()
