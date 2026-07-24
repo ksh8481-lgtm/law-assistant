@@ -167,6 +167,72 @@ def other_review():
 def duty_list():
     return render_template('duty_list.html')
 
+@app.route('/api/extract_parcel_from_drawing', methods=['POST'])
+def extract_parcel_from_drawing():
+    try:
+        if 'file' not in request.files:
+            return jsonify({"success": False, "message": "파일이 없습니다."}), 400
+            
+        file = request.files['file']
+        if not file.filename:
+            return jsonify({"success": False, "message": "선택된 파일이 없습니다."}), 400
+            
+        if not GEMINI_KEY:
+            return jsonify({"success": False, "message": "Gemini API 키가 설정되지 않았습니다."}), 500
+
+        import uuid
+        temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'temp')
+        os.makedirs(temp_dir, exist_ok=True)
+        ext = os.path.splitext(file.filename)[1]
+        temp_path = os.path.join(temp_dir, f"drawing_{uuid.uuid4().hex}{ext}")
+        file.save(temp_path)
+        
+        genai.configure(api_key=GEMINI_KEY)
+        
+        try:
+            uploaded_file = genai.upload_file(temp_path)
+            
+            prompt = """
+            당신은 도면, 지적도, 사업계획서에서 편입 부지 목록을 정확하게 추출하는 AI입니다.
+            첨부된 이미지 또는 PDF에서 프로젝트에 편입되는 대상 부지의 '주소(지번)'와 '면적(㎡)' 데이터를 모두 찾아내어 아래 JSON 배열 형식으로 반환해주세요.
+            순수 JSON 데이터만 반환해야 하며, 마크다운 코드블럭(```json)이나 다른 설명은 절대 추가하지 마세요.
+            만약 면적이 적혀있지 않다면 "" (빈 문자열)로 두세요. 주소는 식별 가능한 최대한(시군구 포함) 적어주세요.
+            
+            반환 형식 예시:
+            [
+              {"address": "서울시 강남구 역삼동 123-4", "area": "500"},
+              {"address": "경남 남해군 상주면 양아리 산 12", "area": ""}
+            ]
+            """
+            
+            model = genai.GenerativeModel('models/gemini-2.0-flash')
+            response = model.generate_content([prompt, uploaded_file])
+            
+            resp_text = response.text.strip()
+            if resp_text.startswith("```json"): resp_text = resp_text[7:]
+            if resp_text.startswith("```"): resp_text = resp_text[3:]
+            if resp_text.endswith("```"): resp_text = resp_text[:-3]
+            resp_text = resp_text.strip()
+            
+            try:
+                parsed_data = json.loads(resp_text)
+                if not isinstance(parsed_data, list):
+                    parsed_data = []
+            except:
+                parsed_data = []
+                
+        finally:
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+                
+        return jsonify({"success": True, "data": parsed_data})
+        
+    except Exception as e:
+        print(f"Extract Drawing Error: {e}")
+        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"}), 500
+
 @app.route('/api/search_law_list', methods=['POST'])
 def search_law_list():
     try:
@@ -650,20 +716,28 @@ def run_analysis(job_id, data):
         genai.configure(api_key=GEMINI_KEY)
         available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
-        model_name = None
+        flash_model_name = None
+        pro_model_name = None
+        
         for preferred in ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']:
             if preferred in available_models:
-                model_name = preferred
+                flash_model_name = preferred
                 break
-        if not model_name and available_models:
-            model_name = available_models[0]
-        if not model_name:
-            raise Exception(f"텍스트 생성을 지원하는 모델이 없습니다. (검색된 모델: {available_models})")
+                
+        for preferred in ['models/gemini-2.5-pro', 'models/gemini-1.5-pro']:
+            if preferred in available_models:
+                pro_model_name = preferred
+                break
+                
+        if not flash_model_name: flash_model_name = available_models[0]
+        if not pro_model_name: pro_model_name = flash_model_name # Fallback to flash if no pro
 
-        model = genai.GenerativeModel(model_name)
+        extractor_model = genai.GenerativeModel(flash_model_name)
+        
+        model = genai.GenerativeModel(pro_model_name)
         search_model = None
         try:
-            search_model = genai.GenerativeModel(model_name, tools='google_search_retrieval')
+            search_model = genai.GenerativeModel(pro_model_name, tools='google_search_retrieval')
         except Exception:
             pass
         
@@ -722,7 +796,7 @@ def run_analysis(job_id, data):
         
         (주의: 정보가 부족하거나 해당되지 않는 변수는 아예 JSON 키를 생성하지 마세요. 불확실한 경우에도 제외하세요. "budget", "total_area", "floors", "excavation_depth"와 같은 숫자 변수는 숫자로 추출하세요. "has_", "is_" 로 시작하는 것은 true/false로 출력하세요.)
         """
-        extractor_resp = model.generate_content(extractor_prompt)
+        extractor_resp = extractor_model.generate_content(extractor_prompt)
         ext_text = extractor_resp.text.strip().replace('```json', '').replace('```', '').strip()
         
         try:
@@ -1014,7 +1088,7 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
             available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
             models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-pro' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3 if '1.5-flash' in x else 4))
         except:
-            models_to_try = ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']
+            models_to_try = ['models/gemini-2.5-pro', 'models/gemini-1.5-pro', 'models/gemini-2.5-flash', 'models/gemini-2.0-flash']
             
         # RAG 검색 시에는 파일 내 텍스트까지 합쳐서 분석!
         full_query_for_rag = text_content + "\n" + file_text
@@ -1225,7 +1299,7 @@ def api_chat_other_review():
             available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
             models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-pro' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3 if '1.5-flash' in x else 4))
         except:
-            models_to_try = ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']
+            models_to_try = ['models/gemini-2.5-pro', 'models/gemini-1.5-pro', 'models/gemini-2.5-flash', 'models/gemini-2.0-flash']
             
         response = None
         last_err = None

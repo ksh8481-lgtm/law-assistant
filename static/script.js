@@ -13,6 +13,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Excel bulk upload
     const excelUploadInput = document.getElementById('excel-upload');
     const uploadExcelBtn = document.getElementById('upload-excel-btn');
+    const drawingUploadInput = document.getElementById('drawing-upload');
+    const uploadDrawingBtn = document.getElementById('upload-drawing-btn');
     const bulkVerifyBtn = document.getElementById('bulk-verify-btn');
     
     let totalVerifiedArea = 0;
@@ -86,6 +88,68 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             reader.readAsArrayBuffer(file);
             excelUploadInput.value = ''; // Reset
+        });
+    }
+
+    if (uploadDrawingBtn) {
+        uploadDrawingBtn.addEventListener('click', () => {
+            drawingUploadInput.click();
+        });
+    }
+
+    if (drawingUploadInput) {
+        drawingUploadInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const originalText = uploadDrawingBtn.textContent;
+            uploadDrawingBtn.textContent = '🔄 도면 AI 분석 중... (약 5~10초 소요)';
+            uploadDrawingBtn.disabled = true;
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                const response = await fetch('/api/extract_parcel_from_drawing', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const err = await response.text();
+                    throw new Error(err);
+                }
+                
+                const data = await response.json();
+                if (!data.success) {
+                    throw new Error(data.message || '추출 실패');
+                }
+                
+                const extractedList = data.data;
+                let addedCount = 0;
+                
+                extractedList.forEach(item => {
+                    if (item.address) {
+                        addParcelRow(item.address, item.area || '');
+                        addedCount++;
+                    }
+                });
+                
+                if (addedCount > 0) {
+                    alert(`AI가 도면에서 총 ${addedCount}개의 편입 지번을 성공적으로 추출했습니다!\\n이제 [✅ 일괄 검증] 버튼을 눌러 토지이음 정보를 매칭하세요.`);
+                    bulkVerifyBtn.style.display = 'block';
+                } else {
+                    alert('도면에서 식별 가능한 주소/지번 정보를 찾지 못했습니다.');
+                }
+                
+            } catch (error) {
+                console.error(error);
+                alert('도면 AI 분석 중 오류가 발생했습니다: ' + error.message);
+            } finally {
+                uploadDrawingBtn.textContent = originalText;
+                uploadDrawingBtn.disabled = false;
+                drawingUploadInput.value = ''; // Reset
+            }
         });
     }
 
