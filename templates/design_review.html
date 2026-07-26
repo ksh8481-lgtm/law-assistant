@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 설계도서 표준·지침 정밀 검토 (KCSC MCP)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --primary-light: #e0e7ff;
+            --bg-grad-1: #eef2ff;
+            --bg-grad-2: #f8fafc;
+            --bg-grad-3: #f1f5f9;
+            --text-main: #0f172a;
+            --text-muted: #475569;
+            --card-bg: rgba(255, 255, 255, 0.9);
+            --card-border: #cbd5e1;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background: linear-gradient(135deg, var(--bg-grad-1) 0%, var(--bg-grad-2) 50%, var(--bg-grad-3) 100%);
+            background-attachment: fixed;
+            color: var(--text-main);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 2.5rem 1.5rem;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2.5rem;
+        }
+        .header-content h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            background: linear-gradient(90deg, #4f46e5, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .header-content p { color: var(--text-muted); font-size: 1.05rem; }
+        .back-btn {
+            text-decoration: none;
+            color: #475569;
+            background: white;
+            padding: 0.7rem 1.2rem;
+            border-radius: 999px;
+            font-weight: 600;
+            border: 1px solid #cbd5e1;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .back-btn:hover { background: #f8fafc; color: var(--primary-dark); border-color: var(--primary); }
+
+        .form-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 2.2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.04);
+            backdrop-filter: blur(10px);
+        }
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            border-bottom: 2px solid #f1f5f9;
+            padding-bottom: 0.8rem;
+        }
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: #334155;
+            font-size: 0.95rem;
+        }
+        input[type="text"], select, textarea {
+            width: 100%;
+            padding: 0.8rem 1rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-family: inherit;
+            background: white;
+            transition: border-color 0.2s;
+        }
+        input[type="text"]:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+
+        /* 파일 업로드 그리드 */
+        .upload-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.2rem;
+            margin-bottom: 1rem;
+        }
+        .upload-box {
+            border: 2px dashed #cbd5e1;
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            background: #f8fafc;
+            transition: all 0.2s;
+            cursor: pointer;
+            position: relative;
+        }
+        .upload-box:hover {
+            border-color: var(--primary);
+            background: #f0fdf4;
+        }
+        .upload-box.has-file {
+            border-color: #10b981;
+            background: #ecfdf5;
+            border-style: solid;
+        }
+        .upload-icon { font-size: 2.2rem; margin-bottom: 0.5rem; }
+        .upload-title { font-weight: 700; color: #1e293b; margin-bottom: 0.3rem; }
+        .upload-desc { font-size: 0.8rem; color: #64748b; }
+        .file-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+        .file-name { font-size: 0.85rem; font-weight: 600; color: #059669; margin-top: 0.5rem; word-break: break-all; }
+
+        /* 검토 모드 체크박스 */
+        .mode-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.8rem;
+        }
+        .mode-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.8rem;
+            padding: 1rem;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .mode-item:hover { background: #f1f5f9; border-color: #cbd5e1; }
+        .mode-item input[type="checkbox"] {
+            margin-top: 0.2rem;
+            width: 1.2rem;
+            height: 1.2rem;
+            accent-color: var(--primary);
+            cursor: pointer;
+        }
+        .mode-text { flex: 1; }
+        .mode-title { font-weight: 700; color: #1e293b; margin-bottom: 0.2rem; font-size: 0.95rem; }
+        .mode-desc { font-size: 0.85rem; color: #64748b; line-height: 1.4; }
+
+        .submit-btn {
+            width: 100%;
+            padding: 1.2rem;
+            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            color: white;
+            border: none;
+            border-radius: 14px;
+            font-size: 1.15rem;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 10px 20px -5px rgba(99, 102, 241, 0.4);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.8rem;
+        }
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 25px -5px rgba(99, 102, 241, 0.5);
+            background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+        }
+        .submit-btn:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* 스피너 및 프로그레스 */
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .hidden { display: none !important; }
+
+        /* 진행 상태 카드 */
+        #progress-section {
+            background: #1e293b;
+            color: white;
+            border-radius: 16px;
+            padding: 1.8rem;
+            margin-top: 2rem;
+            animation: fadeIn 0.4s ease;
+        }
+        .progress-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; color: #38bdf8; display: flex; align-items: center; gap: 0.5rem; }
+        .progress-step { font-size: 0.95rem; margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.6rem; color: #e2e8f0; }
+        .progress-step.active { color: #34d399; font-weight: 700; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <h1><span>📐</span> AI 설계도서 표준·지침 검토</h1>
+                <p>KCSC 국가건설기준(KDS/KCS) 및 법제처 MCP를 연동한 3대 성과물 교차 검증</p>
+            </div>
+            <a href="/" class="back-btn">🏠 홈으로</a>
+        </header>
+
+        <form id="design-form">
+            <!-- 1. 기본 개요 -->
+            <div class="form-card">
+                <div class="section-title">📌 공사 기본 정보</div>
+                <div class="form-group">
+                    <label for="project-name">사업명 (공사명)</label>
+                    <input type="text" id="project-name" placeholder="예: OO 일반산업단지 진입도로 개설공사" required>
+                </div>
+                <div class="form-group">
+                    <label for="project-domain">주요 공종 분야</label>
+                    <select id="project-domain" required>
+                        <option value="civil">🛣️ 토목공사 (도로, 교량, 하천, 상하수도 등)</option>
+                        <option value="building">🏢 공공건축 (청사, 도서관, 복합센터, 주택 등)</option>
+                        <option value="site">🌳 단지 및 부지조성 (산업단지, 공원, 부지정지 등)</option>
+                        <option value="plant">🏭 환경·플랜트 (소각장, 처리장, 배수펌프장 등)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- 2. 3대 성과물 업로드 -->
+            <div class="form-card">
+                <div class="section-title">📂 3대 설계 성과물 첨부 (하나 이상 업로드 필수)</div>
+                <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 1.2rem;">
+                    💡 보고서, 내역서, 도면 중 보유하신 파일을 올려주세요. AI(Gemini Flash)가 문서 내 치수, 수량, 공법을 자동으로 추출하여 교차 대조합니다.
+                </p>
+                
+                <div class="upload-grid">
+                    <!-- 보고서 -->
+                    <div class="upload-box" id="box-report">
+                        <div class="upload-icon">📑</div>
+                        <div class="upload-title">1. 설계보고서</div>
+                        <div class="upload-desc">PDF, DOCX, HWP 등<br>(기초조사, 공법 선정 등)</div>
+                        <input type="file" class="file-input" id="file-report" accept=".pdf,.doc,.docx,.hwp,.txt">
+                        <div class="file-name" id="name-report"></div>
+                    </div>
+                    <!-- 내역서 -->
+                    <div class="upload-box" id="box-estimate">
+                        <div class="upload-icon">📊</div>
+                        <div class="upload-title">2. 설계내역서 / 수량산출서</div>
+                        <div class="upload-desc">Excel (.xlsx, .xls), PDF<br>(공사비, 법정경비 요율 등)</div>
+                        <input type="file" class="file-input" id="file-estimate" accept=".xlsx,.xls,.csv,.pdf">
+                        <div class="file-name" id="name-estimate"></div>
+                    </div>
+                    <!-- 도면 -->
+                    <div class="upload-box" id="box-drawing">
+                        <div class="upload-icon">🖼️</div>
+                        <div class="upload-title">3. 설계도면 / 가설도면</div>
+                        <div class="upload-desc">PDF, 이미지 (.png, .jpg)<br>(흙막이, 평면도, 종단면도 등)</div>
+                        <input type="file" class="file-input" id="file-drawing" accept=".pdf,.png,.jpg,.jpeg">
+                        <div class="file-name" id="name-drawing"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. 검토 모드 선택 -->
+            <div class="form-card">
+                <div class="section-title">🎯 집중 검토 항목 (다중 선택 가능)</div>
+                <div class="mode-list">
+                    <label class="mode-item">
+                        <input type="checkbox" name="review-mode" value="kcsc" checked>
+                        <div class="mode-text">
+                            <div class="mode-title">☑️ KCSC 국가건설기준 (KDS/KCS) 시방서·설계기준 준수 여부 검증</div>
+                            <div class="mode-desc">흙막이 가시설, 콘크리트 강도, 철근 배근, 포장 두께 등 공종별 국가건설기준센터 표준 규격을 대조합니다.</div>
+                        </div>
+                    </label>
+                    <label class="mode-item">
+                        <input type="checkbox" name="review-mode" value="cost" checked>
+                        <div class="mode-text">
+                            <div class="mode-title">☑️ 법정 필수 경비 (산업안전보건비, 환경보전비 등) 요율 적정성 검증</div>
+                            <div class="mode-desc">국토교통부 및 고용노동부 고시에 따른 법정 안전관리비, 환경보전비, 퇴직공제부금, 품질관리비 반영 요율을 검토합니다.</div>
+                        </div>
+                    </label>
+                    <label class="mode-item">
+                        <input type="checkbox" name="review-mode" value="cross">
+                        <div class="mode-text">
+                            <div class="mode-title">☑️ 도면 ↔ 내역서 ↔ 보고서 간 공법/수량/치수 교차 검증</div>
+                            <div class="mode-desc">보고서에 명시된 공법 및 치수가 도면과 내역서 수량에 누락 없이 일치하게 반영되었는지 불일치 항목을 탐지합니다.</div>
+                        </div>
+                    </label>
+                    <label class="mode-item">
+                        <input type="checkbox" name="review-mode" value="safety">
+                        <div class="mode-text">
+                            <div class="mode-title">☑️ 설계안전성검토 (DFS) 및 가설공사 (흙막이/비계/안전망) 반영 여부</div>
+                            <div class="mode-desc">건진법상 위험 공종 안전 설계 적용 여부와 현장 추락방지망, 가설울타리 등 안전 시설물 내역 반영을 검토합니다.</div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- 4. 추가 질의 또는 참고사항 -->
+            <div class="form-card">
+                <div class="section-title">💬 추가 질의 및 검토 주안점 (선택)</div>
+                <textarea id="additional-notes" rows="3" placeholder="💡 특별히 검토받고 싶은 지침이나 우려되는 사항이 있다면 적어주세요. (예: 서울시 굴착공사 안전관리 지침에 맞는지 중점 검토 요망)"></textarea>
+            </div>
+
+            <button type="submit" class="submit-btn" id="submit-btn">
+                <span id="btn-text">🚀 AI 기반 설계도서 정밀 교차검증 시작 (KCSC MCP 연동)</span>
+                <div class="spinner hidden" id="spinner"></div>
+            </button>
+        </form>
+
+        <!-- 진행 상태 창 -->
+        <div id="progress-section" class="hidden">
+            <div class="progress-title">⚡ AI 듀얼 엔진(Flash + Pro) 및 KCSC MCP 검토 진행 중...</div>
+            <div class="progress-step" id="step-1" class="active">① [Gemini Flash] 업로드된 설계보고서, 내역서, 도면 텍스트 및 수량 파싱 완료</div>
+            <div class="progress-step" id="step-2">② [KCSC MCP & 법제처 RAG] 공종별 국가건설기준(KDS/KCS) 실시간 대조 중...</div>
+            <div class="progress-step" id="step-3">③ [Gemini Pro] 🔴위반사항, 🟡불일치 의심, 🟢적정 반영 4단계 판정 보고서 작성 중...</div>
+        </div>
+    </div>
+    <script src="/static/design_review.js"></script>
+</body>
+</html>

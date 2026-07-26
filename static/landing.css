@@ -71,8 +71,9 @@ body {
 }
 
 .service-card {
-    flex: 1;
-    min-width: 300px;
+    flex: 1 1 calc(45% - 1rem);
+    min-width: 320px;
+    max-width: 580px;
     background: var(--card-bg);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);

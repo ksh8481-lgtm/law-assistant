@@ -13,6 +13,11 @@ import base64
 import threading
 import uuid
 from rule_engine import evaluate_knowledge_base, get_all_variables
+try:
+    from kcsc_mcp import kcsc_engine
+except Exception as e:
+    print(f"Failed to import kcsc_engine: {e}")
+    kcsc_engine = None
 
 app = Flask(__name__)
 CORS(app)
@@ -166,6 +171,10 @@ def other_review():
 @app.route('/duty_list')
 def duty_list():
     return render_template('duty_list.html')
+
+@app.route('/design_review')
+def design_review():
+    return render_template('design_review.html')
 
 @app.route('/api/extract_parcel_from_drawing', methods=['POST'])
 def extract_parcel_from_drawing():
@@ -1383,6 +1392,165 @@ def api_chat_report():
     except Exception as e:
         print(f"Report Chat API Error: {e}")
         return jsonify({"success": False, "message": f"서버 오류: {str(e)}"})
+
+def run_design_review(job_id, project_name, project_domain, review_modes, additional_notes, saved_files):
+    try:
+        import os
+        import google.generativeai as genai
+        genai.configure(api_key=GEMINI_KEY)
+        
+        extracted_text_combined = ""
+        uploaded_genai_files = []
+        
+        for file_key, file_info in saved_files.items():
+            path = file_info['path']
+            fname = file_info['name']
+            if os.path.exists(path):
+                try:
+                    gfile = genai.upload_file(path=path, display_name=fname)
+                    uploaded_genai_files.append(gfile)
+                except Exception as e:
+                    print(f"genai upload failed for {fname}: {e}")
+                    
+                try:
+                    if path.endswith('.xlsx') or path.endswith('.xls'):
+                        import openpyxl
+                        wb = openpyxl.load_workbook(path, data_only=True)
+                        for sheet in wb.sheetnames:
+                            ws = wb[sheet]
+                            extracted_text_combined += f"\n[엑셀 시트: {sheet}]\n"
+                            for row in ws.iter_rows(values_only=True):
+                                row_str = " | ".join([str(c) for c in row if c is not None])
+                                if row_str.strip():
+                                    extracted_text_combined += row_str + "\n"
+                    elif path.endswith('.pdf'):
+                        import fitz
+                        doc = fitz.open(path)
+                        for page in doc:
+                            extracted_text_combined += page.get_text() + "\n"
+                    else:
+                        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                            extracted_text_combined += f.read() + "\n"
+                except Exception as e:
+                    print(f"Text extraction failed for {fname}: {e}")
+                
+                try:
+                    os.remove(path)
+                except:
+                    pass
+                    
+        kcsc_context = ""
+        if kcsc_engine:
+            kcsc_context = kcsc_engine.build_kcsc_context_for_llm(project_name, project_domain, review_modes, extracted_text_combined)
+            
+        try:
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
+            models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-pro' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3 if '1.5-flash' in x else 4))
+        except:
+            models_to_try = ['models/gemini-1.5-pro', 'models/gemini-2.5-pro', 'models/gemini-1.5-flash']
+            
+        system_instruction = """
+        당신은 대한민국 최고 권위의 국가기술자격 기술사(토목/건축/안전)이자 건설공사 설계도서 심사 위원장입니다.
+        제공된 3대 설계 성과물(설계보고서, 설계내역서, 설계도면)과 KCSC 국가건설기준(KDS/KCS) MCP 검색 데이터를 바탕으로 정밀 교차 검증을 수행하세요.
+        
+        [검증 및 작성 원칙]
+        1. 반드시 아래의 4단계 등급화 판정 체계로 명확히 구분하여 작성하세요:
+           - 🔴 [법규/지침 위반 및 필수 누락 사항] (감사 지적 1순위, 법정 경비 요율 미달, 시방서 규격 위반 등)
+           - 🟡 [도면 ↔ 내역서 ↔ 보고서 간 불일치 의심 항목] (수량 상이, 공법 표기 불일치, 누락 공종 등)
+           - 🟢 [적정 및 우수 반영 사항] (KCSC 기준 및 안전 지침 준수 항목)
+           - 💡 [KCSC 표준시방서 기반 개선 권고사항] (품질 향상 및 시공성 개선을 위한 제언)
+        2. 지적 사항에는 반드시 구체적인 법적 근거(고시명, 법조항) 또는 국가건설기준 코드(예: KDS 21 30 00, KCS 14 20 00)를 명시하세요.
+        3. 실무 전문가답게 격식 있고 구체적인 한국어로 작성하세요.
+        """
+        
+        prompt = f"""
+        [공사 기본 정보]
+        - 공사명: {project_name}
+        - 공종 분야: {project_domain}
+        - 집중 검토 모드: {', '.join(review_modes)}
+        - 추가 질의 사항: {additional_notes or '없음'}
+        
+        {kcsc_context}
+        
+        [추출된 문서 요약/텍스트 일부]
+        {extracted_text_combined[:25000]}
+        
+        위 제공된 문서 파일들과 KCSC 국가건설기준, 법정 경비 고시 기준을 정밀 대조하여 4단계 등급화 판정 보고서를 마크다운 형식으로 작성해 주십시오.
+        """
+        
+        content_payload = []
+        for gfile in uploaded_genai_files:
+            content_payload.append(gfile)
+        content_payload.append(system_instruction + "\n\n" + prompt)
+        
+        ai_result = ""
+        for model_name in models_to_try:
+            try:
+                print(f"[Design Review] Trying model: {model_name}")
+                model = genai.GenerativeModel(model_name=model_name)
+                response = model.generate_content(content_payload)
+                ai_result = response.text
+                print(f"[Design Review] Success with model: {model_name}")
+                break
+            except Exception as e:
+                print(f"[Design Review] Failed with model {model_name}: {e}")
+                continue
+                
+        if not ai_result:
+            ai_result = "🔴 [오류]: 첨부파일 및 AI 분석 과정에서 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
+            
+        JOBS[job_id] = {
+            "status": "completed",
+            "result": ai_result
+        }
+    except Exception as e:
+        print(f"run_design_review error: {e}")
+        JOBS[job_id] = {
+            "status": "error",
+            "message": str(e)
+        }
+
+@app.route('/api/analyze/design_review', methods=['POST'])
+def api_design_review():
+    try:
+        project_name = request.form.get('projectName', '설계도서 검토 프로젝트')
+        project_domain = request.form.get('projectDomain', 'civil')
+        review_modes_str = request.form.get('reviewModes', '[]')
+        try:
+            review_modes = json.loads(review_modes_str)
+        except:
+            review_modes = []
+        additional_notes = request.form.get('additionalNotes', '')
+        
+        saved_files = {}
+        import tempfile
+        
+        for key in ['file_report', 'file_estimate', 'file_drawing']:
+            if key in request.files and request.files[key].filename:
+                file_obj = request.files[key]
+                fname = file_obj.filename
+                ext = os.path.splitext(fname)[1]
+                fd, temp_path = tempfile.mkstemp(suffix=ext)
+                os.close(fd)
+                file_obj.save(temp_path)
+                saved_files[key] = {
+                    'path': temp_path,
+                    'name': fname
+                }
+                
+        job_id = str(uuid.uuid4())
+        JOBS[job_id] = {"status": "processing"}
+        
+        thread = threading.Thread(
+            target=run_design_review,
+            args=(job_id, project_name, project_domain, review_modes, additional_notes, saved_files)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({"success": True, "jobId": job_id})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
