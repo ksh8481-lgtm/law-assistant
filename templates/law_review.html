@@ -113,8 +113,35 @@
                         </div>
                     </div>
 
+                    <div class="form-group" style="background: #f8fafc; border: 2px solid #e2e8f0; border-radius: 12px; padding: 1.2rem; margin-bottom: 1.5rem;">
+                        <label style="font-size: 1.05rem; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.8rem;">
+                            <span>🛠️ 스마트 공사 프로파일러 & AI 템플릿 도우미</span>
+                            <span style="font-size: 0.75rem; background: #8b5cf6; color: white; padding: 0.2rem 0.5rem; border-radius: 999px; font-weight: 600;">NEW</span>
+                        </label>
+                        <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 1rem; line-height: 1.4;">
+                            사업 분야를 선택하고 우리 현장에 해당하는 핵심 공사 조건을 클릭하세요. 버튼 한 번으로 감사 지적을 방지하는 <strong>완벽한 표준 공사개요서 양식</strong>이 자동 작성됩니다!
+                        </p>
+                        
+                        <div class="domain-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                            <button type="button" class="domain-tab-btn active" data-domain="building" style="flex: 1; min-width: 120px; padding: 0.6rem; border-radius: 8px; border: 1px solid #cbd5e1; background: #3b82f6; color: white; font-weight: 600; cursor: pointer; transition: all 0.2s;">🏢 공공건축 사업</button>
+                            <button type="button" class="domain-tab-btn" data-domain="civil" style="flex: 1; min-width: 120px; padding: 0.6rem; border-radius: 8px; border: 1px solid #cbd5e1; background: white; color: #475569; font-weight: 600; cursor: pointer; transition: all 0.2s;">🛣️ 도로·교통·토목</button>
+                            <button type="button" class="domain-tab-btn" data-domain="water" style="flex: 1; min-width: 120px; padding: 0.6rem; border-radius: 8px; border: 1px solid #cbd5e1; background: white; color: #475569; font-weight: 600; cursor: pointer; transition: all 0.2s;">🌊 하천·상하수도</button>
+                            <button type="button" class="domain-tab-btn" data-domain="park" style="flex: 1; min-width: 120px; padding: 0.6rem; border-radius: 8px; border: 1px solid #cbd5e1; background: white; color: #475569; font-weight: 600; cursor: pointer; transition: all 0.2s;">🌳 단지·공원조성</button>
+                        </div>
+
+                        <div id="smart-tags-container" style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.2rem; min-height: 70px; padding: 0.8rem; background: white; border: 1px solid #e2e8f0; border-radius: 8px;">
+                            <!-- JS에서 동적 로딩 -->
+                        </div>
+
+                        <div style="display: flex; justify-content: flex-end;">
+                            <button type="button" id="generate-template-btn" style="padding: 0.7rem 1.2rem; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.2); transition: all 0.2s;">
+                                <span>✨ 선택 조건으로 표준 사업내용 자동 작성하기</span>
+                            </button>
+                        </div>
+                    </div>
+
                     <div class="form-group">
-                        <label for="description">주요 사업 내용 및 목적</label>
+                        <label for="description">주요 사업 내용 및 목적 (위 버튼을 누르면 자동 입력됩니다)</label>
                         <textarea id="description" rows="4" placeholder="💡 AI가 법령을 정확히 검토할 수 있도록 사업 제원을 상세히 적어주세요.
 (예시) 
 - 최고 층수 5층, 건축물 최대 층높이 20m

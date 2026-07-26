@@ -578,5 +578,143 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // === 스마트 공사 프로파일러 & AI 템플릿 마법사 로직 ===
+    const domainTabs = document.querySelectorAll('.domain-tab-btn');
+    const smartTagsContainer = document.getElementById('smart-tags-container');
+    const generateTemplateBtn = document.getElementById('generate-template-btn');
+    const descriptionTextarea = document.getElementById('description');
+
+    const domainTagsData = {
+        building: [
+            { id: 'b_excavation', label: '⛏️ 지하 10m 이상 굴착 동반', text: '지하 터파기 굴착 깊이 약 11.5m (흙막이 가시설 및 지반보강 동반, 지하안전평가 대상)' },
+            { id: 'b_demo', label: '🏗️ 기존 노후 구조물 철거/석면', text: '기존 노후 건축물 해체 및 철거 작업 동반 (석면조사 및 해체계획서 승인 필수)' },
+            { id: 'b_area', label: '🏢 연면적 1,000㎡ 이상 신축', text: '지하 2층 / 지상 5층 규모 (연면적 약 3,500㎡, 안전관리계획서 수립 의무)' },
+            { id: 'b_green', label: '🌱 녹색건축/BF 인증 의무', text: '제로에너지건축물 5등급, 녹색건축 최우수 및 장애인 BF(배리어프리) 최우수 등급 인증 대상' },
+            { id: 'b_contest', label: '🏆 설계공모 대상 (설계비 1억↑)', text: '설계비 1억원 이상 공공건축물로서 건축서비스산업 진흥법에 따른 설계공모 및 공공건축심의 대상' },
+            { id: 'b_dfs', label: '🛡️ 설계안전성검토(DFS) 필수', text: '건설기술 진흥법 제62조에 따른 10층 이상 또는 굴착 10m 이상 위험공종 설계안전성검토(DFS) 수행' }
+        ],
+        civil: [
+            { id: 'c_road', label: '🛣️ 노선장 4km 이상 도로개설', text: '총 연장 L=4.5km, 폭 B=20m(4차로) 신설 및 선형 개량 공사 (소규모 환경영향평가 대상)' },
+            { id: 'c_land', label: '📜 사유지 편입 및 토지수용', text: '사업부지 내 사유지 25필지 편입에 따른 토지보상법상 보상협의 및 공익사업 사업인정 고시 필요' },
+            { id: 'c_mountain', label: '🌲 산지(임야)/농지 전용 동반', text: '노선 통과 구간 내 보전산지 및 농지 편입 (산지전용허가 및 농지전용허가/부담금 협의 필수)' },
+            { id: 'c_river_cross', label: '🌉 하천 및 철도 횡단 교량', text: '지방하천 횡단 교량 1개소(L=120m) 신설 동반 (하천점용허가 및 재해영향평가 협의 필요)' },
+            { id: 'c_urban_plan', label: '🗺️ 도시계획시설(도로) 결정', text: '국토계획법에 따른 도시·군계획시설(중로1류) 결정 및 실시계획 인가, 주민공람 절차 진행' }
+        ],
+        water: [
+            { id: 'w_river', label: '🌊 소하천 정비 및 제방 축조', text: '소하천 정비 L=2.0km 및 축제/호안 공사 (소하천정비 종합계획 부합 여부 및 소하천점용 검토)' },
+            { id: 'w_pump', label: '🏭 배수펌프장 및 유수지 신설', text: '분당 500㎥ 용량 배수펌프장 1개소 및 유수지 설치 (자연재해대책법상 재해영향평가 필수)' },
+            { id: 'w_pipe', label: '🔧 상·하수관로 개체(L=5km↑)', text: '노후 하수관로 정비 L=6.5km 및 맨홀 설치 (도로굴착 심의 및 지하안전평가 협의)' },
+            { id: 'w_public_water', label: '⚓ 공유수면(바다/하천) 점용', text: '공유수면 내 배수관로 및 물양장 설치 (공유수면 관리 및 매립에 관한 법률상 점용·사용허가)' }
+        ],
+        park: [
+            { id: 'p_park', label: '🌳 도시공원 및 체육시설 조성', text: '부지면적 45,000㎡ 규모 근린공원 및 다목적 체육관 조성 (도시계획시설 결정 및 실시계획 인가)' },
+            { id: 'p_cut', label: '⛏️ 대규모 절·성토 및 사방사업', text: '부지 조성 위한 절토 50,000㎥, 성토 30,000㎥ 발생 (개발행위허가 및 산지복구·사방계획 수립)' },
+            { id: 'p_culture', label: '🏺 문화재(매장유산) 지표조사', text: '사업 면적 3만㎡ 이상 대상지로 공사 착공 전 매장유산 보호 및 조사에 관한 법률상 지표조사 필수' },
+            { id: 'p_disaster', label: '🌧️ 재해영향평가 (5,000㎡↑)', text: '부지조성 면적 5,000㎡ 이상으로 자연재해대책법에 따른 소규모 재해영향평가 협의 대상' }
+        ]
+    };
+
+    let currentDomain = 'building';
+    let selectedTags = new Set();
+
+    function renderSmartTags(domain) {
+        if (!smartTagsContainer) return;
+        smartTagsContainer.innerHTML = '';
+        const tags = domainTagsData[domain] || [];
+        
+        tags.forEach(tag => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'smart-tag-btn';
+            btn.dataset.id = tag.id;
+            btn.dataset.text = tag.text;
+            
+            const isSelected = selectedTags.has(tag.id);
+            btn.style.cssText = `
+                padding: 0.5rem 0.9rem;
+                border-radius: 999px;
+                font-size: 0.85rem;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s;
+                border: 1px solid ${isSelected ? '#7c3aed' : '#cbd5e1'};
+                background: ${isSelected ? '#f5f3ff' : '#f8fafc'};
+                color: ${isSelected ? '#6d28d9' : '#475569'};
+                box-shadow: ${isSelected ? '0 2px 4px rgba(124, 58, 237, 0.15)' : 'none'};
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+            `;
+            btn.innerHTML = `<span>${isSelected ? '☑️' : '◻️'}</span> <span>${tag.label}</span>`;
+            
+            btn.addEventListener('click', () => {
+                if (selectedTags.has(tag.id)) {
+                    selectedTags.delete(tag.id);
+                } else {
+                    selectedTags.add(tag.id);
+                }
+                renderSmartTags(currentDomain);
+            });
+            
+            smartTagsContainer.appendChild(btn);
+        });
+    }
+
+    if (domainTabs.length > 0) {
+        domainTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                domainTabs.forEach(t => {
+                    t.classList.remove('active');
+                    t.style.background = 'white';
+                    t.style.color = '#475569';
+                });
+                tab.classList.add('active');
+                tab.style.background = '#3b82f6';
+                tab.style.color = 'white';
+                
+                currentDomain = tab.dataset.domain;
+                renderSmartTags(currentDomain);
+            });
+        });
+        
+        // 초기 로딩
+        renderSmartTags(currentDomain);
+    }
+
+    if (generateTemplateBtn && descriptionTextarea) {
+        generateTemplateBtn.addEventListener('click', () => {
+            let domainTitle = "공공건축 복합건립공사";
+            if (currentDomain === 'civil') domainTitle = "도로개설 및 선형개량 토목공사";
+            if (currentDomain === 'water') domainTitle = "하천정비 및 상하수도 관로개체 공사";
+            if (currentDomain === 'park') domainTitle = "근린공원 및 부지조성 공사";
+
+            let compiledText = `[1. 사업 개요]\n- 사업명: OO ${domainTitle}\n- 사업목적: 지역 주민의 편의 증진 및 안전한 기반시설 구축을 위한 공공 건설사업 추진\n\n[2. 주요 공사 내용 및 제원]\n`;
+            
+            let selectedTexts = [];
+            Object.values(domainTagsData).flat().forEach(tag => {
+                if (selectedTags.has(tag.id)) {
+                    selectedTexts.push(`- ${tag.text}`);
+                }
+            });
+
+            if (selectedTexts.length === 0) {
+                compiledText += `- 일반적인 공사 진행 (※ 위에 나열된 핵심 조건 태그를 클릭하면 맞춤형 법규 제원이 자동 추가됩니다.)\n`;
+            } else {
+                compiledText += selectedTexts.join('\n') + '\n';
+            }
+
+            compiledText += `\n[3. 적용 검토 필수 법령 및 인허가 사항]\n- 국토계획법, 건설기술진흥법, 시특법, 환경영향평가법 등 관련 법령 부합 여부 및 절차 준수\n- 공종별 필수 행정 의무사항 및 감사 지적 예방 체크리스트 검토 요망`;
+
+            descriptionTextarea.value = compiledText;
+            
+            descriptionTextarea.style.transition = 'all 0.3s';
+            descriptionTextarea.style.backgroundColor = '#fef08a';
+            setTimeout(() => {
+                descriptionTextarea.style.backgroundColor = 'white';
+            }, 600);
+
+            alert('✨ 선택하신 핵심 조건들이 반영된 표준 사업내용이 텍스트칸에 자동 입력되었습니다!');
+        });
+    }
 
 });
