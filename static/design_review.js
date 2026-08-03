@@ -20,8 +20,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (input) {
             input.addEventListener('change', (e) => {
                 if (e.target.files.length > 0) {
-                    const file = e.target.files[0];
-                    nameDisplay.textContent = `✔ ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+                    if (e.target.files.length === 1) {
+                        const file = e.target.files[0];
+                        nameDisplay.textContent = `✔ ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+                    } else {
+                        let totalSize = 0;
+                        for(let i=0; i<e.target.files.length; i++) {
+                            totalSize += e.target.files[i].size;
+                        }
+                        nameDisplay.textContent = `✔ ${e.target.files.length}개 파일 선택됨 (${(totalSize / 1024 / 1024).toFixed(2)} MB)`;
+                    }
                     box.classList.add('has-file');
                 } else {
                     nameDisplay.textContent = '';
@@ -43,12 +51,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const checkedModes = Array.from(document.querySelectorAll('input[name="review-mode"]:checked'))
                                      .map(cb => cb.value);
 
-            // 파일 수집
-            const fileReport = document.getElementById('file-report').files[0];
-            const fileEstimate = document.getElementById('file-estimate').files[0];
-            const fileDrawing = document.getElementById('file-drawing').files[0];
+            // 파일 묶음 가져오기
+            const reportFiles = document.getElementById('file-report').files;
+            const estimateFiles = document.getElementById('file-estimate').files;
+            const drawingFiles = document.getElementById('file-drawing').files;
 
-            if (!fileReport && !fileEstimate && !fileDrawing && !additionalNotes) {
+            if (reportFiles.length === 0 && estimateFiles.length === 0 && drawingFiles.length === 0 && !additionalNotes) {
                 alert('💡 설계보고서, 내역서, 도면 중 하나 이상을 첨부하거나 추가 질의를 입력해주세요!');
                 return;
             }
@@ -59,9 +67,15 @@ document.addEventListener('DOMContentLoaded', () => {
             formData.append('reviewModes', JSON.stringify(checkedModes));
             formData.append('additionalNotes', additionalNotes);
 
-            if (fileReport) formData.append('file_report', fileReport);
-            if (fileEstimate) formData.append('file_estimate', fileEstimate);
-            if (fileDrawing) formData.append('file_drawing', fileDrawing);
+            for (let i = 0; i < reportFiles.length; i++) {
+                formData.append('file_report', reportFiles[i]);
+            }
+            for (let i = 0; i < estimateFiles.length; i++) {
+                formData.append('file_estimate', estimateFiles[i]);
+            }
+            for (let i = 0; i < drawingFiles.length; i++) {
+                formData.append('file_drawing', drawingFiles[i]);
+            }
 
             // UI 변경 (로딩 상태)
             submitBtn.disabled = true;

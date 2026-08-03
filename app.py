@@ -1525,18 +1525,21 @@ def api_design_review():
         saved_files = {}
         import tempfile
         
+        file_idx = 0
         for key in ['file_report', 'file_estimate', 'file_drawing']:
-            if key in request.files and request.files[key].filename:
-                file_obj = request.files[key]
-                fname = file_obj.filename
-                ext = os.path.splitext(fname)[1]
-                fd, temp_path = tempfile.mkstemp(suffix=ext)
-                os.close(fd)
-                file_obj.save(temp_path)
-                saved_files[key] = {
-                    'path': temp_path,
-                    'name': fname
-                }
+            file_objs = request.files.getlist(key)
+            for file_obj in file_objs:
+                if file_obj and file_obj.filename:
+                    fname = file_obj.filename
+                    ext = os.path.splitext(fname)[1]
+                    fd, temp_path = tempfile.mkstemp(suffix=ext)
+                    os.close(fd)
+                    file_obj.save(temp_path)
+                    saved_files[f"{key}_{file_idx}"] = {
+                        'path': temp_path,
+                        'name': fname
+                    }
+                    file_idx += 1
                 
         job_id = str(uuid.uuid4())
         JOBS[job_id] = {"status": "processing"}
