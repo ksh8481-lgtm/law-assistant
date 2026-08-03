@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 법규 검토 결과 보고서</title>
+    <title>AI 검토 결과 보고서</title>
     <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         :root {
             --bg-color: #f8fafc;
@@ -372,7 +373,7 @@
     <div class="main-wrapper">
         <div class="report-container">
         <div class="report-header">
-            <h1>📊 AI 법규 검토 종합 보고서</h1>
+            <h1 id="dynamic-report-title">📊 AI 종합 보고서</h1>
             <p id="report-date"></p>
         </div>
 
@@ -411,15 +412,51 @@
             }
 
             try {
-                const data = JSON.parse(rawData);
-                contentDiv.innerHTML = '<div style="text-align:center; padding:3rem; font-weight:bold; color:var(--primary-color);">⏳ 종합 건설사업 생애주기별 필수 항목을 분석 및 통합 중입니다...</div>';
-
+                let data = null;
+                try {
+                    data = JSON.parse(rawData);
+                } catch(e) {
+                    data = rawData;
+                }
+                
                 const projectDataRaw = sessionStorage.getItem('projectData');
+                let reviewType = 'law_review';
                 let fetchOptions = {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: projectDataRaw ? projectDataRaw : JSON.stringify({})
                 };
+                
+                if (projectDataRaw) {
+                    try {
+                        const pd = JSON.parse(projectDataRaw);
+                        if (pd.reviewType) reviewType = pd.reviewType;
+                    } catch(e) {}
+                }
+                
+                const titleEl = document.getElementById('dynamic-report-title');
+                if (reviewType === 'design_review') {
+                    document.title = 'AI 설계도서 정밀 검토 보고서';
+                    titleEl.innerHTML = '📐 AI 설계도서 표준·지침 정밀 검토 보고서';
+                } else if (reviewType === 'other_review') {
+                    document.title = 'AI 기술검토서 종합 분석 보고서';
+                    titleEl.innerHTML = '📄 AI 기술검토서 종합 분석 보고서';
+                } else {
+                    document.title = 'AI 법규 검토 결과 보고서';
+                    titleEl.innerHTML = '📊 AI 법규 검토 종합 보고서';
+                }
+
+                if (reviewType !== 'law_review') {
+                    const markdownText = typeof data === 'string' ? data : (data.result || data.text || rawData);
+                    if (typeof marked !== 'undefined') {
+                        contentDiv.innerHTML = '<div class="section" style="padding: 2.5rem; line-height: 1.8; font-size: 1.05rem;">' + marked.parse(markdownText) + '</div>';
+                    } else {
+                        contentDiv.innerHTML = '<div class="section" style="white-space: pre-wrap; padding: 2.5rem; line-height: 1.8; font-size: 1.05rem;">' + markdownText + '</div>';
+                    }
+                    return; // Stop here for non-law-review
+                }
+
+                contentDiv.innerHTML = '<div style="text-align:center; padding:3rem; font-weight:bold; color:var(--primary-color);">⏳ 종합 건설사업 생애주기별 필수 항목을 분석 및 통합 중입니다...</div>';
 
                 fetch('/api/supervisor/checklist', fetchOptions)
                     .then(response => response.json())
