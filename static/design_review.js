@@ -96,8 +96,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
                 if (!response.ok) {
-                    const err = await response.json();
-                    throw new Error(err.message || '서버 오류 발생');
+                    const errorText = await response.text();
+                    let errMsg = `서버 오류 발생 (상태 코드: ${response.status})`;
+                    if (response.status === 413) {
+                        errMsg = '파일 용량이 서버 제한을 초과했습니다 (413 Payload Too Large). Cloudtype 등의 서버 설정에서 최대 업로드 용량을 늘려주세요.';
+                    } else {
+                        try {
+                            const errJson = JSON.parse(errorText);
+                            if (errJson.message) errMsg = errJson.message;
+                        } catch(e) {
+                            errMsg += `\n내용: ${errorText.substring(0, 50)}...`;
+                        }
+                    }
+                    throw new Error(errMsg);
                 }
 
                 const data = await response.json();
@@ -119,10 +130,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     const statusRes = await fetch(`/api/analyze/status/${jobId}`);
                     if (!statusRes.ok) {
-                        throw new Error('상태 확인 중 오류 발생');
+                        const errText = await statusRes.text();
+                        throw new Error(`상태 확인 중 오류 발생 (상태 코드: ${statusRes.status})`);
                     }
 
-                    const statusData = await statusRes.json();
+                    const statusText = await statusRes.text();
+                    let statusData;
+                    try {
+                        statusData = JSON.parse(statusText);
+                    } catch(e) {
+                        throw new Error(`서버 응답 파싱 실패: ${statusText.substring(0, 50)}...`);
+                    }
 
                     if (statusData.status === 'completed') {
                         // 세션 스토리지에 결과 저장 후 보고서 탭 열기
