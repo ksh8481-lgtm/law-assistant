@@ -13,6 +13,7 @@ import base64
 import threading
 import uuid
 from rule_engine import evaluate_knowledge_base, get_all_variables
+from job_store import JobStore
 try:
     from kcsc_mcp import kcsc_engine
 except Exception as e:
@@ -22,7 +23,11 @@ except Exception as e:
 app = Flask(__name__)
 CORS(app)
 
-JOBS = {}
+# 파일(SQLite) 기반 저장소. 예전엔 순수 dict라 프로세스 재시작/멀티 워커 사이에서
+# 작업 상태가 유실됐는데(운영에서 "존재하지 않는 작업입니다" 404로 재현됨),
+# JobStore는 dict와 동일한 인터페이스를 제공하면서 jobs.db 파일에 저장한다.
+JOBS = JobStore()
+JOBS.cleanup_stale()
 
 
 # API keys from environment variables

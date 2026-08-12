@@ -20,3 +20,8 @@ __pycache__/
 # OS Files
 .DS_Store
 Thumbs.db
+
+# Runtime job store (job_store.py)
+jobs.db
+jobs.db-wal
+jobs.db-shm
