@@ -544,18 +544,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 const startData = await startResponse.json();
                 const jobId = startData.job_id;
                 
-                // 2. 3초 간격으로 폴링
+                // 2. 3초 간격으로 폴링 (최대 5분 = 100회 시도 후 포기)
+                const MAX_POLL_ATTEMPTS = 100;
+                let pollAttempts = 0;
                 while (true) {
                     await new Promise(r => setTimeout(r, 3000));
-                    
+                    pollAttempts++;
+
+                    if (pollAttempts > MAX_POLL_ATTEMPTS) {
+                        throw new Error("응답 시간이 너무 오래 걸립니다 (5분 초과). 서버가 지연 중일 수 있으니 잠시 후 다시 시도해주세요.");
+                    }
+
                     const statusResponse = await fetch(`/api/analyze/status/${jobId}`);
                     if (!statusResponse.ok) {
                         const errorText = await statusResponse.text();
                         throw new Error(errorText);
                     }
-                    
+
                     const statusData = await statusResponse.json();
-                    
+
                     if (statusData.status === 'completed') {
                         sessionStorage.setItem('aiResult', JSON.stringify(statusData.result));
                         sessionStorage.setItem('projectData', JSON.stringify(requestData));

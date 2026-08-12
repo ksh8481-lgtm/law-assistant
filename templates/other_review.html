@@ -398,12 +398,24 @@
                 
                 const jobId = data.job_id;
                 document.querySelector('.submit-btn').textContent = "검토 중... (최대 1~2분 소요)";
-                
+
+                // 2초 간격, 최대 4분(120회) 폴링 후 포기
+                const MAX_POLL_ATTEMPTS = 120;
+                let pollAttempts = 0;
+
                 const checkStatus = async () => {
                     try {
+                        pollAttempts++;
+                        if (pollAttempts > MAX_POLL_ATTEMPTS) {
+                            alert("응답 시간이 너무 오래 걸립니다 (4분 초과). 서버가 지연 중일 수 있으니 잠시 후 다시 시도해주세요.");
+                            document.querySelector('.submit-btn').disabled = false;
+                            document.querySelector('.submit-btn').textContent = "AI 통합 검토 시작";
+                            return;
+                        }
+
                         const statusRes = await fetch(`/api/analyze/other_review_status/${jobId}`);
                         const statusData = await statusRes.json();
-                        
+
                         if (statusData.status === 'completed') {
                             agentMain.className = 'agent-card done';
                             document.querySelector('.submit-btn').disabled = false;

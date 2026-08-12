@@ -214,9 +214,21 @@ def extract_parcel_from_drawing():
             ]
             """
             
-            model = genai.GenerativeModel('models/gemini-2.0-flash')
+            try:
+                available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            except:
+                available_models = []
+            model_name = None
+            for preferred in ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']:
+                if preferred in available_models:
+                    model_name = preferred
+                    break
+            if not model_name:
+                model_name = 'models/gemini-2.5-flash'
+
+            model = genai.GenerativeModel(model_name)
             response = model.generate_content([prompt, uploaded_file])
-            
+
             resp_text = response.text.strip()
             if resp_text.startswith("```json"): resp_text = resp_text[7:]
             if resp_text.startswith("```"): resp_text = resp_text[3:]

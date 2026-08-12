@@ -114,11 +114,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await response.json();
                 const jobId = data.jobId;
 
-                // 2. 상태 폴링 (Polling)
+                // 2. 상태 폴링 (Polling, 2초 간격, 최대 5분 = 150회 시도 후 포기)
+                const MAX_POLL_ATTEMPTS = 150;
                 let pollCount = 0;
                 while (true) {
                     await new Promise(resolve => setTimeout(resolve, 2000));
                     pollCount++;
+
+                    if (pollCount > MAX_POLL_ATTEMPTS) {
+                        throw new Error("응답 시간이 너무 오래 걸립니다 (5분 초과). 서버가 지연 중일 수 있으니 잠시 후 다시 시도해주세요.");
+                    }
 
                     if (pollCount == 3) {
                         document.getElementById('step-1').className = 'progress-step';
