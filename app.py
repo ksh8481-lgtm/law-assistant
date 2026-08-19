@@ -580,23 +580,41 @@ def extract_cases_via_llm(text, uploaded_file=None):
 def fetch_local_law_data(query, moleg_context):
     import glob
     import os
+    import re
     local_data = ""
     # Check data/laws directory
     laws_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'laws')
     if not os.path.exists(laws_dir):
         return ""
-        
+
+    # 질의(+MCP 컨텍스트)에서 의미 있는 키워드(3자 이상)를 뽑아, 그 키워드가
+    # 파일명에 포함되는지로 매칭한다.
+    # (예전에는 반대로 "파일명 전체가 질의 문장 안에 통째로 들어있는지"를 확인했는데,
+    #  사용자는 "재해영향평가"처럼 짧게 묻고 파일명은 "재해영향평가등의_협의_실무지침"처럼
+    #  훨씬 길어서 거의 매칭되지 않았다. 그 결과 관련 로컬 법령이 전혀 검색되지 않고
+    #  AI가 사전지식만으로 답하다가 완전히 다른 법(환경영향평가법)을 재해영향평가로
+    #  착각해 답하는 사고로 이어짐.)
+    combined_text = f"{query} {moleg_context}"
+    keywords = set(w for w in re.split(r'[\s,./()·\[\]]+', combined_text) if len(w) >= 3)
+
+    # 파일 하나가 통째로(최대 1.8MB짜리도 있음) 프롬프트를 잡아먹지 않도록 파일당/전체 상한을 둔다.
+    # (moleg_context는 실시간 검색 결과 산문이라 법령명을 여러 개 언급하기 쉬워서,
+    #  키워드 매칭 정확도를 올리자마자 거대 파일이 여러 개 한꺼번에 걸려 프롬프트가
+    #  비정상적으로 커지고 응답이 몇 분씩 걸리는 사고로 실제 이어졌음.)
+    MAX_PER_FILE = 8000
+    MAX_TOTAL = 24000
+
     for md_file in glob.glob(os.path.join(laws_dir, '*.md')):
-        law_name = os.path.basename(md_file).replace('.md', '').replace('_', ' ')
-        # 띄어쓰기를 무시한 이름 매칭
-        clean_law_name = law_name.replace(" ", "")
-        clean_query = query.replace(" ", "")
-        clean_context = moleg_context.replace(" ", "")
-        
-        if clean_law_name in clean_query or clean_law_name in clean_context:
+        if len(local_data) >= MAX_TOTAL:
+            break
+        law_name_key = os.path.basename(md_file).replace('.md', '').replace('_', '')
+
+        if any(kw in law_name_key for kw in keywords):
             try:
                 with open(md_file, "r", encoding="utf-8") as f:
-                    local_data += f.read() + "\n\n"
+                    content = f.read()
+                remaining = MAX_TOTAL - len(local_data)
+                local_data += content[:min(MAX_PER_FILE, remaining)] + "\n\n"
             except:
                 pass
     return local_data
