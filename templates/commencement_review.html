@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>착공계 서류 검토 (제127조 기반 AI 검토)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #f59e0b;
+            --primary-dark: #d97706;
+            --bg-grad-1: #fffbeb;
+            --bg-grad-2: #f8fafc;
+            --bg-grad-3: #f1f5f9;
+            --text-main: #0f172a;
+            --text-muted: #475569;
+            --card-bg: rgba(255, 255, 255, 0.9);
+            --card-border: #cbd5e1;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background: linear-gradient(135deg, var(--bg-grad-1) 0%, var(--bg-grad-2) 50%, var(--bg-grad-3) 100%);
+            background-attachment: fixed;
+            color: var(--text-main);
+            min-height: 100vh;
+        }
+        .container { max-width: 960px; margin: 0 auto; padding: 2.5rem 1.5rem; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2.5rem; }
+        .header-content h1 {
+            font-size: 2.2rem; font-weight: 800;
+            background: linear-gradient(90deg, #d97706, #f59e0b);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;
+        }
+        .header-content p { color: var(--text-muted); font-size: 1.05rem; }
+        .back-btn {
+            text-decoration: none; color: #475569; background: white; padding: 0.7rem 1.2rem;
+            border-radius: 999px; font-weight: 600; border: 1px solid #cbd5e1; transition: all 0.2s;
+            display: flex; align-items: center; gap: 0.4rem; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .back-btn:hover { background: #f8fafc; color: var(--primary-dark); border-color: var(--primary); }
+
+        .form-card {
+            background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 20px;
+            padding: 2.2rem; margin-bottom: 2rem; box-shadow: 0 10px 25px rgba(0,0,0,0.04);
+            backdrop-filter: blur(10px);
+        }
+        .section-title {
+            font-size: 1.25rem; font-weight: 700; color: #1e293b; margin-bottom: 1.2rem;
+            display: flex; align-items: center; gap: 0.5rem;
+            border-bottom: 2px solid #f1f5f9; padding-bottom: 0.8rem;
+        }
+        .form-group { margin-bottom: 1.5rem; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+        label { display: block; font-weight: 600; margin-bottom: 0.5rem; color: #334155; font-size: 0.95rem; }
+        input[type="text"], textarea {
+            width: 100%; padding: 0.8rem 1rem; border: 1px solid #cbd5e1; border-radius: 10px;
+            font-size: 1rem; font-family: inherit; background: white; transition: border-color 0.2s;
+        }
+        input[type="text"]:focus, textarea:focus {
+            outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+        }
+        .hint { font-size: 0.8rem; color: #94a3b8; margin-top: 0.4rem; }
+
+        .checklist-box {
+            background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 1.2rem 1.4rem;
+            font-size: 0.88rem; color: #78350f; line-height: 1.7; margin-bottom: 1.2rem;
+        }
+        .checklist-box b { color: #92400e; }
+
+        .upload-box {
+            border: 2px dashed #cbd5e1; border-radius: 12px; padding: 2rem; text-align: center;
+            background: #f8fafc; transition: all 0.2s; cursor: pointer; position: relative;
+        }
+        .upload-box:hover { border-color: var(--primary); background: #fffbeb; }
+        .upload-box.has-file { border-color: #10b981; background: #ecfdf5; border-style: solid; }
+        .upload-icon { font-size: 2.4rem; margin-bottom: 0.6rem; }
+        .upload-title { font-weight: 700; color: #1e293b; margin-bottom: 0.3rem; }
+        .upload-desc { font-size: 0.82rem; color: #64748b; }
+        .file-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+        .file-name { font-size: 0.85rem; font-weight: 600; color: #059669; margin-top: 0.6rem; word-break: break-all; }
+
+        .submit-btn {
+            width: 100%; padding: 1.2rem; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white; border: none; border-radius: 14px; font-size: 1.15rem; font-weight: 800;
+            cursor: pointer; transition: all 0.3s; box-shadow: 0 10px 20px -5px rgba(245, 158, 11, 0.4);
+            display: flex; justify-content: center; align-items: center; gap: 0.8rem;
+        }
+        .submit-btn:hover { transform: translateY(-2px); box-shadow: 0 15px 25px -5px rgba(245, 158, 11, 0.5); }
+        .submit-btn:disabled { background: #94a3b8; cursor: not-allowed; transform: none; box-shadow: none; }
+
+        .spinner {
+            width: 24px; height: 24px; border: 3px solid rgba(255,255,255,0.3); border-radius: 50%;
+            border-top-color: white; animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .hidden { display: none !important; }
+
+        #progress-section {
+            background: #1e293b; color: white; border-radius: 16px; padding: 1.8rem;
+            margin-top: 2rem; animation: fadeIn 0.4s ease;
+        }
+        .progress-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; color: #fbbf24; display: flex; align-items: center; gap: 0.5rem; }
+        .progress-step { font-size: 0.95rem; margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.6rem; color: #e2e8f0; }
+        .progress-step.active { color: #34d399; font-weight: 700; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <h1><span>🚧</span> 착공계 서류 검토</h1>
+                <p>「건설공사 사업관리방식 검토기준 및 업무수행지침」 제127조 기준 착공신고서 첨부서류 AI 검토</p>
+            </div>
+            <a href="/" class="back-btn">🏠 홈으로</a>
+        </header>
+
+        <form id="commencement-form">
+            <div class="form-card">
+                <div class="section-title">📌 공사 기본 정보</div>
+                <div class="form-group">
+                    <label for="project-name">사업명 (공사명)</label>
+                    <input type="text" id="project-name" placeholder="예: OO 지방도 확장 및 포장공사" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="contract-amount">도급액 (공사계약금액)</label>
+                        <input type="text" id="contract-amount" placeholder="예: 850,000,000원">
+                        <div class="hint">품질관리계획서/안전관리계획서 등 대상 판단에 사용됩니다.</div>
+                    </div>
+                    <div class="form-group">
+                        <label for="total-cost">총공사비 (추정, 있는 경우)</label>
+                        <input type="text" id="total-cost" placeholder="예: 900,000,000원">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-card">
+                <div class="section-title">📋 검토 근거 (제127조 착공신고서 첨부서류 10종)</div>
+                <div class="checklist-box">
+                    <b>①</b> 현장기술인 지정신고서 &nbsp; <b>②</b> 공정예정표 &nbsp; <b>③</b> 품질관리계획서/품질시험계획서* &nbsp;
+                    <b>④</b> 공사도급 계약서 사본 및 산출내역서 &nbsp; <b>⑤</b> 착공 전 사진 &nbsp;
+                    <b>⑥</b> 현장기술인 경력확인서·자격증 사본 &nbsp; <b>⑦</b> 안전관리계획서* &nbsp;
+                    <b>⑧</b> 유해·위험방지계획서* &nbsp; <b>⑨</b> 노무동원 및 장비투입 계획서 &nbsp; <b>⑩</b> 관급자재 수급계획서
+                    <br><br>
+                    * 표시 3개 항목은 공사금액·공종 규모에 따라 작성 의무 자체가 없을 수 있습니다. AI가 위 도급액 정보와 법령을 근거로 대상 여부를 판단하며, 근거가 불충분하면 "확인 필요"로 표시합니다.
+                </div>
+            </div>
+
+            <div class="form-card">
+                <div class="section-title">📂 착공계 서류 첨부 (한 개 이상, 여러 개 동시 업로드 가능)</div>
+                <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 1.2rem;">
+                    💡 계약서, 공정표, 계획서, 사진 등을 파일 형태 그대로 올려주세요. 파일별로 어떤 항목에 해당하는지는 AI가 스스로 판단합니다.
+                </p>
+                <div class="upload-box" id="upload-box">
+                    <div class="upload-icon">📎</div>
+                    <div class="upload-title">파일 선택 또는 드래그하여 첨부</div>
+                    <div class="upload-desc">PDF, HWP, DOCX, 이미지, 엑셀 등 전체 지원</div>
+                    <input type="file" class="file-input" id="file-input" multiple>
+                    <div class="file-name" id="file-name-display"></div>
+                </div>
+            </div>
+
+            <div class="form-card">
+                <div class="section-title">💬 추가 참고사항 (선택)</div>
+                <textarea id="additional-notes" rows="3" placeholder="예: 이번 공사는 하천 인접 구간이라 안전관리계획서 대상 여부를 특히 꼼꼼히 봐주세요."></textarea>
+            </div>
+
+            <button type="submit" class="submit-btn" id="submit-btn">
+                <span id="btn-text">🚧 착공서류 AI 검토 시작</span>
+                <div class="spinner hidden" id="spinner"></div>
+            </button>
+        </form>
+
+        <div id="progress-section" class="hidden">
+            <div class="progress-title">⚡ 착공신고서 제127조 대조 검토 진행 중...</div>
+            <div class="progress-step" id="step-1">① 첨부서류 텍스트 추출 및 10개 항목 매칭 중...</div>
+            <div class="progress-step" id="step-2">② 법제처 실시간 검색으로 조건부 서류 대상 기준 확인 중...</div>
+            <div class="progress-step" id="step-3">③ 검토 결과표 및 보완 지시사항 작성 중...</div>
+        </div>
+    </div>
+    <script src="/static/commencement_review.js"></script>
+</body>
+</html>

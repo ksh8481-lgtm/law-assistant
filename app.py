@@ -181,6 +181,10 @@ def duty_list():
 def design_review():
     return render_template('design_review.html')
 
+@app.route('/commencement_review')
+def commencement_review():
+    return render_template('commencement_review.html')
+
 @app.route('/api/extract_parcel_from_drawing', methods=['POST'])
 def extract_parcel_from_drawing():
     try:
@@ -1586,6 +1590,216 @@ def api_design_review():
         thread.daemon = True
         thread.start()
         
+        return jsonify({"success": True, "jobId": job_id})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+# 「건설공사 사업관리방식 검토기준 및 업무수행지침」 제127조(착공신고서 검토 및 보고) 원문.
+# 이 문서 자체는 682KB짜리라 fetch_local_law_data의 키워드 매칭에 맡기면 제127조가 잘려
+# 나가거나 아예 안 걸릴 위험이 있어서, 착공서류 검토 기능에서는 해당 조문을 직접 프롬프트에
+# 박아넣는다 (조문 원문은 data/laws/건설공사_사업관리방식_검토기준_및_업무수행지침.md 1856~1866행 확인).
+COMMENCEMENT_CHECKLIST_ARTICLE = """
+제127조(착공신고서 검토 및 보고) 공사감독자는 건설공사가 착공된 경우에는 시공자로부터 다음 각 호의 서류가 포함된 착공신고서를 제출받아 적정성 여부를 검토하여 7일 이내에 발주청에 보고하여야 한다.
+  1. 현장기술인 지정신고서(현장관리조직, 현장대리인, 품질관리자, 안전관리자, 보건관리자)
+  2. 건설공사 공정예정표
+  3. 품질관리계획서 또는 품질시험계획서(실착공 전에 제출 가능) - 총공사비 규모 및 공종에 따라 작성대상 여부가 갈림(건설기술 진흥법령)
+  4. 공사도급 계약서 사본 및 산출내역서
+  5. 착공 전 사진
+  6. 현장기술인 경력사항 확인서 및 자격증 사본
+  7. 안전관리계획서(실착공 전에 제출 가능) - 건설기술 진흥법령상 일정 규모/공종 대상 공사에만 작성 의무
+  8. 유해ㆍ위험방지계획서(실착공 전에 제출 가능) - 산업안전보건법령상 일정 규모/공종 대상 공사에만 작성 의무
+  9. 노무동원 및 장비투입 계획서
+  10. 관급자재 수급계획서
+"""
+
+
+def run_commencement_review(job_id, project_name, contract_amount, total_cost, additional_notes, saved_files):
+    try:
+        import os
+        import google.generativeai as genai
+        genai.configure(api_key=GEMINI_KEY)
+
+        extracted_text_combined = ""
+        uploaded_genai_files = []
+
+        for file_key, file_info in saved_files.items():
+            path = file_info['path']
+            fname = file_info['name']
+            if os.path.exists(path):
+                try:
+                    gfile = genai.upload_file(path=path, display_name=fname)
+                    uploaded_genai_files.append(gfile)
+                except Exception as e:
+                    print(f"genai upload failed for {fname}: {e}")
+
+                try:
+                    if path.endswith('.xlsx') or path.endswith('.xls'):
+                        import openpyxl
+                        wb = openpyxl.load_workbook(path, data_only=True)
+                        for sheet in wb.sheetnames:
+                            ws = wb[sheet]
+                            extracted_text_combined += f"\n[엑셀 시트: {sheet}]\n"
+                            for row in ws.iter_rows(values_only=True):
+                                row_str = " | ".join([str(c) for c in row if c is not None])
+                                if row_str.strip():
+                                    extracted_text_combined += row_str + "\n"
+                    elif path.endswith('.pdf'):
+                        import fitz
+                        doc = fitz.open(path)
+                        for page in doc:
+                            extracted_text_combined += page.get_text() + "\n"
+                    else:
+                        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                            extracted_text_combined += f.read() + "\n"
+                except Exception as e:
+                    print(f"Text extraction failed for {fname}: {e}")
+
+                try:
+                    os.remove(path)
+                except:
+                    pass
+
+        # 3개 조건부 서류(품질관리계획서/안전관리계획서/유해위험방지계획서) 대상 여부 판단을 돕기 위해
+        # 법제처 실시간 검색 컨텍스트를 확보 (없으면 프롬프트 지시대로 "확인 필요"로 처리됨)
+        from mcp_agent_sync import get_mcp_context_sync
+        mcp_query = (
+            f"공사금액(도급액) {contract_amount}원, 총공사비 {total_cost}원 규모의 건설공사에서 "
+            f"안전관리계획서, 유해위험방지계획서, 품질관리계획서(또는 품질시험계획서) 작성 대상 기준"
+        )
+        moleg_context = get_mcp_context_sync(mcp_query)
+
+        try:
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
+            models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-pro' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3 if '1.5-flash' in x else 4))
+        except:
+            models_to_try = ['models/gemini-1.5-pro', 'models/gemini-2.5-pro', 'models/gemini-1.5-flash']
+
+        system_instruction = """
+        당신은 대한민국 공공발주 건설공사의 공사감독관(감독자) 업무를 보좌하는 최고 수준의 전문가입니다.
+        「건설공사 사업관리방식 검토기준 및 업무수행지침」 제127조에 따라, 시공자가 제출한 착공신고서
+        첨부서류를 검토하여 발주청 보고(제출일로부터 7일 이내) 전에 문제를 찾아내는 것이 당신의 임무입니다.
+
+        [검토 원칙]
+        1. 제127조가 요구하는 10개 항목을 하나씩 대조하여, 첨부된 서류들 중 어느 항목에 해당하는지 판단하세요.
+        2. 3번(품질관리계획서/품질시험계획서), 7번(안전관리계획서), 8번(유해위험방지계획서)은 공사금액·공종
+           규모에 따라 애초에 작성 의무가 없을 수도 있는 조건부 서류입니다. 제공된 [공사 정보]와
+           [법제처 실시간 검색 컨텍스트]를 근거로 대상 여부를 판단하되, 판단 근거가 불충분하면 절대
+           추측하지 말고 반드시 "확인 필요"로 표시하고 그 이유(어떤 법령·기준을 직접 확인해야 하는지)를 적으세요.
+        3. 서류가 실제로 첨부됐다면 내용의 정합성도 검토하세요 (예: 공사도급 계약서의 금액·공사기간이
+           산출내역서 합계·공정예정표와 일치하는지, 현장기술인 자격증 사본과 경력확인서의 인적사항이
+           일치하는지, 서명·날인 누락 여부 등).
+        4. 판단 근거(법조항, 고시명 등)를 반드시 명시하고, 근거 없이 결론만 내리지 마십시오.
+        5. 실무 공문서체로, 감독관이 그대로 발주청 보고서에 옮겨쓸 수 있는 수준으로 작성하세요.
+        6. 🚨 [사업 특성 창작 절대 금지] [법제처 실시간 검색 컨텍스트]에는 법령이 정한 대상 공사의
+           "종류 목록"(예: 터널 공사, 폭발물을 사용하는 공사 등)이 예시로 함께 검색될 수 있습니다.
+           이건 법령상 일반적인 분류 기준일 뿐, 이번 사업이 그 종류에 해당한다는 뜻이 절대 아닙니다.
+           [공사 기본 정보]의 "추가 참고사항"이나 첨부파일에 사용자가 직접 명시하지 않은 공사 특성
+           (터널·발파·굴착 깊이 등)을 마치 이 사업의 실제 특성인 것처럼 단정하거나 인용하지 마십시오.
+           공종/규모 정보가 부족해서 대상 여부를 판단할 수 없다면, 정직하게 "제공된 정보만으로는
+           판단할 수 없으므로 실제 공종·규모를 확인해야 한다"고만 쓰십시오.
+
+        [출력 형식 - 반드시 마크다운 표로 작성]
+        ### 착공신고서 검토 결과표
+        | 번호 | 서류명 | 대상여부 | 제출여부 | 검토의견 |
+        |---|---|---|---|---|
+        (10개 항목 전부, 순서대로)
+
+        표 다음에 아래 섹션을 이어서 작성하세요:
+        ### 종합 의견
+        ### 보완 지시가 필요한 사항 (시공자에게 문서로 보완 요청할 항목)
+        ### 발주청 보고 시 유의사항
+        """
+
+        prompt = f"""
+        [공사 기본 정보]
+        - 사업명(공사명): {project_name}
+        - 도급액(공사금액): {contract_amount or '미기재'}
+        - 총공사비(추정): {total_cost or '미기재'}
+        - 추가 참고사항: {additional_notes or '없음'}
+
+        [건설공사 사업관리방식 검토기준 및 업무수행지침 - 근거 조문]
+        {COMMENCEMENT_CHECKLIST_ARTICLE}
+
+        [법제처 실시간 검색 컨텍스트 - ⚠️ 법령상 일반적인 대상 기준/종류 예시일 뿐, 이 사업의 실제
+        특성이 아닙니다. 아래 내용에 "터널", "발파" 등이 언급되어도 이번 사업이 그렇다는 뜻이 아닙니다.]
+        {moleg_context}
+
+        [첨부파일에서 추출한 텍스트 일부]
+        {extracted_text_combined[:25000]}
+
+        위 자료를 바탕으로 착공신고서 검토 결과표와 종합 의견을 작성해 주십시오.
+        """
+
+        content_payload = []
+        for gfile in uploaded_genai_files:
+            content_payload.append(gfile)
+        content_payload.append(system_instruction + "\n\n" + prompt)
+
+        ai_result = ""
+        for model_name in models_to_try:
+            try:
+                print(f"[Commencement Review] Trying model: {model_name}")
+                model = genai.GenerativeModel(model_name=model_name)
+                response = model.generate_content(content_payload)
+                ai_result = response.text
+                print(f"[Commencement Review] Success with model: {model_name}")
+                break
+            except Exception as e:
+                print(f"[Commencement Review] Failed with model {model_name}: {e}")
+                continue
+
+        if not ai_result:
+            ai_result = "🔴 [오류]: 첨부파일 및 AI 분석 과정에서 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
+
+        JOBS[job_id] = {
+            "status": "completed",
+            "result": ai_result
+        }
+    except Exception as e:
+        print(f"run_commencement_review error: {e}")
+        JOBS[job_id] = {
+            "status": "error",
+            "message": str(e)
+        }
+
+@app.route('/api/analyze/commencement_review', methods=['POST'])
+def api_commencement_review():
+    try:
+        project_name = request.form.get('projectName', '착공서류 검토')
+        contract_amount = request.form.get('contractAmount', '')
+        total_cost = request.form.get('totalCost', '')
+        additional_notes = request.form.get('additionalNotes', '')
+
+        saved_files = {}
+        import tempfile
+
+        file_idx = 0
+        for file_obj in request.files.getlist('files'):
+            if file_obj and file_obj.filename:
+                fname = file_obj.filename
+                ext = os.path.splitext(fname)[1]
+                fd, temp_path = tempfile.mkstemp(suffix=ext)
+                os.close(fd)
+                file_obj.save(temp_path)
+                saved_files[f"file_{file_idx}"] = {
+                    'path': temp_path,
+                    'name': fname
+                }
+                file_idx += 1
+
+        if not saved_files:
+            return jsonify({"success": False, "message": "착공계 관련 서류를 하나 이상 첨부해주세요."}), 400
+
+        job_id = str(uuid.uuid4())
+        JOBS[job_id] = {"status": "processing"}
+
+        thread = threading.Thread(
+            target=run_commencement_review,
+            args=(job_id, project_name, contract_amount, total_cost, additional_notes, saved_files)
+        )
+        thread.daemon = True
+        thread.start()
+
         return jsonify({"success": True, "jobId": job_id})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
