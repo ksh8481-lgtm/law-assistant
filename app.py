@@ -680,6 +680,36 @@ def fetch_local_law_data(query, moleg_context):
     combined_text = f"{query} {moleg_context}"
     keywords = set(w for w in re.split(r'[\s,./()·\[\]]+', combined_text) if len(w) >= 3)
 
+    # 위 키워드 매칭은 "질의 단어가 파일명에 연속해서 그대로 들어있는지"만 보기 때문에,
+    # 정식 법령명이 길어서 실무에서 줄임말(약칭)로 더 자주 불리는 법은 여전히 못 찾는다.
+    # 예: "토지보상법"은 정식명 "공익사업을_위한_토지_등의_취득_및_보상에_관한_법률" 안에
+    # "토지"와 "보상"이 붙어있지 않아 통짜 키워드로는 매칭되지 않고, 로컬 DB에 원문이
+    # 있는데도 "원문 없음"으로 잘못 안내되는 사고로 이어짐(실사용 중 발견).
+    # 같은 패턴의 법들에 대해 약칭 -> 정식명 키워드 별칭을 추가해준다.
+    LAW_ABBREVIATIONS = {
+        '토지보상법': '공익사업을위한토지등의취득및보상에관한법률',
+        '국토계획법': '국토의계획및이용에관한법률',
+        '지방계약법': '지방자치단체를당사자로하는계약에관한법률',
+        '건진법': '건설기술진흥법',
+        '건산법': '건설산업기본법',
+        '시설물안전법': '시설물의안전및유지관리에관한특별법',
+        '지하안전법': '지하안전관리에관한특별법',
+        '재난안전법': '재난및안전관리기본법',
+        '건설폐기물법': '건설폐기물의재활용촉진에관한법률',
+    }
+    # 실제 질의에서는 "토지보상법에", "국토계획법상" 처럼 조사가 붙어 나오는 경우가
+    # 대부분이라 완전 일치(kw == 약칭)로는 걸리지 않는다. 약칭이 키워드 안에
+    # 부분 포함되는지로 확인한다.
+    for kw in list(keywords):
+        for abbr, full_name in LAW_ABBREVIATIONS.items():
+            if abbr in kw:
+                keywords.add(full_name)
+
+    # 파일명 매칭용 keywords는 오탐 방지를 위해 3자 이상만 쓰지만, "인도"/"철거"처럼
+    # 정작 조문 안에서는 2자 단어가 핵심인 경우가 많다. 파일 "안"에서 관련 부분을
+    # 찾을 때는 원 질의(모호한 MCP 검색결과 산문은 제외)에서 2자 이상까지 넓게 뽑는다.
+    locate_keywords = keywords | set(w for w in re.split(r'[\s,./()·\[\]]+', query) if len(w) >= 2)
+
     # 파일 하나가 통째로(최대 1.8MB짜리도 있음) 프롬프트를 잡아먹지 않도록 파일당/전체 상한을 둔다.
     # (moleg_context는 실시간 검색 결과 산문이라 법령명을 여러 개 언급하기 쉬워서,
     #  키워드 매칭 정확도를 올리자마자 거대 파일이 여러 개 한꺼번에 걸려 프롬프트가
@@ -697,10 +727,67 @@ def fetch_local_law_data(query, moleg_context):
                 with open(md_file, "r", encoding="utf-8") as f:
                     content = f.read()
                 remaining = MAX_TOTAL - len(local_data)
-                local_data += content[:min(MAX_PER_FILE, remaining)] + "\n\n"
+                local_data += _extract_relevant_excerpt(content, locate_keywords, min(MAX_PER_FILE, remaining)) + "\n\n"
             except:
                 pass
     return local_data
+
+
+def _extract_relevant_excerpt(content, keywords, max_len):
+    """content가 max_len보다 길면 앞부분만 자르지 않고, 키워드가 실제로 등장하는
+    지점 주변을 발췌한다.
+
+    (예전에는 그냥 content[:max_len]으로 앞부분만 잘랐는데, 토지보상법처럼
+    조문이 많은(5만자 이상) 법은 정작 물어본 조항(예: 제43조 토지 인도)이
+    파일 뒷부분에 있어서 통째로 잘려나가고, 로컬 DB에 원문이 있는데도
+    "원문 없음"이라고 잘못 안내하는 사고로 이어졌음 - 실사용 중 발견.)
+    """
+    import re
+    if len(content) <= max_len:
+        return content
+
+    # 키워드별로 문서 안에서 몇 번이나 등장하는지 센다. "공익사업"/"보상금"처럼
+    # 법 전체에 수십 번 나오는 흔한 단어는 조문 위치를 특정하는 데 도움이 안 되고,
+    # 오히려 그 흔한 단어들이 문서 앞부분에 몰려있어서 예산을 다 잡아먹고 정작
+    # 필요한 뒷부분 조항(드물게/한 번만 나오는 단어 근처)을 놓치는 사고로
+    # 이어졌다(실사용 중 발견: "인도"는 8번뿐이라 걸러졌어야 했는데 3글자
+    # 미만이라 애초에 키워드에서 빠졌던 문제와 겹쳐서 발생). 그래서 흔한 단어는
+    # 아예 건너뛰고, 희귀한(구체적인) 키워드부터 우선 발췌한다.
+    counts = {}
+    for kw in keywords:
+        if len(kw) < 2:
+            continue
+        c = content.count(kw)
+        if 0 < c <= 20:
+            counts[kw] = c
+    if not counts:
+        return content[:max_len]
+
+    head = content[:400]
+    budget = max_len - len(head)
+    covered = [(0, len(head))]
+
+    def overlaps(s, e):
+        return any(s < ce and e > cs for cs, ce in covered)
+
+    picks = []  # (start, piece)
+    for kw, _cnt in sorted(counts.items(), key=lambda x: x[1]):  # 희귀한 키워드부터
+        if budget <= 0:
+            break
+        for m in re.finditer(re.escape(kw), content):
+            pos = m.start()
+            start = max(0, pos - 150)
+            end = min(len(content), pos + 1200)
+            if overlaps(start, end):
+                continue
+            piece = content[start:end][:budget]
+            picks.append((start, piece))
+            covered.append((start, start + len(piece)))
+            budget -= len(piece)
+            break  # 키워드 하나당 대표 지점 1곳만
+
+    picks.sort(key=lambda x: x[0])  # 읽기 자연스럽도록 원문 등장 순서로 재정렬
+    return head + "\n...(중략)...\n" + "\n...(중략)...\n".join(p for _, p in picks)
 
 
 @app.route('/api/verify_parcel', methods=['POST'])
