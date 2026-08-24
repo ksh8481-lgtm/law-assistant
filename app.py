@@ -84,6 +84,35 @@ def gemini_file_part(gfile):
     return {"file_data": {"mime_type": gfile.mime_type, "file_uri": gfile.uri}}
 
 
+def generate_with_search_grounding(prompt, model_name):
+    """
+    구글 실시간 검색(Google Search Grounding)을 사용해 generate_content를 실행한다.
+
+    ⚠️ 예전엔 구버전(EOL 예정) google.generativeai에서 tools='google_search_retrieval'로
+    검색 도구를 붙였는데, 그 도구 이름이 서버에서 이미 폐기돼서 실제 호출 시 매번
+    "google_search_retrieval is not supported. Please use google_search tool instead."
+    라는 400 에러가 100% 발생하고 있었다. run_analysis의 try/except가 이 실패를 조용히
+    삼키고 검색 없이 일반 모델로만 폴백해서, law_review 기능은 지금까지 한 번도 실제
+    구글 검색 그라운딩을 쓴 적이 없었다 (프롬프트는 "구글 검색 도구를 활용하라"고
+    지시하고 있었지만 실제로는 매번 무시됐음).
+
+    구버전 SDK는 최신 tools='google_search' 문법 자체를 모른다(SDK가 그 이후에 추가된
+    기능이라 클라이언트 코드에 정의돼 있지 않음). 신버전 `google-genai` SDK로는 실제로
+    검색 그라운딩이 정상 동작하는 걸 확인해서, 파일 업로드 때와 같은 방식으로 이 호출만
+    신버전 SDK로 옮긴다. 반환값은 신버전 SDK의 응답 객체인데 .text 프로퍼티가 동일하게
+    있어서, 이 함수를 호출하는 쪽 코드(response.text 사용)는 그대로 쓸 수 있다.
+    """
+    from google import genai as google_genai_client
+    from google.genai import types
+
+    client = google_genai_client.Client(api_key=GEMINI_KEY)
+    grounding_tool = types.Tool(google_search=types.GoogleSearch())
+    config = types.GenerateContentConfig(tools=[grounding_tool])
+
+    clean_model_name = model_name.replace('models/', '')
+    return client.models.generate_content(model=clean_model_name, contents=prompt, config=config)
+
+
 SIDO_DATA = [
     {"code": "11", "name": "서울특별시"}, {"code": "26", "name": "부산광역시"},
     {"code": "27", "name": "대구광역시"}, {"code": "28", "name": "인천광역시"},
@@ -812,8 +841,19 @@ def verify_parcel():
 def run_analysis(job_id, data):
     try:
         genai.configure(api_key=GEMINI_KEY)
-        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        
+        # ⚠️ genai.list_models()는 최근 구글이 모델 목록 API 응답에 추가한 "thinking" 필드를
+        # 구버전(EOL 예정) SDK가 파싱하지 못해 TypeError로 죽는다 (앱 전체 공통 문제).
+        # 다른 기능들은 전부 이 호출을 try/except로 감싸 고정 목록으로 폴백하는데
+        # run_analysis(law_review)만 방어 코드가 없어서 분석 자체가 통째로 실패하고
+        # 있었다. 다른 곳과 동일한 방어 패턴 적용.
+        try:
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            if not available_models:
+                raise ValueError("empty model list")
+        except Exception as e:
+            print(f"[run_analysis] genai.list_models() failed, using fallback list: {e}")
+            available_models = ['models/gemini-2.5-pro', 'models/gemini-2.5-flash', 'models/gemini-1.5-pro', 'models/gemini-1.5-flash', 'models/gemini-2.0-flash']
+
         flash_model_name = None
         pro_model_name = None
         
@@ -833,11 +873,6 @@ def run_analysis(job_id, data):
         extractor_model = genai.GenerativeModel(flash_model_name)
         
         model = genai.GenerativeModel(pro_model_name)
-        search_model = None
-        try:
-            search_model = genai.GenerativeModel(pro_model_name, tools='google_search_retrieval')
-        except Exception:
-            pass
         
         project_name = data.get('projectName', '이름 없음')
         project_type = data.get('projectType', '복합공사')
@@ -1018,12 +1053,9 @@ def run_analysis(job_id, data):
         """
         
         try:
-            if search_model:
-                response = search_model.generate_content(prompt)
-            else:
-                response = model.generate_content(prompt)
+            response = generate_with_search_grounding(prompt, pro_model_name)
         except Exception as e:
-            print(f"Search retrieval failed, falling back to standard: {e}")
+            print(f"Search grounding failed, falling back to standard: {e}")
             response = model.generate_content(prompt)
             
         text_resp = response.text.strip()
@@ -1549,28 +1581,34 @@ def api_chat_report():
             "parts": [new_message]
         })
         
-        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        
+        try:
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            if not available_models:
+                raise ValueError("empty model list")
+        except Exception as e:
+            print(f"[api_chat_report] genai.list_models() failed, using fallback list: {e}")
+            available_models = ['models/gemini-2.5-flash', 'models/gemini-2.5-pro', 'models/gemini-1.5-flash', 'models/gemini-2.0-flash']
+
         model_name = None
         for preferred in ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']:
             if preferred in available_models:
                 model_name = preferred
                 break
-                
+
         # If no preferred model is found, just pick the very first available one
         if not model_name and available_models:
             model_name = available_models[0]
         elif not model_name:
             model_name = 'models/gemini-2.5-flash'  # Final fallback if list is empty
-            
+
         model = genai.GenerativeModel(model_name)
         response = model.generate_content(contents_payload)
-        
+
         return jsonify({
             "success": True,
             "result": response.text
         })
-        
+
     except Exception as e:
         print(f"Report Chat API Error: {e}")
         return jsonify({"success": False, "message": f"서버 오류: {str(e)}"})
