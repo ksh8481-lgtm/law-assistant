@@ -394,10 +394,15 @@ def search_duties_chunk():
 
 이 법령 내용 중에서 '행정/건설 관리기관, 사업주, 지자체 등이 의무적으로 이행해야 하는 사항'(예: 정기 안전점검, 교육 실시, 계획 수립, 결과 통보 등)만 모두 추출하세요.
 (발견되는 모든 의무사항을 남김없이 전부 추출하되, 각 의무의 내용을 충분히 구체적이고 상세하게 설명하세요.)
+
+🚨 [조문번호 관련 필수 규칙]: "article" 값은 위 조문 텍스트에 실제로 적힌 조 번호(예: "제3조", "제5조제3항")를 그대로 옮기십시오.
+아래 JSON 형식 예시의 "제O조"는 형식을 보여주기 위한 자리표시자일 뿐, 실제 조문 번호가 아닙니다.
+텍스트에서 해당 의무가 몇 조에 있는지 정확히 찾을 수 없으면 "제O조"라고 쓰지 말고 "조 번호 확인 필요"라고 쓰십시오.
+
 결과는 오직 아래의 순수 JSON 배열 포맷으로만 반환하세요(마크다운 없이). 의무사항이 없으면 빈 배열 []을 반환하세요.
 [
   {{
-    "article": "제O조",
+    "article": "(실제 조 번호, 예: 제3조)",
     "duty_title": "핵심 의무 제목",
     "description": "구체적인 의무 내용을 상세하게 서술 (이행해야 할 대상, 조건, 방법 등을 포함)",
     "frequency": "수시 / 연 1회 등 기한",
@@ -1417,6 +1422,94 @@ def api_chat_other_review():
         
     except Exception as e:
         print(f"Chat Review API Error: {e}")
+        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"})
+
+
+@app.route('/api/chat/duty_list', methods=['POST'])
+def api_chat_duty_list():
+    """
+    '법정 의무 마스터' 페이지의 법령 상담 챗봇. 프론트(duty_list.html)가 예전부터 이 경로를
+    호출하고 있었는데 라우트 자체가 없어서 항상 404였던 것 + 프론트의 변수 스코프 버그가 겹쳐서
+    채팅 기능이 완전히 죽어있었다. 둘 다 고침 (스코프는 duty_list.html에서).
+    """
+    try:
+        data = request.json or {}
+        chat_history = data.get('chat_history', [])
+        new_message = data.get('new_message', '')
+        law_name = data.get('law_name', '')
+        lsi_seq = data.get('lsi_seq', '')
+
+        if not new_message:
+            return jsonify({"success": False, "message": "질문이 제공되지 않았습니다."}), 400
+
+        if not GEMINI_KEY:
+            return jsonify({"success": False, "message": "Gemini API 키가 설정되지 않았습니다."}), 500
+
+        # 체크리스트 분석 때 이미 캐시된 법령 원문이 있으면 재사용, 없으면 새로 조회
+        global LAW_TEXT_CACHE
+        law_text = LAW_TEXT_CACHE.get(lsi_seq, '') if lsi_seq else ''
+        if not law_text and lsi_seq:
+            try:
+                doc_res = requests.get(f"https://www.law.go.kr/DRF/lawService.do?OC={LAW_KEY}&target=law&type=XML&MST={lsi_seq}", timeout=10)
+                doc_root = ET.fromstring(doc_res.text)
+                articles = doc_root.findall('.//조문단위')
+                fetched_text = ""
+                for art in articles:
+                    art_title = art.findtext('조문내용') or ""
+                    fetched_text += art_title + "\n"
+                    for hang in art.findall('.//항내용'):
+                        if hang.text:
+                            fetched_text += hang.text + "\n"
+                    for ho in art.findall('.//호내용'):
+                        if ho.text:
+                            fetched_text += ho.text + "\n"
+                law_text = fetched_text
+                LAW_TEXT_CACHE[lsi_seq] = law_text
+            except Exception as e:
+                print(f"chat_duty_list law fetch failed: {e}")
+
+        genai.configure(api_key=GEMINI_KEY)
+
+        if law_text:
+            system_context = f"""당신은 '{law_name}' 법령 전문 상담 AI입니다. 아래 [법령 원문]만을 근거로 사용자의 질문에 답변하세요.
+원문에 없는 내용은 절대 추측하거나 지어내지 말고 "법령 원문에서 해당 내용을 확인할 수 없습니다"라고 답하세요.
+답변 시 관련 조 번호를 반드시 함께 밝히세요.
+
+[법령 원문]
+{law_text[:30000]}"""
+        else:
+            system_context = f"""당신은 '{law_name}' 법령 전문 상담 AI입니다. 법령 원문을 불러오지 못했으니, 확실하지 않은 조문 번호나 세부 수치는
+절대 단정하지 말고 "정확한 조항은 법제처 원문을 직접 확인하시기 바랍니다"라고 안내하며 답변하세요."""
+
+        contents_payload = [{"role": "user", "parts": [system_context]}]
+        for msg in chat_history:
+            contents_payload.append({"role": msg["role"], "parts": [msg["text"]]})
+        contents_payload.append({"role": "user", "parts": [new_message]})
+
+        try:
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
+            models_to_try = sorted(available_models, key=lambda x: (0 if '2.5-flash' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3))
+        except:
+            models_to_try = ['models/gemini-2.5-flash', 'models/gemini-2.5-pro', 'models/gemini-1.5-flash']
+
+        response = None
+        last_err = None
+        for m in models_to_try:
+            try:
+                model = genai.GenerativeModel(model_name=m)
+                response = model.generate_content(contents_payload)
+                break
+            except Exception as e:
+                last_err = e
+                continue
+
+        if not response:
+            raise Exception(f"채팅 응답 생성 실패: {last_err}")
+
+        return jsonify({"success": True, "result": response.text})
+
+    except Exception as e:
+        print(f"Chat Duty List API Error: {e}")
         return jsonify({"success": False, "message": f"서버 오류: {str(e)}"})
 
 @app.route('/api/chat/report', methods=['POST'])

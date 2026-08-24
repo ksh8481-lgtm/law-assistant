@@ -462,6 +462,13 @@
     </aside>
 
     <script>
+        // ⚠️ 이 두 변수는 아래 DOMContentLoaded 안의 analyzeDuties()와, 스크립트 하단(별도 스코프)의
+        // sendChatMessage()가 둘 다 읽어야 해서 반드시 이 최상위(스크립트 전체 공유) 스코프에 선언한다.
+        // 예전엔 DOMContentLoaded 콜백 안에서만 let으로 선언돼 있어서 sendChatMessage()가 절대 값을
+        // 볼 수 없었고, 그 결과 법을 아무리 선택/분석해도 "먼저 법률을 선택하세요" 경고만 떴었다.
+        let currentLsiSeq = "";
+        let currentLawName = "";
+
         document.addEventListener('DOMContentLoaded', () => {
             const searchInput = document.getElementById('lawSearchInput');
             const searchBtn = document.getElementById('searchBtn');
@@ -570,40 +577,95 @@
                     });
                 };
                 
-                fetchChunk(lsi_seq, law_name, 0);
+                // 첫 파트를 먼저 가져와서 전체 파트 수(total_chunks)를 알아낸 다음,
+                // 나머지 파트는 여러 개를 동시에(병렬로) 가져온다.
+                // (예전엔 파트를 하나씩 순차적으로 요청해서, 파트가 40개면 법 하나 분석에
+                //  10분 넘게 걸렸다 - 청크당 평균 20초 x 40개를 그대로 다 더한 시간.
+                //  동시에 여러 개씩 보내면 그만큼 총 대기시간이 줄어든다.)
+                const CONCURRENCY = 5;
+
+                const first = await fetchChunk(lsi_seq, law_name, 0);
+                if (!first) {
+                    const progressContainer = document.getElementById('progress-container');
+                    if (progressContainer) {
+                        progressContainer.style.background = '#fee2e2';
+                        progressContainer.style.borderLeftColor = '#ef4444';
+                        progressContainer.innerHTML = `<span style="color:#991b1b; font-weight:600; font-size:0.95rem;">❌ 분석 중 오류가 발생했습니다. 다시 시도해주세요.</span>`;
+                    }
+                    return;
+                }
+
+                let completedCount = 1;
+                const totalChunks = first.total_chunks;
+                updateProgressText(completedCount, totalChunks);
+
+                if (first.has_more) {
+                    let nextIndex = 1;
+                    const worker = async () => {
+                        while (nextIndex < totalChunks) {
+                            const idx = nextIndex++;
+                            await fetchChunk(lsi_seq, law_name, idx);
+                            completedCount++;
+                            updateProgressText(completedCount, totalChunks);
+                        }
+                    };
+                    const workers = [];
+                    for (let i = 0; i < Math.min(CONCURRENCY, totalChunks - 1); i++) {
+                        workers.push(worker());
+                    }
+                    await Promise.all(workers);
+                }
+
+                finishAnalysis(totalChunks);
             }
-            
-            async function fetchChunk(lsi_seq, law_name, chunkIndex) {
+
+            function updateProgressText(completed, total) {
                 const progressText = document.getElementById('progress-text');
+                if (progressText) {
+                    progressText.innerText = `법률 내용 분석 중... (${completed} / ${total} 파트 완료)`;
+                }
+            }
+
+            function finishAnalysis(totalChunks) {
                 const progressContainer = document.getElementById('progress-container');
                 const targetSelect = document.getElementById('target-select');
                 const targetContainer = document.getElementById('target-sections-container');
-                
-                if(progressText) {
-                    progressText.innerText = `법률 내용 분석 중... (파트 ${chunkIndex + 1} 진행 중)`;
+
+                if (progressContainer) {
+                    progressContainer.style.background = '#dcfce3';
+                    progressContainer.style.borderLeftColor = '#22c55e';
+                    progressContainer.innerHTML = `<span style="color: #166534; font-weight: 600; font-size: 0.95rem;">✅ 해당 법률의 모든 조항에 대한 정밀 분석이 완료되었습니다. (총 ${totalChunks}개 파트)</span>`;
                 }
-                
+                if (targetContainer && targetContainer.children.length === 0) {
+                    targetContainer.innerHTML = `<p style="color:var(--text-secondary); font-size:1.1rem; text-align:center; padding: 2rem;">이 법령에는 명시된 행정/건설 등 관련 필수 의무 사항이 발견되지 않았습니다.</p>`;
+                    if (targetSelect) targetSelect.parentElement.style.display = 'none'; // Hide filter bar if empty
+                }
+            }
+
+            // 파트 하나를 가져와서 화면에 렌더링한다. 성공 시 { has_more, total_chunks }를 반환,
+            // 실패 시 null을 반환한다 (호출부가 병렬 루프를 멈추지 않고 다음 파트로 넘어갈 수 있도록
+            // 예외를 던지지 않고 조용히 null 반환).
+            async function fetchChunk(lsi_seq, law_name, chunkIndex) {
+                const targetSelect = document.getElementById('target-select');
+                const targetContainer = document.getElementById('target-sections-container');
+
                 try {
                     const response = await fetch('/api/search_duties_chunk', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ lsi_seq: lsi_seq, law_name: law_name, chunk_index: chunkIndex })
                     });
-                    
+
                     if (!response.ok) {
-                        if(progressText) progressText.innerText = `서버 응답 오류 (파트 ${chunkIndex + 1})`;
-                        return;
+                        console.error(`파트 ${chunkIndex + 1} 서버 응답 오류`);
+                        return null;
                     }
-                    
+
                     const result = await response.json();
-                    
+
                     if (result.success && result.data.duties) {
                         const duties = result.data.duties;
-                        
-                        if(progressText) {
-                            progressText.innerText = `법률 내용 분석 중... (파트 ${chunkIndex + 1} / ${result.data.total_chunks})`;
-                        }
-                        
+
                         duties.forEach(duty => {
                             const rawTarget = duty.target || '지정되지 않음';
                             const safeTargetId = 'target-' + rawTarget.replace(/[^a-zA-Z0-9가-힣]/g, '');
@@ -677,27 +739,14 @@
                             if(allOptionEl) allOptionEl.innerHTML = `전체보기 (총 ${totalDuties}건)`;
                         });
                         
-                        if (result.data.has_more) {
-                            // Fetch next chunk
-                            fetchChunk(lsi_seq, law_name, chunkIndex + 1);
-                        } else {
-                            // Finished
-                            if(progressContainer) {
-                                progressContainer.style.background = '#dcfce3';
-                                progressContainer.style.borderLeftColor = '#22c55e';
-                                progressContainer.innerHTML = `<span style="color: #166534; font-weight: 600; font-size: 0.95rem;">✅ 해당 법률의 모든 조항에 대한 정밀 분석이 완료되었습니다. (총 ${result.data.total_chunks}개 파트)</span>`;
-                            }
-                            if (targetContainer.children.length === 0) {
-                                targetContainer.innerHTML = `<p style="color:var(--text-secondary); font-size:1.1rem; text-align:center; padding: 2rem;">이 법령에는 명시된 행정/건설 등 관련 필수 의무 사항이 발견되지 않았습니다.</p>`;
-                                targetSelect.parentElement.style.display = 'none'; // Hide filter bar if empty
-                            }
-                        }
+                        return { has_more: result.data.has_more, total_chunks: result.data.total_chunks };
                     } else {
-                        if(progressText) progressText.innerText = `오류 발생: ${result.message}`;
+                        console.error(`파트 ${chunkIndex + 1} 처리 오류: ${result.message}`);
+                        return null;
                     }
                 } catch (err) {
-                    console.error("Chunk fetch failed:", err);
-                    if(progressText) progressText.innerText = `네트워크 오류가 발생했습니다. (파트 ${chunkIndex + 1})`;
+                    console.error(`파트 ${chunkIndex + 1} 네트워크 오류:`, err);
+                    return null;
                 }
             }
 
@@ -705,9 +754,6 @@
             searchInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') searchLawList();
             });
-
-            let currentLsiSeq = "";
-            let currentLawName = "";
 
         });
 
@@ -752,7 +798,8 @@
                         body: JSON.stringify({
                             chat_history: chatHistory,
                             new_message: text,
-                            law_name: currentLawName
+                            law_name: currentLawName,
+                            lsi_seq: currentLsiSeq
                         })
                     });
                     
