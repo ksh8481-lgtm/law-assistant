@@ -39,6 +39,51 @@ VWORLD_KEY = os.environ.get('VWORLD_API_KEY', '') or base64.b64decode(_V).decode
 _L = "a3NoODQ4MQ==" # ksh8481
 LAW_KEY = os.environ.get('LAW_API_KEY', '') or base64.b64decode(_L).decode('utf-8')
 
+
+def upload_file_for_gemini(path, display_name=None, timeout_seconds=90, poll_interval=2):
+    """
+    파일을 Gemini에 업로드한다. 반환된 객체는 .name/.uri/.mime_type을 갖고 있어서,
+    - generate_content()에 바로 넣으려면: gemini_file_part(gfile) 로 dict로 변환해서 사용
+    - 나중에(다른 요청에서) 다시 불러오려면: genai.get_file(gfile.name) (구버전 SDK로도 조회 가능)
+
+    ⚠️ 예전엔 여기서 구버전(EOL 예정) `google.generativeai`의 genai.upload_file()을 썼는데,
+    이 프로젝트의 GEMINI_API_KEY 형식이 그 구버전 업로드 경로(레거시 Google API Discovery
+    클라이언트)와 호환이 안 돼서 "API key not valid" 에러로 조용히 실패하고 있었다. 문제는
+    generate_content() 자체는 다른(더 최신) 경로를 타서 멀쩡히 동작했다는 것 - 그래서 텍스트
+    분석은 잘 되는데 "파일 첨부"만 매번 조용히 실패하는 상황이 한동안 발견되지 않았다.
+    특히 스캔본(이미지 전용) PDF처럼 로컬 텍스트 추출(fitz/PyPDF2)도 안 되는 파일은 업로드
+    실패 시 대체 수단이 전혀 없어서 "파일을 통째로 못 읽는다"는 증상으로 드러났다.
+
+    신버전 `google-genai` SDK(google.genai.Client)로 업로드하면 이 API 키로도 정상 동작하고,
+    그 결과(file_uri/mime_type)를 구버전 SDK의 generate_content()에 {"file_data": {...}}
+    형태로 그대로 넣어도 잘 읽는다는 걸 실제로 확인했다. 그래서 모델 폴백 루프 등 나머지
+    코드는 손대지 않고 "업로드" 부분만 신버전 SDK로 교체한다.
+    """
+    import time
+    from google import genai as google_genai_client
+
+    client = google_genai_client.Client(api_key=GEMINI_KEY)
+    gfile = client.files.upload(file=path, config={'display_name': display_name} if display_name else None)
+
+    elapsed = 0
+    while gfile.state.name == "PROCESSING" and elapsed < timeout_seconds:
+        time.sleep(poll_interval)
+        elapsed += poll_interval
+        gfile = client.files.get(name=gfile.name)
+
+    if gfile.state.name == "FAILED":
+        raise Exception(f"Gemini 파일 처리 실패(FAILED): {display_name or path}")
+    if gfile.state.name == "PROCESSING":
+        print(f"[upload_file_for_gemini] {display_name or path} 파일이 {timeout_seconds}초 후에도 여전히 처리 중입니다. 그대로 진행합니다.")
+
+    return gfile
+
+
+def gemini_file_part(gfile):
+    """upload_file_for_gemini()가 반환한 파일 객체를 generate_content() payload용 조각으로 변환."""
+    return {"file_data": {"mime_type": gfile.mime_type, "file_uri": gfile.uri}}
+
+
 SIDO_DATA = [
     {"code": "11", "name": "서울특별시"}, {"code": "26", "name": "부산광역시"},
     {"code": "27", "name": "대구광역시"}, {"code": "28", "name": "인천광역시"},
@@ -208,8 +253,8 @@ def extract_parcel_from_drawing():
         genai.configure(api_key=GEMINI_KEY)
         
         try:
-            uploaded_file = genai.upload_file(temp_path)
-            
+            uploaded_file = upload_file_for_gemini(temp_path)
+
             prompt = """
             당신은 도면, 지적도, 사업계획서에서 편입 부지 목록을 정확하게 추출하는 AI입니다.
             첨부된 이미지 또는 PDF에서 프로젝트에 편입되는 대상 부지의 '주소(지번)'와 '면적(㎡)' 데이터를 모두 찾아내어 아래 JSON 배열 형식으로 반환해주세요.
@@ -236,7 +281,7 @@ def extract_parcel_from_drawing():
                 model_name = 'models/gemini-2.5-flash'
 
             model = genai.GenerativeModel(model_name)
-            response = model.generate_content([prompt, uploaded_file])
+            response = model.generate_content([prompt, gemini_file_part(uploaded_file)])
 
             resp_text = response.text.strip()
             if resp_text.startswith("```json"): resp_text = resp_text[7:]
@@ -1099,9 +1144,10 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
         
         if temp_path and os.path.exists(temp_path):
             try:
-                uploaded_file = genai.upload_file(path=temp_path, display_name=filename)
+                uploaded_file = upload_file_for_gemini(temp_path, display_name=filename)
             except Exception as e:
                 print(f"genai.upload_file failed: {e}")
+                uploaded_file = None
                 
             # 항상 로컬 파이썬 환경에서도 텍스트를 추출 (RAG 및 정규식 스캔용)
             try:
@@ -1109,6 +1155,7 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
                 doc = fitz.open(temp_path)
                 for page in doc:
                     file_text += page.get_text() + "\n"
+                doc.close()
             except Exception as e:
                 print(f"PyMuPDF error: {e}")
                 try:
@@ -1129,8 +1176,11 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
             # genai.upload_file이 실패했을 때만 프롬프트에 직접 텍스트 첨부
             if not uploaded_file and file_text:
                 text_content += f"\n\n[첨부 문서 내용]\n{file_text[:30000]}"
-                
-            os.remove(temp_path)
+
+            try:
+                os.remove(temp_path)
+            except Exception as e:
+                print(f"temp file cleanup failed: {e}")
             
         try:
             available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
@@ -1205,8 +1255,8 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
         
         contents_payload = [prompt]
         if uploaded_file:
-            contents_payload.append(uploaded_file)
-            
+            contents_payload.append(gemini_file_part(uploaded_file))
+
         response = None
         last_err = None
         for m in models_to_try:
@@ -1446,7 +1496,7 @@ def run_design_review(job_id, project_name, project_domain, review_modes, additi
             fname = file_info['name']
             if os.path.exists(path):
                 try:
-                    gfile = genai.upload_file(path=path, display_name=fname)
+                    gfile = upload_file_for_gemini(path, display_name=fname)
                     uploaded_genai_files.append(gfile)
                 except Exception as e:
                     print(f"genai upload failed for {fname}: {e}")
@@ -1467,6 +1517,7 @@ def run_design_review(job_id, project_name, project_domain, review_modes, additi
                         doc = fitz.open(path)
                         for page in doc:
                             extracted_text_combined += page.get_text() + "\n"
+                        doc.close()
                     else:
                         with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                             extracted_text_combined += f.read() + "\n"
@@ -1519,7 +1570,7 @@ def run_design_review(job_id, project_name, project_domain, review_modes, additi
         
         content_payload = []
         for gfile in uploaded_genai_files:
-            content_payload.append(gfile)
+            content_payload.append(gemini_file_part(gfile))
         content_payload.append(system_instruction + "\n\n" + prompt)
         
         ai_result = ""
@@ -1655,7 +1706,7 @@ def run_commencement_review(job_id, project_name, contract_amount, total_cost, a
             fname = file_info['name']
             if os.path.exists(path):
                 try:
-                    gfile = genai.upload_file(path=path, display_name=fname)
+                    gfile = upload_file_for_gemini(path, display_name=fname)
                     uploaded_genai_files.append(gfile)
                 except Exception as e:
                     print(f"genai upload failed for {fname}: {e}")
@@ -1676,6 +1727,7 @@ def run_commencement_review(job_id, project_name, contract_amount, total_cost, a
                         doc = fitz.open(path)
                         for page in doc:
                             extracted_text_combined += page.get_text() + "\n"
+                        doc.close()
                     else:
                         with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                             extracted_text_combined += f.read() + "\n"
@@ -1788,7 +1840,7 @@ def run_commencement_review(job_id, project_name, contract_amount, total_cost, a
 
         content_payload = []
         for gfile in uploaded_genai_files:
-            content_payload.append(gfile)
+            content_payload.append(gemini_file_part(gfile))
         content_payload.append(system_instruction + "\n\n" + prompt)
 
         ai_result = ""
