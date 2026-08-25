@@ -364,9 +364,96 @@
         .task-title { font-weight: 600; color: #0f172a; margin-bottom: 0.3rem; }
         .task-desc { color: #334155; margin-bottom: 0.5rem; line-height: 1.5; font-size: 0.9rem; }
         .task-memo {
-            font-size: 0.85rem; color: #64748b; background: #f8fafc; padding: 0.4rem 0.6rem; 
+            font-size: 0.85rem; color: #64748b; background: #f8fafc; padding: 0.4rem 0.6rem;
             border-radius: 4px; display: flex; gap: 0.4rem; align-items: flex-start;
         }
+
+        /* 기타행정검토/설계도서검토/착공계검토 등 - AI가 쓴 마크다운을 그대로 렌더링하는
+           보고서용 스타일. 예전엔 스타일이 거의 없어서 표/인용문/제목이 다 밋밋하게
+           붙어있었는데, 최소한의 시각적 위계와 강조를 줘서 읽기 편하게 만든다. */
+        .markdown-report {
+            padding: 2.5rem;
+            line-height: 1.85;
+            font-size: 1.02rem;
+        }
+        .markdown-report h1, .markdown-report h2, .markdown-report h3, .markdown-report h4 {
+            font-weight: 700;
+            margin-top: 2.2rem;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+        .markdown-report > h1:first-child,
+        .markdown-report > h2:first-child,
+        .markdown-report > h3:first-child { margin-top: 0; }
+        .markdown-report h1 { font-size: 1.55rem; }
+        .markdown-report h2 {
+            font-size: 1.3rem;
+            color: var(--primary-color);
+            padding-bottom: 0.6rem;
+            border-bottom: 2px solid var(--border-color);
+        }
+        .markdown-report h3 {
+            font-size: 1.1rem;
+            color: #0f172a;
+            background: #f1f5f9;
+            padding: 0.7rem 1rem;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary-color);
+        }
+        .markdown-report h4 { font-size: 1rem; color: var(--text-secondary); }
+        .markdown-report p { margin: 0 0 1rem 0; }
+        .markdown-report ul, .markdown-report ol { margin-bottom: 1.2rem; }
+        .markdown-report li { margin-bottom: 0.4rem; }
+        .markdown-report blockquote {
+            margin: 1rem 0;
+            padding: 1rem 1.3rem;
+            background: #eff6ff;
+            border-left: 4px solid var(--primary-color);
+            border-radius: 0 8px 8px 0;
+            color: #1e3a5f;
+            font-size: 0.95rem;
+            line-height: 1.7;
+        }
+        .markdown-report blockquote p:last-child { margin-bottom: 0; }
+        .markdown-report hr {
+            border: none;
+            border-top: 2px solid var(--border-color);
+            margin: 2rem 0;
+        }
+        .markdown-report table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0 1.6rem;
+            font-size: 0.92rem;
+        }
+        .markdown-report th, .markdown-report td {
+            border: 1px solid var(--border-color);
+            padding: 0.75rem 0.9rem;
+            text-align: left;
+            vertical-align: top;
+        }
+        .markdown-report th { background: #f1f5f9; font-weight: 700; color: var(--text-primary); }
+        .markdown-report tr:nth-child(even) td { background: #fafbfc; }
+        .markdown-report code {
+            background: #f1f5f9;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        /* 법령 링크를 눈에 띄는 "칩"처럼 보여줘서, 본문 안에서도 클릭 가능한 근거라는 게
+           한눈에 보이게 한다 (요청: "법을 보여줄 땐 항상 링크가 되게"). */
+        .markdown-report a {
+            display: inline-block;
+            color: #1d4ed8;
+            font-weight: 600;
+            background: #eff6ff;
+            padding: 0.1rem 0.5rem;
+            border-radius: 5px;
+            border: 1px solid #bfdbfe;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+        .markdown-report a:hover { background: #dbeafe; text-decoration: none; }
     </style>
 </head>
 <body>
@@ -452,9 +539,9 @@
                 if (reviewType !== 'law_review') {
                     const markdownText = typeof data === 'string' ? data : (data.result || data.text || rawData);
                     if (typeof marked !== 'undefined') {
-                        contentDiv.innerHTML = '<div class="section" style="padding: 2.5rem; line-height: 1.8; font-size: 1.05rem;">' + marked.parse(markdownText) + '</div>';
+                        contentDiv.innerHTML = '<div class="markdown-report">' + marked.parse(markdownText) + '</div>';
                     } else {
-                        contentDiv.innerHTML = '<div class="section" style="white-space: pre-wrap; padding: 2.5rem; line-height: 1.8; font-size: 1.05rem;">' + markdownText + '</div>';
+                        contentDiv.innerHTML = '<div class="markdown-report" style="white-space: pre-wrap;">' + markdownText + '</div>';
                     }
                     return; // Stop here for non-law-review
                 }
