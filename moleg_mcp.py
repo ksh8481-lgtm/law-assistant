@@ -103,6 +103,35 @@ def search_law(keyword: str) -> str:
     except Exception as e:
         return f"Error searching laws: {str(e)}"
 
+@mcp.tool()
+def search_ordinance(keyword: str) -> str:
+    """
+    Search MOLEG (법제처) 자치법규(지방자치단체 조례/규칙) by keyword.
+    Returns matching ordinance names, issuing jurisdiction, and links.
+    키워드에 지자체명(예: "남해군 공유재산")을 함께 넣으면 해당 지자체 조례로 좁혀진다.
+    """
+    try:
+        url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={MOLEG_API_KEY}&target=ordin&type=XML&query={urllib.parse.quote(keyword)}"
+        res = requests.get(url, timeout=5)
+        res.encoding = 'utf-8'
+        root = ET.fromstring(res.text)
+
+        results = []
+        for law in root.findall('.//law')[:5]:
+            name = law.findtext('자치법규명', '')
+            org = law.findtext('지자체기관명', '')
+            kind = law.findtext('자치법규종류', '')
+            if name:
+                link = f"https://www.law.go.kr/자치법규/{urllib.parse.quote(name)}"
+                results.append(f"- [{name}]({link}) ({org}, {kind})")
+
+        if not results:
+            return f"No ordinances found for keyword: {keyword}"
+
+        return "Found ordinances:\n" + "\n".join(results)
+    except Exception as e:
+        return f"Error searching ordinances: {str(e)}"
+
 if __name__ == "__main__":
     import sys
     if "--sse" in sys.argv:

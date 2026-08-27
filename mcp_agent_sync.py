@@ -22,35 +22,48 @@ import os
 import re
 import google.generativeai as genai
 
-from moleg_mcp import search_law, search_precedents_by_keyword, search_precedent_by_case_number
+from moleg_mcp import search_law, search_precedents_by_keyword, search_precedent_by_case_number, search_ordinance
 
 # 대법원 판례 사건번호 패턴 (예: 2010두11641, 2018다12345)
 _CASE_NO_PATTERN = re.compile(r'\d{2,4}[가-힣]\d{3,7}')
 
 
-def _extract_keyword(query: str) -> str:
-    """법제처 검색에 쓸 핵심 키워드 1개를 뽑는다. 실패하면 빈 문자열."""
+def _extract_keyword_and_jurisdiction(query: str) -> tuple:
+    """법제처 검색에 쓸 핵심 키워드 1개와, 질의에 특정 지자체(예: 남해군)가 언급돼
+    있다면 그 이름(조례 검색용)을 함께 뽑는다. 실패하면 둘 다 빈 문자열.
+
+    (예전에는 키워드만 뽑았는데, 그러면 "남해군이 ~조례에 따라~"처럼 지자체 조례가
+    실제로 관련된 질문에서도 조례를 전혀 검색하지 않고 "확인이 필요합니다"라고만
+    안내하는 문제가 있었음 - 실사용 중 발견.)
+    """
     try:
         genai.configure(api_key=os.environ.get('GEMINI_API_KEY'))
         model = genai.GenerativeModel('gemini-2.5-flash')
         prompt = (
-            "다음 텍스트에서 대한민국 법제처(law.go.kr) 법령/판례 검색에 가장 적합한 "
-            "핵심 명사 키워드 딱 1개(예: 영업손실보상, 재해영향평가, 하도급)만 추출해. "
-            "다른 설명은 절대 하지 마.\n텍스트: " + query[:2000]
+            "다음 텍스트에서 두 가지를 뽑아서 정확히 '키워드|지자체명' 형식의 한 줄로만 답해. "
+            "다른 설명은 절대 하지 마.\n"
+            "- 키워드: 대한민국 법제처(law.go.kr) 법령/판례 검색에 가장 적합한 핵심 명사 1개 "
+            "(예: 영업손실보상, 재해영향평가, 하도급)\n"
+            "- 지자체명: 텍스트에 특정 시/군/구 등 기초/광역 지방자치단체 이름이 명시되어 "
+            "있으면 그 이름만(예: 남해군, 수원시, 강남구), 없으면 비워둬. (예: '하도급|')\n"
+            "텍스트: " + query[:2000]
         )
         resp = model.generate_content(prompt)
-        keyword = resp.text.strip().replace("'", "").replace('"', "").splitlines()[0].strip()
-        return keyword[:15]
+        line = resp.text.strip().splitlines()[0].strip()
+        parts = line.split('|')
+        keyword = parts[0].strip().replace("'", "").replace('"', "")[:15]
+        jurisdiction = parts[1].strip().replace("'", "").replace('"', "")[:10] if len(parts) > 1 else ""
+        return keyword, jurisdiction
     except Exception as e:
-        print(f"[mcp_agent_sync] keyword extraction failed: {e}")
-        return ""
+        print(f"[mcp_agent_sync] keyword/jurisdiction extraction failed: {e}")
+        return "", ""
 
 
 def get_mcp_context_sync(query: str, uploaded_file=None) -> str:
     if uploaded_file:
         query = f"{query}\n(첨부 파일명: {uploaded_file})"
 
-    keyword = _extract_keyword(query)
+    keyword, jurisdiction = _extract_keyword_and_jurisdiction(query)
     if not keyword:
         # 키워드 추출 자체가 실패해도 빈 컨텍스트보다는 질의 앞부분이라도 검색어로 쓰는 게 낫다.
         keyword = query.strip()[:15]
@@ -75,5 +88,13 @@ def get_mcp_context_sync(query: str, uploaded_file=None) -> str:
             sections.append(f"[판례 검색 결과: '{keyword}']\n{search_precedents_by_keyword(keyword)}")
         except Exception as e:
             sections.append(f"[판례 검색 실패: {e}]")
+
+    # 지자체명이 특정됐을 때만 자치법규(조례/규칙)를 검색한다. 지자체 없이 키워드만으로
+    # 검색하면 전국 수백 개 지자체의 동명 조례가 뒤섞여 나와 오히려 혼란을 줌.
+    if jurisdiction and keyword:
+        try:
+            sections.append(f"[자치법규(조례) 검색 결과: '{jurisdiction} {keyword}']\n{search_ordinance(f'{jurisdiction} {keyword}')}")
+        except Exception as e:
+            sections.append(f"[자치법규 검색 실패: {e}]")
 
     return "\n\n".join(sections)
