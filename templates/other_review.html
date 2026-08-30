@@ -180,12 +180,28 @@
         
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
+        /* 결과가 나오면 보고서(왼쪽, 남는 공간 전부) + 질의응답(오른쪽, 고정폭 사이드바)
+           2단 레이아웃으로 보여준다. (요청: "심층질의응답을 오른쪽에, 보고서는 왼쪽에") */
+        .main-wrapper {
+            display: flex;
+            gap: 2rem;
+            max-width: 1400px;
+            width: 100%;
+            margin: 2rem auto 0;
+            padding: 0 1.5rem 2.5rem;
+            align-items: flex-start;
+        }
+        @media (max-width: 1024px) {
+            .main-wrapper { flex-direction: column; align-items: center; }
+            .chat-container { width: 100% !important; position: static !important; height: 500px !important; }
+        }
         .result-box {
+            flex: 1;
+            min-width: 0;
             background: white;
             border-radius: 20px;
             padding: 2.5rem;
             box-shadow: 0 10px 40px rgba(0,0,0,0.04);
-            margin-top: 2rem;
             border: 1px solid var(--card-border);
         }
         .markdown-body h3 { margin-top: 1.5rem; margin-bottom: 0.5rem; color: #1e293b; }
@@ -216,26 +232,40 @@
             font-size: 0.95rem;
         }
         
-        /* Chat UI */
+        /* Chat UI - 오른쪽 고정 사이드바 */
         .chat-container {
-            margin-top: 2rem;
-            border-top: 2px dashed #cbd5e1;
-            padding-top: 2rem;
+            width: 400px;
+            flex-shrink: 0;
+            height: calc(100vh - 4rem);
+            position: sticky;
+            top: 2rem;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.04);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .chat-header {
+            background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+            color: white;
+            padding: 1.2rem 1.5rem;
+            font-weight: 700;
+            font-size: 1.05rem;
+            flex-shrink: 0;
         }
         .chat-history {
-            max-height: 400px;
+            flex: 1;
             overflow-y: auto;
-            margin-bottom: 1rem;
             display: flex;
             flex-direction: column;
             gap: 1rem;
-            padding: 1rem;
+            padding: 1.2rem;
             background: #f8fafc;
-            border-radius: 12px;
-            border: 1px solid #e2e8f0;
         }
         .chat-msg {
-            max-width: 85%;
+            max-width: 90%;
             padding: 1rem;
             border-radius: 12px;
             line-height: 1.5;
@@ -256,19 +286,30 @@
         .chat-input-area {
             display: flex;
             gap: 0.5rem;
+            align-items: flex-end;
+            padding: 0.75rem;
+            border-top: 1px solid #e2e8f0;
+            background: white;
+            flex-shrink: 0;
         }
-        .chat-input-area input {
+        .chat-input-area textarea {
             flex: 1;
-            padding: 1rem;
+            padding: 0.75rem 1rem;
             border: 2px solid #cbd5e1;
             border-radius: 12px;
-            font-size: 1rem;
+            font-size: 0.95rem;
+            font-family: inherit;
             outline: none;
+            resize: none;
+            min-height: 44px;
+            max-height: 120px;
+            line-height: 1.4;
             transition: border-color 0.3s;
         }
-        .chat-input-area input:focus { border-color: var(--primary); }
+        .chat-input-area textarea:focus { border-color: var(--primary); }
         .chat-input-area button {
-            padding: 0 1.5rem;
+            padding: 0 1.2rem;
+            height: 44px;
             background: var(--primary);
             color: white;
             border: none;
@@ -276,12 +317,18 @@
             font-weight: bold;
             cursor: pointer;
             transition: background 0.3s;
+            flex-shrink: 0;
         }
         .chat-input-area button:hover { background: var(--primary-hover); }
     
         @media print {
             header, .main-card, .agents-container, .print-btn, .chat-container {
                 display: none !important;
+            }
+            .main-wrapper {
+                padding: 0 !important;
+                margin: 0 !important;
+                max-width: 100% !important;
             }
             .result-box {
                 box-shadow: none !important;
@@ -357,25 +404,27 @@
                 <div class="spinner" style="margin-left: auto;"></div>
             </div>
         </div>
+    </div>
 
-        <!-- Result Box -->
-        <div class="result-box" id="result-box" style="display: none;">
+    <!-- 결과: 왼쪽 보고서(남는 공간) + 오른쪽 심층 질의응답(고정 사이드바) -->
+    <div class="main-wrapper" id="main-wrapper" style="display: none;">
+        <div class="result-box" id="result-box">
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--primary); padding-bottom: 0.5rem; margin-bottom: 1rem;">
                 <h3 style="color: #1e293b; margin: 0;">법률 검토 보고서</h3>
                 <button class="print-btn" onclick="window.print()" style="padding: 0.5rem 1rem; background: #475569; color: white; border: none; border-radius: 6px; font-weight: 600; cursor: pointer;">프린트 🖨️</button>
             </div>
             <div id="result-content" class="markdown-body"></div>
-            
-            <!-- Chat Box -->
-            <div class="chat-container">
-                <h3 style="margin-bottom: 1rem; color: #1e293b;">💬 심층 질의응답 (Deep Dive)</h3>
-                <div class="chat-history" id="chat-history">
-                    <div class="chat-msg ai">보고서 내용이나 첨부된 문서에 대해 궁금한 점을 질문해 주세요.</div>
-                </div>
-                <div class="chat-input-area">
-                    <input type="text" id="chat-input" placeholder="예: 업로드한 문서의 3페이지 내용을 바탕으로 요약해 줘" onkeypress="if(event.key === 'Enter') sendChat()">
-                    <button onclick="sendChat()" id="chat-btn">전송</button>
-                </div>
+        </div>
+
+        <!-- Chat Box -->
+        <div class="chat-container">
+            <div class="chat-header">💬 심층 질의응답 (Deep Dive)</div>
+            <div class="chat-history" id="chat-history">
+                <div class="chat-msg ai">보고서 내용이나 첨부된 문서에 대해 궁금한 점을 질문해 주세요.</div>
+            </div>
+            <div class="chat-input-area">
+                <textarea id="chat-input" placeholder="예: 업로드한 문서의 3페이지 내용을 바탕으로 요약해 줘 (Shift+Enter로 줄바꿈)" rows="1"></textarea>
+                <button onclick="sendChat()" id="chat-btn">전송</button>
             </div>
         </div>
     </div>
@@ -392,6 +441,20 @@
         let initialContext = '';
         let chatSessionHistory = [];
 
+        // Enter만 누르면 전송, Shift+Enter는 줄바꿈 (요청: "쉬프트 엔터 누르면 줄바꿈")
+        const chatInputEl = document.getElementById('chat-input');
+        chatInputEl.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendChat();
+            }
+        });
+        // 입력한 만큼 textarea 높이가 자연스럽게 늘어나도록
+        chatInputEl.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+
         async function startAgents() {
             const text = document.getElementById('review-text').value;
             const fileInput = document.getElementById('file-upload');
@@ -405,9 +468,9 @@
             document.querySelector('.submit-btn').textContent = "검토 진행 중... (문서 업로드 및 분석에 최대 30초 소요)";
             
             const agentsBox = document.getElementById('agents-box');
-            const resultBox = document.getElementById('result-box');
+            const mainWrapper = document.getElementById('main-wrapper');
             agentsBox.style.display = 'flex';
-            resultBox.style.display = 'none';
+            mainWrapper.style.display = 'none';
             
             const agentStep1 = document.getElementById('agent-step-1');
             const agentStep2 = document.getElementById('agent-step-2');
@@ -476,17 +539,17 @@
                             document.querySelector('.submit-btn').disabled = false;
                             document.querySelector('.submit-btn').textContent = "AI 통합 검토 시작";
                             
-                            resultBox.style.display = 'block';
+                            mainWrapper.style.display = 'flex';
                             document.getElementById('result-content').innerHTML = marked.parse(statusData.result);
-                            
+
                             // 채팅 세션 데이터 저장
                             currentFileName = statusData.file_name || '';
                             initialContext = statusData.initial_context || '';
                             chatSessionHistory = [
                                 { role: 'model', text: statusData.result }
                             ];
-                            
-                            resultBox.scrollIntoView({ behavior: 'smooth' });
+
+                            mainWrapper.scrollIntoView({ behavior: 'smooth' });
                         } else if (statusData.status === 'error') {
                             alert("검토 중 오류 발생: " + statusData.message);
                             document.querySelector('.submit-btn').disabled = false;
@@ -519,8 +582,9 @@
             
             // UI 업데이트
             const historyEl = document.getElementById('chat-history');
-            historyEl.innerHTML += `<div class="chat-msg user">${text.replace(/</g, "&lt;")}</div>`;
+            historyEl.innerHTML += `<div class="chat-msg user">${text.replace(/</g, "&lt;").replace(/\n/g, "<br>")}</div>`;
             inputEl.value = '';
+            inputEl.style.height = 'auto';
             historyEl.scrollTop = historyEl.scrollHeight;
             
             // 로딩 표시
