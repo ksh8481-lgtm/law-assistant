@@ -1,4 +1,5 @@
 import os
+import re
 import urllib.parse
 import xml.etree.ElementTree as ET
 import requests
@@ -9,6 +10,20 @@ MOLEG_API_KEY = os.environ.get("MOLEG_API_KEY", "ksh8481")
 
 # FastMCP 서버 생성
 mcp = FastMCP("moleg_mcp_server")
+
+# law.go.kr 검색 API가 반환하는 사건번호는 "법원명-연도-사건종류-번호" 형식인데
+# (예: "서울중앙지방법원-2020-가합-560874"), 이 형식 그대로 검색하면 실제로
+# 존재하는 판례인데도 검색결과가 0건으로 나오는 경우가 있음 - 실사용 중 발견
+# (스크린샷으로 확인: law.go.kr에서 "검색결과가 없습니다"). 반면 법원명과
+# 하이픈을 뺀 축약형("2020가합560874", 대법원 판례가 원래 쓰는 표기와 동일한
+# 형식)으로 검색하면 안정적으로 정확히 1건이 나오는 걸 확인함. 그래서 링크를
+# 만들기 전에 항상 이 축약형으로 정규화한다.
+_JUDICIAL_CASE_NO_TAIL = re.compile(r'(\d{4})-([가-힣]+)-(\d+)$')
+
+
+def _normalize_case_no_for_search(case_no: str) -> str:
+    m = _JUDICIAL_CASE_NO_TAIL.search(case_no)
+    return (m.group(1) + m.group(2) + m.group(3)) if m else case_no
 
 
 def _precedent_search_link(case_no: str) -> str:
@@ -21,9 +36,10 @@ def _precedent_search_link(case_no: str) -> str:
     지어내서 사용자가 클릭했더니 깨진 링크였음).
     대신 정확한 사건번호로 판례 검색결과 페이지를 열면 그 판례 1건이 그대로
     나오는 걸 확인했으므로, "상세페이지"가 아니라 "그 사건번호로 검색한
-    결과 페이지"를 링크로 쓴다.
+    결과 페이지"를 링크로 쓴다. (단, 검색어는 위에서 축약형으로 정규화한 값)
     """
-    return f"https://www.law.go.kr/precSc.do?menuId=7&subMenuId=45&tabMenuId=181&query={urllib.parse.quote(case_no)}"
+    query = _normalize_case_no_for_search(case_no)
+    return f"https://www.law.go.kr/precSc.do?menuId=7&subMenuId=45&tabMenuId=181&query={urllib.parse.quote(query)}"
 
 
 @mcp.tool()
@@ -63,8 +79,9 @@ def search_precedent_by_case_number(case_number: str) -> str:
     Returns the full text / summary of the precedent.
     """
     try:
-        # 1. 사건번호로 판례일련번호 조회
-        search_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={MOLEG_API_KEY}&target=prec&type=XML&query={urllib.parse.quote(case_number)}"
+        # 1. 사건번호로 판례일련번호 조회 (법원명이 붙은 전체 형식이 들어와도
+        # 축약형으로 정규화 - 검색 안정성 문제는 _normalize_case_no_for_search 참고)
+        search_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={MOLEG_API_KEY}&target=prec&type=XML&query={urllib.parse.quote(_normalize_case_no_for_search(case_number))}"
         res = requests.get(search_url, timeout=5)
         res.encoding = 'utf-8'
         root = ET.fromstring(res.text)
