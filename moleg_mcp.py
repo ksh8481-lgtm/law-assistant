@@ -68,26 +68,45 @@ def search_precedent_by_case_number(case_number: str) -> str:
         res = requests.get(search_url, timeout=5)
         res.encoding = 'utf-8'
         root = ET.fromstring(res.text)
-        
-        prec_id = None
-        for prec in root.findall('prec')[:1]:
-            prec_id = prec.findtext('판례일련번호')
-            
+
+        prec = root.find('prec')
+        if prec is None:
+            return f"No precedent found for case number: {case_number}"
+
+        prec_id = prec.findtext('판례일련번호')
+        search_case_name = prec.findtext('사건명', '')
+        search_case_no = prec.findtext('사건번호', '')
+        source = prec.findtext('데이터출처명', '')
+        link = _precedent_search_link(search_case_no) if search_case_no else ""
+
         if not prec_id:
             return f"No precedent found for case number: {case_number}"
-            
+
         # 2. 판례일련번호로 상세 조회
+        # 주의: law.go.kr의 판례 상세조회는 데이터출처가 "대법원"인 판례만 원문이 있다.
+        # "국세법령정보시스템"처럼 다른 기관에서 수집해 검색 색인만 제공하는 판례는
+        # 상세조회를 해도 <Law>일치하는 판례가 없습니다</Law> 형태의 오류가 오는데,
+        # 예전 코드는 이 오류를 감지하지 못해 그냥 빈 문자열들을 반환했었다
+        # (실사용 중 발견: search_precedent_by_case_number가 항상 빈 결과를 냄).
         detail_url = f"https://www.law.go.kr/DRF/lawService.do?OC={MOLEG_API_KEY}&target=prec&ID={prec_id}&type=XML"
         res_detail = requests.get(detail_url, timeout=5)
         res_detail.encoding = 'utf-8'
         root_detail = ET.fromstring(res_detail.text)
-        
-        case_no = root_detail.findtext('사건번호', '')
-        case_name = root_detail.findtext('사건명', '')
+
+        if root_detail.tag != 'PrecService':
+            # 상세 원문 조회 실패 - 검색 단계에서 얻은 정보만이라도 정확하게 제공한다.
+            note = f" (데이터출처: {source})" if source else ""
+            return (
+                f"Case Name: {search_case_name}\nCase Number: {search_case_no}\nLink: {link}\n\n"
+                f"[Notice] law.go.kr에 이 판례의 전체 원문이 등록되어 있지 않아 판시사항/요지를 "
+                f"가져올 수 없습니다{note}. 위 Link로 직접 확인하십시오."
+            )
+
+        case_no = root_detail.findtext('사건번호', '') or search_case_no
+        case_name = root_detail.findtext('사건명', '') or search_case_name
         summary = root_detail.findtext('판결요지', '')
         content = root_detail.findtext('판례내용', '')
 
-        link = _precedent_search_link(case_no) if case_no else ""
         result_text = f"Case Name: {case_name}\nCase Number: {case_no}\nLink: {link}\n\n[Summary]\n{summary}\n\n"
         if not summary and content:
             result_text += f"[Content]\n{content[:1500]}... (truncated)"
