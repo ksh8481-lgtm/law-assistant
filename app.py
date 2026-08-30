@@ -247,6 +247,13 @@ def report():
 def other_review():
     return render_template('other_review.html')
 
+@app.route('/other_review_result')
+def other_review_result():
+    # 검토 완료 시 결과를 새 탭으로 띄우기 위한 전용 페이지 (요청: "AI검토 완료되면
+    # 새로운 페이지에 뜨는걸로 바꿔줘"). 첨부파일을 다시 참조하는 전용 채팅
+    # (/api/chat/other_review)을 그대로 쓰려고 report.html 공용 페이지 대신 분리함.
+    return render_template('other_review_result.html')
+
 @app.route('/duty_list')
 def duty_list():
     return render_template('duty_list.html')

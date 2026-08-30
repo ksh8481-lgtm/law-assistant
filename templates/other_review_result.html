@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>기타 행정/감사 검토 결과 (다중 에이전트)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --primary: #10b981;
+            --primary-hover: #059669;
+            --bg-grad-1: #ecfdf5;
+            --bg-grad-2: #f8fafc;
+            --bg-grad-3: #f1f5f9;
+            --text-main: #0f172a;
+            --text-muted: #475569;
+            --card-border: rgba(255, 255, 255, 0.6);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background: linear-gradient(135deg, var(--bg-grad-1) 0%, var(--bg-grad-2) 50%, var(--bg-grad-3) 100%);
+            background-attachment: fixed;
+            color: var(--text-main);
+            min-height: 100vh;
+        }
+
+        /* 보고서(왼쪽, 남는 공간 전부) + 심층 질의응답(오른쪽, 고정폭 사이드바) 2단 레이아웃 */
+        .main-wrapper {
+            display: flex;
+            gap: 2rem;
+            max-width: 1400px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 2rem 1.5rem 2.5rem;
+            align-items: flex-start;
+        }
+        @media (max-width: 1024px) {
+            .main-wrapper { flex-direction: column; align-items: center; }
+            .chat-container { width: 100% !important; position: static !important; height: 500px !important; }
+        }
+        .result-box {
+            flex: 1;
+            min-width: 0;
+            background: white;
+            border-radius: 20px;
+            padding: 2.5rem;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.04);
+            border: 1px solid var(--card-border);
+        }
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid var(--primary);
+            padding-bottom: 0.8rem;
+            margin-bottom: 1.2rem;
+            flex-wrap: wrap;
+            gap: 0.8rem;
+        }
+        .result-header h1 {
+            font-size: 1.4rem;
+            font-weight: 800;
+            background: linear-gradient(90deg, #065f46, #10b981);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .header-actions { display: flex; gap: 0.6rem; }
+        .header-actions a, .header-actions button {
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            border: none;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+        .btn-new { background: rgba(16, 185, 129, 0.1); color: var(--primary-hover); border: 1px solid rgba(16,185,129,0.3) !important; }
+        .btn-new:hover { background: rgba(16, 185, 129, 0.18); }
+        .btn-print { background: #475569; color: white; }
+        .btn-print:hover { background: #334155; }
+
+        .markdown-body h3 { margin-top: 1.5rem; margin-bottom: 0.5rem; color: #1e293b; }
+        .markdown-body p { line-height: 1.6; margin-bottom: 1rem; }
+        .markdown-body ul { margin-left: 1.5rem; margin-bottom: 1rem; }
+        .markdown-body li { margin-bottom: 0.5rem; line-height: 1.5; }
+        .markdown-body strong { color: #0f172a; }
+        /* 법령/조례 링크를 눈에 띄는 "칩"으로 보여줘서 클릭 가능한 근거라는 게 한눈에 보이게 함 */
+        .markdown-body a {
+            display: inline-block;
+            color: #047857;
+            font-weight: 600;
+            background: #ecfdf5;
+            padding: 0.1rem 0.5rem;
+            border-radius: 5px;
+            border: 1px solid #a7f3d0;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+        .markdown-body a:hover { background: #d1fae5; }
+        .markdown-body blockquote {
+            margin: 1rem 0;
+            padding: 1rem 1.3rem;
+            background: #ecfdf5;
+            border-left: 4px solid var(--primary);
+            border-radius: 0 8px 8px 0;
+            color: #064e3b;
+            font-size: 0.95rem;
+        }
+        .error-message { text-align: center; color: #dc2626; font-size: 1.1rem; padding: 3rem 1rem; }
+
+        /* Chat UI - 오른쪽 고정 사이드바 */
+        .chat-container {
+            width: 400px;
+            flex-shrink: 0;
+            height: calc(100vh - 4rem);
+            position: sticky;
+            top: 2rem;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.04);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .chat-header {
+            background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+            color: white;
+            padding: 1.2rem 1.5rem;
+            font-weight: 700;
+            font-size: 1.05rem;
+            flex-shrink: 0;
+        }
+        .chat-history {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            padding: 1.2rem;
+            background: #f8fafc;
+        }
+        .chat-msg {
+            max-width: 90%;
+            padding: 1rem;
+            border-radius: 12px;
+            line-height: 1.5;
+        }
+        .chat-msg.user {
+            background: var(--primary);
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 2px;
+        }
+        .chat-msg.ai {
+            background: white;
+            border: 1px solid #e2e8f0;
+            color: var(--text-main);
+            align-self: flex-start;
+            border-bottom-left-radius: 2px;
+        }
+        .chat-input-area {
+            display: flex;
+            gap: 0.5rem;
+            align-items: flex-end;
+            padding: 0.75rem;
+            border-top: 1px solid #e2e8f0;
+            background: white;
+            flex-shrink: 0;
+        }
+        .chat-input-area textarea {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            border: 2px solid #cbd5e1;
+            border-radius: 12px;
+            font-size: 0.95rem;
+            font-family: inherit;
+            outline: none;
+            resize: none;
+            min-height: 44px;
+            max-height: 120px;
+            line-height: 1.4;
+            transition: border-color 0.3s;
+        }
+        .chat-input-area textarea:focus { border-color: var(--primary); }
+        .chat-input-area button {
+            padding: 0 1.2rem;
+            height: 44px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+            flex-shrink: 0;
+        }
+        .chat-input-area button:hover { background: var(--primary-hover); }
+
+        @media print {
+            .print-btn, .btn-new, .chat-container { display: none !important; }
+            .main-wrapper { padding: 0 !important; margin: 0 !important; max-width: 100% !important; }
+            .result-box { box-shadow: none !important; border: none !important; padding: 0 !important; width: 100% !important; }
+            body { background: white !important; }
+        }
+    </style>
+</head>
+<body>
+    <div class="main-wrapper" id="main-wrapper">
+        <div class="result-box" id="result-box">
+            <div class="result-header">
+                <h1>⚖️ 법률 검토 보고서</h1>
+                <div class="header-actions">
+                    <a href="/other_review" class="btn-new">🔄 새 검토 시작</a>
+                    <button class="btn-print" onclick="window.print()">프린트 🖨️</button>
+                </div>
+            </div>
+            <div id="result-content" class="markdown-body"></div>
+        </div>
+
+        <!-- Chat Box -->
+        <div class="chat-container">
+            <div class="chat-header">💬 심층 질의응답 (Deep Dive)</div>
+            <div class="chat-history" id="chat-history">
+                <div class="chat-msg ai">보고서 내용이나 첨부된 문서에 대해 궁금한 점을 질문해 주세요.</div>
+            </div>
+            <div class="chat-input-area">
+                <textarea id="chat-input" placeholder="예: 업로드한 문서의 3페이지 내용을 바탕으로 요약해 줘 (Shift+Enter로 줄바꿈)" rows="1"></textarea>
+                <button onclick="sendChat()" id="chat-btn">전송</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 이전 화면(other_review.html)이 검토 완료 시 sessionStorage에 담아두고
+        // 이 페이지를 새 탭으로 연다 (요청: "AI검토 완료되면 새로운 페이지에 뜨는걸로").
+        const aiResult = sessionStorage.getItem('otherReviewResult');
+        let currentFileName = sessionStorage.getItem('otherReviewFileName') || '';
+        let initialContext = sessionStorage.getItem('otherReviewInitialContext') || '';
+        let chatSessionHistory = [];
+
+        const resultContentEl = document.getElementById('result-content');
+        if (!aiResult) {
+            document.getElementById('main-wrapper').innerHTML =
+                '<div class="result-box"><div class="error-message">표시할 검토 결과가 없습니다. 기타 행정/감사 검토 화면에서 먼저 검토를 진행해 주세요.<br><br><a href="/other_review">기타 행정/감사 검토로 이동</a></div></div>';
+        } else {
+            resultContentEl.innerHTML = marked.parse(aiResult);
+            chatSessionHistory = [{ role: 'model', text: aiResult }];
+        }
+
+        // Enter만 누르면 전송, Shift+Enter는 줄바꿈
+        const chatInputEl = document.getElementById('chat-input');
+        chatInputEl.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendChat();
+            }
+        });
+        chatInputEl.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+
+        async function sendChat() {
+            const inputEl = document.getElementById('chat-input');
+            const btnEl = document.getElementById('chat-btn');
+            const text = inputEl.value.trim();
+            if(!text || !aiResult) return;
+
+            const historyEl = document.getElementById('chat-history');
+            historyEl.innerHTML += `<div class="chat-msg user">${text.replace(/</g, "&lt;").replace(/\n/g, "<br>")}</div>`;
+            inputEl.value = '';
+            inputEl.style.height = 'auto';
+            historyEl.scrollTop = historyEl.scrollHeight;
+
+            const loadingId = 'loading-' + Date.now();
+            historyEl.innerHTML += `<div class="chat-msg ai" id="${loadingId}">답변을 생성 중입니다... ⏳</div>`;
+            historyEl.scrollTop = historyEl.scrollHeight;
+
+            btnEl.disabled = true;
+            inputEl.disabled = true;
+
+            try {
+                const response = await fetch('/api/chat/other_review', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chat_history: chatSessionHistory,
+                        new_message: text,
+                        file_name: currentFileName,
+                        initial_context: initialContext
+                    })
+                });
+
+                const data = await response.json();
+                document.getElementById(loadingId).remove();
+
+                if(data.success) {
+                    historyEl.innerHTML += `<div class="chat-msg ai markdown-body" style="font-size:0.95rem;">${marked.parse(data.result)}</div>`;
+                    chatSessionHistory.push({ role: 'user', text: text });
+                    chatSessionHistory.push({ role: 'model', text: data.result });
+                } else {
+                    historyEl.innerHTML += `<div class="chat-msg ai" style="color:red;">오류 발생: ${data.message}</div>`;
+                }
+                historyEl.scrollTop = historyEl.scrollHeight;
+            } catch(error) {
+                document.getElementById(loadingId).remove();
+                historyEl.innerHTML += `<div class="chat-msg ai" style="color:red;">서버 통신 실패: ${error}</div>`;
+            }
+
+            btnEl.disabled = false;
+            inputEl.disabled = false;
+            inputEl.focus();
+        }
+    </script>
+</body>
+</html>
