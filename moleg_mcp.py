@@ -10,30 +10,48 @@ MOLEG_API_KEY = os.environ.get("MOLEG_API_KEY", "ksh8481")
 # FastMCP 서버 생성
 mcp = FastMCP("moleg_mcp_server")
 
+
+def _precedent_search_link(case_no: str) -> str:
+    """판례 인용에 쓸 링크를 만든다.
+
+    law.go.kr의 판례 "상세" 페이지는 순수 자바스크립트 SPA라(precView() 함수가
+    AJAX로 내용만 갈아끼움) 직접 딥링크가 존재하지 않는다. /판례/{id}나
+    /precInfo.do?precSeq={id} 같은 그럴듯해 보이는 URL은 전부 접속해보면
+    "찾을 수 없음" 오류 페이지로 뜬다 - 실사용 중 발견(AI가 이런 URL을
+    지어내서 사용자가 클릭했더니 깨진 링크였음).
+    대신 정확한 사건번호로 판례 검색결과 페이지를 열면 그 판례 1건이 그대로
+    나오는 걸 확인했으므로, "상세페이지"가 아니라 "그 사건번호로 검색한
+    결과 페이지"를 링크로 쓴다.
+    """
+    return f"https://www.law.go.kr/precSc.do?menuId=7&subMenuId=45&tabMenuId=181&query={urllib.parse.quote(case_no)}"
+
+
 @mcp.tool()
 def search_precedents_by_keyword(keyword: str) -> str:
     """
     Search MOLEG (법제처) precedents by a keyword (키워드로 판례 검색).
-    Returns a summary of matched precedents including their Case Numbers (사건번호) and Precedent IDs.
+    Returns a summary of matched precedents including their Case Numbers (사건번호) and a working link.
     """
     try:
         search_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={MOLEG_API_KEY}&target=prec&type=XML&query={urllib.parse.quote(keyword)}"
         res = requests.get(search_url, timeout=5)
         res.encoding = 'utf-8'
         root = ET.fromstring(res.text)
-        
+
         results = []
         for prec in root.findall('prec')[:5]:  # 상위 5개 반환
             case_name = prec.findtext('사건명', '')
             case_no = prec.findtext('사건번호', '')
-            prec_id = prec.findtext('판례일련번호', '')
-            court = prec.findtext('선고법원', '')
             date = prec.findtext('선고일자', '')
-            results.append(f"- [{prec_id}] {case_name} ({court}, {date}, 사건번호: {case_no})")
-            
+            if case_no:
+                link = _precedent_search_link(case_no)
+                results.append(f"- [{case_name} (사건번호: {case_no})]({link}) - 선고일자: {date}")
+            else:
+                results.append(f"- {case_name} (선고일자: {date}, 사건번호 없음 - 링크 생성 불가)")
+
         if not results:
             return f"No precedents found for keyword: {keyword}"
-            
+
         return "Found precedents:\n" + "\n".join(results) + "\n\nUse search_precedent_by_case_number or search_precedent_detail to get full text."
     except Exception as e:
         return f"Error searching precedents: {str(e)}"
@@ -68,11 +86,12 @@ def search_precedent_by_case_number(case_number: str) -> str:
         case_name = root_detail.findtext('사건명', '')
         summary = root_detail.findtext('판결요지', '')
         content = root_detail.findtext('판례내용', '')
-        
-        result_text = f"Case Name: {case_name}\nCase Number: {case_no}\n\n[Summary]\n{summary}\n\n"
+
+        link = _precedent_search_link(case_no) if case_no else ""
+        result_text = f"Case Name: {case_name}\nCase Number: {case_no}\nLink: {link}\n\n[Summary]\n{summary}\n\n"
         if not summary and content:
             result_text += f"[Content]\n{content[:1500]}... (truncated)"
-            
+
         return result_text
     except Exception as e:
         return f"Error fetching precedent details for case {case_number}: {str(e)}"
