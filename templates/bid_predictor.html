@@ -62,6 +62,17 @@
         input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12); }
         .hint { font-size: 0.78rem; color: #94a3b8; margin-top: 0.3rem; }
 
+        .suggest-box {
+            display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 20;
+            background: white; border: 1px solid #cbd5e1; border-radius: 10px; margin-top: 0.3rem;
+            max-height: 220px; overflow-y: auto; box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+        }
+        .suggest-item {
+            padding: 0.6rem 0.9rem; font-size: 0.9rem; cursor: pointer; color: #334155;
+        }
+        .suggest-item:hover, .suggest-item.active { background: #f5f3ff; color: #6d28d9; }
+        .suggest-loading { padding: 0.6rem 0.9rem; font-size: 0.85rem; color: #94a3b8; }
+
         .submit-btn {
             width: 100%; padding: 1rem; background: linear-gradient(135deg, #7c3aed, #6d28d9);
             color: white; border: none; border-radius: 12px; font-size: 1.05rem; font-weight: 700;
@@ -136,9 +147,10 @@
             <div class="section-title">📋 검색 조건</div>
             <form id="predict-form">
                 <div class="form-row">
-                    <div class="form-group">
+                    <div class="form-group" style="position: relative;">
                         <label for="dminsttNm">발주기관명 (부분입력 가능)</label>
-                        <input type="text" id="dminsttNm" placeholder="예: 남해군">
+                        <input type="text" id="dminsttNm" placeholder="예: 남해군" autocomplete="off">
+                        <div id="agency-suggest" class="suggest-box"></div>
                     </div>
                     <div class="form-group">
                         <label for="keyword">공고명 키워드 (공종 특성)</label>
@@ -219,6 +231,71 @@
         const btnText = document.getElementById('btn-text');
         const errorBox = document.getElementById('error-box');
         const resultSection = document.getElementById('result-section');
+
+        // 발주기관명 자동완성 (요청: "입력하면 밑에 자동검색되면서 선택할 수 있게")
+        const agencyInput = document.getElementById('dminsttNm');
+        const suggestBox = document.getElementById('agency-suggest');
+        let agencyDebounceTimer = null;
+        let agencyRequestSeq = 0;
+
+        function hideSuggest() {
+            suggestBox.style.display = 'none';
+            suggestBox.innerHTML = '';
+        }
+
+        function renderSuggestList(names) {
+            if (!names || names.length === 0) {
+                hideSuggest();
+                return;
+            }
+            suggestBox.innerHTML = names.map(n =>
+                `<div class="suggest-item">${n}</div>`
+            ).join('');
+            suggestBox.querySelectorAll('.suggest-item').forEach((el, i) => {
+                el.addEventListener('mousedown', (e) => {
+                    // click보다 먼저 발생 -> blur로 목록이 먼저 숨겨지는 것 방지
+                    e.preventDefault();
+                    agencyInput.value = names[i];
+                    hideSuggest();
+                });
+            });
+            suggestBox.style.display = 'block';
+        }
+
+        agencyInput.addEventListener('input', () => {
+            const q = agencyInput.value.trim();
+            clearTimeout(agencyDebounceTimer);
+            if (!q) {
+                hideSuggest();
+                return;
+            }
+            suggestBox.innerHTML = '<div class="suggest-loading">검색 중...</div>';
+            suggestBox.style.display = 'block';
+
+            agencyDebounceTimer = setTimeout(async () => {
+                const mySeq = ++agencyRequestSeq;
+                try {
+                    const res = await fetch('/api/bid_agency_search?q=' + encodeURIComponent(q));
+                    const data = await res.json();
+                    if (mySeq !== agencyRequestSeq) return; // 그 사이 더 최신 입력이 있었으면 무시
+                    if (data.success) {
+                        renderSuggestList(data.data);
+                    } else {
+                        hideSuggest();
+                    }
+                } catch (e) {
+                    if (mySeq === agencyRequestSeq) hideSuggest();
+                }
+            }, 300);
+        });
+
+        agencyInput.addEventListener('blur', () => {
+            // suggest-item의 mousedown이 먼저 처리되도록 살짝 지연 후 숨김
+            setTimeout(hideSuggest, 150);
+        });
+        agencyInput.addEventListener('focus', () => {
+            if (agencyInput.value.trim()) agencyInput.dispatchEvent(new Event('input'));
+        });
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();

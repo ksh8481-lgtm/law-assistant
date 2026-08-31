@@ -494,6 +494,19 @@ def _build_bid_histogram(rates, bin_width=0.2):
     return result
 
 
+@app.route('/api/bid_agency_search', methods=['GET'])
+def api_bid_agency_search():
+    """발주기관명 입력창 자동완성. 나라장터 최근 낙찰 데이터에 실제 등장한 기관명
+    중에서 검색어를 포함하는 것들을 찾아 후보로 준다(전용 기관명 검색 API가 없어서
+    실 데이터로 목록을 직접 구축 - pps_bid.search_agency_names 참고)."""
+    try:
+        from pps_bid import search_agency_names
+        query = request.args.get('q', '')
+        return jsonify({"success": True, "data": search_agency_names(query)})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e), "data": []})
+
+
 @app.route('/api/analyze/bid_predict', methods=['POST'])
 def api_bid_predict():
     """'낙찰가 예측' - 조달청 나라장터 과거 공사 낙찰 이력을 통계 내어, 이번 입찰에서
