@@ -126,6 +126,41 @@
             background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 10px;
             padding: 1rem 1.2rem; margin-top: 1rem; font-size: 0.9rem; display: none;
         }
+
+        .open-bid-search-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 0.7rem; align-items: end; margin-bottom: 1.2rem; }
+        .open-bid-search-row .form-group { margin-bottom: 0; }
+        .search-btn {
+            padding: 0.7rem 1.3rem; background: var(--primary); color: white; border: none; border-radius: 8px;
+            font-weight: 700; font-size: 0.9rem; cursor: pointer; white-space: nowrap;
+        }
+        .search-btn:hover { background: var(--primary-hover); }
+        .search-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+
+        .open-bid-list { display: flex; flex-direction: column; gap: 0.8rem; max-height: 560px; overflow-y: auto; }
+        .open-bid-card {
+            border: 1px solid var(--card-border); border-radius: 12px; padding: 1rem 1.2rem;
+            background: #fafaff; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;
+        }
+        .open-bid-card .info { flex: 1; min-width: 260px; }
+        .open-bid-card .name { font-weight: 700; color: #1e293b; margin-bottom: 0.35rem; font-size: 0.95rem; }
+        .open-bid-card .meta { font-size: 0.82rem; color: var(--text-muted); line-height: 1.6; }
+        .open-bid-card .meta b { color: #334155; }
+        .dday-badge {
+            display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.75rem;
+            font-weight: 700; background: #fee2e2; color: #b91c1c; margin-left: 0.4rem;
+        }
+        .dday-badge.safe { background: #dcfce7; color: #15803d; }
+        .open-bid-card .actions { display: flex; flex-direction: column; gap: 0.4rem; align-items: stretch; }
+        .use-bid-btn {
+            padding: 0.55rem 1rem; background: linear-gradient(135deg, #7c3aed, #6d28d9); color: white;
+            border: none; border-radius: 8px; font-weight: 700; font-size: 0.82rem; cursor: pointer; white-space: nowrap;
+        }
+        .use-bid-btn:disabled { background: #c4b5fd; cursor: wait; }
+        .detail-link { font-size: 0.78rem; color: #7c3aed; text-align: center; text-decoration: none; }
+        .detail-link:hover { text-decoration: underline; }
+        .open-bid-empty { color: #94a3b8; font-size: 0.9rem; padding: 1rem 0; text-align: center; }
+        .open-bid-note { font-size: 0.78rem; color: #94a3b8; margin-top: -0.5rem; margin-bottom: 1rem; }
+        .fill-note { font-size: 0.78rem; color: #7c3aed; margin-top: 0.5rem; background: #f5f3ff; border-radius: 8px; padding: 0.5rem 0.8rem; display: none; }
     </style>
 </head>
 <body>
@@ -141,6 +176,30 @@
         <div class="notice-box">
             ⚠️ <b>이 기능은 "정답"이 아니라 "과거 통계"입니다.</b> 적격심사 방식은 낙찰 전 예정가격 자체가 복수예비가격 추첨(15개 중 4개)으로 결정되기 때문에, 특정 공사의 낙찰가를 미리 정확히 계산하는 것은 원리상 불가능합니다.
             이 도구는 "비슷한 발주기관/공종의 과거 낙찰들이 실제로 어느 낙찰률(%)에 몰려 있었는지"를 조달청 공공데이터로 통계만 낼 뿐이며, AI가 숫자를 만들어내지 않고 전부 실제 데이터 계산 결과입니다. 최종 투찰 결정은 반드시 본인 책임하에 판단하시기 바랍니다.
+        </div>
+
+        <div class="card">
+            <div class="section-title">🔍 진행 중인 입찰공고 찾기</div>
+            <p class="open-bid-note">아직 입찰마감이 지나지 않은 공사 공고를 검색합니다. 최근 30일 내 게시된 공고 기준이며, 발주기관명/키워드/지역 중 최소 1개를 입력해야 합니다.</p>
+            <div class="open-bid-search-row">
+                <div class="form-group" style="position: relative;">
+                    <label for="openBidAgency">발주기관명</label>
+                    <input type="text" id="openBidAgency" placeholder="예: 남해군" autocomplete="off">
+                    <div id="open-bid-agency-suggest" class="suggest-box"></div>
+                </div>
+                <div class="form-group">
+                    <label for="openBidKeyword">공고명 키워드</label>
+                    <input type="text" id="openBidKeyword" placeholder="예: 도로, 관로">
+                </div>
+                <div class="form-group">
+                    <label for="openBidRegion">참가제한지역</label>
+                    <input type="text" id="openBidRegion" placeholder="예: 경상남도">
+                </div>
+                <button type="button" class="search-btn" id="open-bid-search-btn">공고 검색</button>
+            </div>
+            <div class="error-box" id="open-bid-error-box"></div>
+            <div class="open-bid-list" id="open-bid-list"></div>
+            <div class="fill-note" id="fill-note"></div>
         </div>
 
         <div class="card">
@@ -295,6 +354,184 @@
         });
         agencyInput.addEventListener('focus', () => {
             if (agencyInput.value.trim()) agencyInput.dispatchEvent(new Event('input'));
+        });
+
+        // ------------------------------------------------------------------
+        // 진행 중인 입찰공고 목록 (요청: "입찰해야 하는 정보도 보여주고 싶은거지
+        // 기초금액 보고 어디 발주처인지 보고 낙찰가를 예견하는거지")
+        // ------------------------------------------------------------------
+        const openBidAgencyInput = document.getElementById('openBidAgency');
+        const openBidAgencySuggest = document.getElementById('open-bid-agency-suggest');
+        const openBidSearchBtn = document.getElementById('open-bid-search-btn');
+        const openBidErrorBox = document.getElementById('open-bid-error-box');
+        const openBidListEl = document.getElementById('open-bid-list');
+        const fillNote = document.getElementById('fill-note');
+        let openBidsData = [];
+        let openBidAgencyDebounce = null;
+        let openBidAgencySeq = 0;
+
+        function hideOpenBidSuggest() {
+            openBidAgencySuggest.style.display = 'none';
+            openBidAgencySuggest.innerHTML = '';
+        }
+        openBidAgencyInput.addEventListener('input', () => {
+            const q = openBidAgencyInput.value.trim();
+            clearTimeout(openBidAgencyDebounce);
+            if (!q) { hideOpenBidSuggest(); return; }
+            openBidAgencySuggest.innerHTML = '<div class="suggest-loading">검색 중...</div>';
+            openBidAgencySuggest.style.display = 'block';
+            openBidAgencyDebounce = setTimeout(async () => {
+                const mySeq = ++openBidAgencySeq;
+                try {
+                    const res = await fetch('/api/bid_agency_search?q=' + encodeURIComponent(q));
+                    const data = await res.json();
+                    if (mySeq !== openBidAgencySeq) return;
+                    if (data.success && data.data.length > 0) {
+                        openBidAgencySuggest.innerHTML = data.data.map(n => `<div class="suggest-item">${n}</div>`).join('');
+                        openBidAgencySuggest.querySelectorAll('.suggest-item').forEach((el, i) => {
+                            el.addEventListener('mousedown', (e) => {
+                                e.preventDefault();
+                                openBidAgencyInput.value = data.data[i];
+                                hideOpenBidSuggest();
+                            });
+                        });
+                        openBidAgencySuggest.style.display = 'block';
+                    } else {
+                        hideOpenBidSuggest();
+                    }
+                } catch (e) {
+                    if (mySeq === openBidAgencySeq) hideOpenBidSuggest();
+                }
+            }, 300);
+        });
+        openBidAgencyInput.addEventListener('blur', () => setTimeout(hideOpenBidSuggest, 150));
+        openBidAgencyInput.addEventListener('focus', () => {
+            if (openBidAgencyInput.value.trim()) openBidAgencyInput.dispatchEvent(new Event('input'));
+        });
+
+        function formatDday(closeDtStr) {
+            if (!closeDtStr) return '';
+            const closeDt = new Date(closeDtStr.replace(' ', 'T'));
+            const now = new Date();
+            const diffMs = closeDt - now;
+            const diffHours = diffMs / (1000 * 60 * 60);
+            if (diffHours < 24) return `<span class="dday-badge">마감 ${Math.max(1, Math.round(diffHours))}시간 전</span>`;
+            const diffDays = Math.floor(diffHours / 24);
+            return `<span class="dday-badge ${diffDays > 5 ? 'safe' : ''}">마감 D-${diffDays}</span>`;
+        }
+
+        function formatAmt(v) {
+            if (v === null || v === undefined || v === '') return '정보없음';
+            return Math.round(Number(v)).toLocaleString('ko-KR') + '원';
+        }
+
+        function renderOpenBidList() {
+            if (openBidsData.length === 0) {
+                openBidListEl.innerHTML = '<div class="open-bid-empty">검색된 진행 중인 공고가 없습니다. 조건을 넓혀 다시 검색해보세요.</div>';
+                return;
+            }
+            openBidListEl.innerHTML = openBidsData.map((it, i) => `
+                <div class="open-bid-card">
+                    <div class="info">
+                        <div class="name">${it.bidNtceNm || '(공고명 없음)'} ${formatDday(it.bidClseDt)}</div>
+                        <div class="meta">
+                            <b>발주기관</b> ${it.dminsttNm || '-'} · <b>공사종류</b> ${it.mainCnsttyNm || '-'}<br>
+                            <b>추정가격</b> ${formatAmt(it.presmptPrce)} · <b>지역</b> ${it.cnstrtsiteRgnNm || '-'}<br>
+                            <b>낙찰방식</b> ${it.sucsfbidMthdNm || '-'}<br>
+                            <b>마감</b> ${it.bidClseDt || '-'} · <b>개찰</b> ${it.opengDt || '-'}
+                        </div>
+                    </div>
+                    <div class="actions">
+                        <button type="button" class="use-bid-btn" data-idx="${i}">🎯 이 공고로 분석하기</button>
+                        ${it.bidNtceDtlUrl ? `<a class="detail-link" href="${it.bidNtceDtlUrl}" target="_blank" rel="noopener">원문 공고 보기 ↗</a>` : ''}
+                    </div>
+                </div>
+            `).join('');
+
+            openBidListEl.querySelectorAll('.use-bid-btn').forEach(btn => {
+                btn.addEventListener('click', () => useOpenBid(parseInt(btn.dataset.idx), btn));
+            });
+        }
+
+        async function useOpenBid(idx, btnEl) {
+            const it = openBidsData[idx];
+            btnEl.disabled = true;
+            const originalText = btnEl.textContent;
+            btnEl.textContent = '기초금액 조회 중...';
+
+            let baseAmountVal = null;
+            let sourceNote = '';
+            try {
+                const res = await fetch(`/api/open_bids/base_amount?bidNtceNo=${encodeURIComponent(it.bidNtceNo)}&bidNtceOrd=${encodeURIComponent(it.bidNtceOrd || '000')}`);
+                const data = await res.json();
+                if (data.success && data.bssamt) {
+                    baseAmountVal = data.bssamt;
+                    sourceNote = '실제 공고 기초금액(bssamt) 값을 그대로 가져왔습니다.';
+                }
+            } catch (e) { /* 무시하고 아래 대체값 사용 */ }
+
+            if (!baseAmountVal) {
+                baseAmountVal = it.bdgtAmt || it.presmptPrce || null;
+                sourceNote = baseAmountVal
+                    ? '이 공고는 기초금액 공개 자료가 없어, 공고의 예산금액/추정가격으로 대체했습니다 (근사치).'
+                    : '이 공고는 기초금액/추정가격 정보를 찾을 수 없어 채우지 못했습니다.';
+            }
+
+            // 예측 폼에 자동 반영
+            document.getElementById('dminsttNm').value = it.dminsttNm || '';
+            document.getElementById('presumedPrice').value = it.presmptPrce || '';
+            document.getElementById('baseAmount').value = baseAmountVal || '';
+
+            fillNote.style.display = 'block';
+            fillNote.textContent = `✅ "${it.bidNtceNm}" 공고 정보를 예측 폼에 채웠습니다. ${sourceNote}`;
+
+            btnEl.disabled = false;
+            btnEl.textContent = originalText;
+
+            // 바로 분석 실행
+            form.dispatchEvent(new Event('submit', { cancelable: true }));
+        }
+
+        openBidSearchBtn.addEventListener('click', async () => {
+            openBidErrorBox.style.display = 'none';
+            const dminsttNm = openBidAgencyInput.value.trim();
+            const keyword = document.getElementById('openBidKeyword').value.trim();
+            const region = document.getElementById('openBidRegion').value.trim();
+
+            if (!dminsttNm && !keyword && !region) {
+                openBidErrorBox.textContent = '발주기관명, 공고명 키워드, 참가제한지역 중 최소 하나는 입력해주세요.';
+                openBidErrorBox.style.display = 'block';
+                return;
+            }
+
+            openBidSearchBtn.disabled = true;
+            openBidSearchBtn.textContent = '검색 중...';
+            openBidListEl.innerHTML = '';
+            fillNote.style.display = 'none';
+
+            try {
+                const params = new URLSearchParams();
+                if (dminsttNm) params.set('dminsttNm', dminsttNm);
+                if (keyword) params.set('keyword', keyword);
+                if (region) params.set('region', region);
+                const res = await fetch('/api/open_bids?' + params.toString());
+                const data = await res.json();
+                if (!data.success) {
+                    openBidErrorBox.textContent = data.message || '조회에 실패했습니다.';
+                    openBidErrorBox.style.display = 'block';
+                    openBidsData = [];
+                    renderOpenBidList();
+                    return;
+                }
+                openBidsData = data.data;
+                renderOpenBidList();
+            } catch (err) {
+                openBidErrorBox.textContent = '서버 통신 오류: ' + err.message;
+                openBidErrorBox.style.display = 'block';
+            } finally {
+                openBidSearchBtn.disabled = false;
+                openBidSearchBtn.textContent = '공고 검색';
+            }
         });
 
         form.addEventListener('submit', async (e) => {

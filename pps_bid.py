@@ -27,6 +27,10 @@ from datetime import datetime, timedelta
 PPS_BID_API_KEY = os.environ.get("PPS_BID_API_KEY", "")
 BASE_URL = "https://apis.data.go.kr/1230000/as/ScsbidInfoService/getScsbidListSttusCnstwkPPSSrch"
 
+# 조달청_나라장터 입찰공고정보서비스(별도 API, 같은 계정 서비스키 공용 확인됨) - "진행 중인 입찰공고" 조회용
+OPEN_BID_LIST_URL = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoCnstwkPPSSrch"
+OPEN_BID_BASE_AMOUNT_URL = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoCnstwkBsisAmount"
+
 
 def _month_ranges(months: int):
     """오늘로부터 거슬러 올라가며 (연,월) 튜플을 최신순으로 만든다."""
@@ -245,3 +249,135 @@ def search_agency_names(query: str, limit: int = 15):
     starts = [n for n in names if n.startswith(query)]
     contains = [n for n in names if query in n and n not in starts]
     return (starts + contains)[:limit]
+
+
+# ----------------------------------------------------------------------------
+# 진행 중인 입찰공고 목록 (아직 마감되지 않은 공고)
+#
+# 낙찰정보서비스와 달리, 이 API는 "공고게시일시"(inqryDiv=1) 기준으로만 기간
+# 검색이 된다 - "아직 안 끝난 공고"를 직접 걸러주는 파라미터는 없다. 그래서
+# 최근 N일간 게시된 공고를 다 받아온 뒤, bidClseDt(입찰마감일시)가 아직
+# 지나지 않은 것만 우리 쪽에서 골라낸다. 적격심사 공사 입찰의 공고~마감 기간은
+# 보통 2~3주 안팎이므로, 최근 30일치만 봐도 현재 진행 중인 공고는 사실상 다
+# 잡힌다.
+# ----------------------------------------------------------------------------
+def _fetch_open_bids_page(begin, now, page, dminstt_nm=None, keyword=None, region=None):
+    params = {
+        "serviceKey": PPS_BID_API_KEY,
+        "pageNo": str(page),
+        "numOfRows": "999",
+        "inqryDiv": "1",
+        "inqryBgnDt": begin.strftime("%Y%m%d0000"),
+        "inqryEndDt": now.strftime("%Y%m%d%H%M"),
+        "type": "json",
+    }
+    if dminstt_nm:
+        params["dminsttNm"] = dminstt_nm
+    if keyword:
+        params["bidNtceNm"] = keyword
+    if region:
+        params["prtcptLmtRgnNm"] = region
+
+    res = requests.get(OPEN_BID_LIST_URL, params=params, timeout=15)
+    res.encoding = "utf-8"
+    return res.json()
+
+
+def fetch_open_bids(days=30, dminstt_nm=None, keyword=None, region=None):
+    """최근 게시된 공고 중 아직 입찰마감이 지나지 않은 것만 골라 반환한다.
+
+    dminstt_nm/keyword/region 중 최소 하나는 있어야 한다(없으면 30일치 전체
+    공고 - 수천 건 - 를 다 훑어야 해서 비효율적이고 API 일일 호출 한도도
+    금방 소진된다).
+
+    Returns: (items: list[dict], error: str|None)
+    """
+    if not (dminstt_nm or keyword or region):
+        return [], "발주기관명, 키워드, 지역 중 하나 이상을 입력해주세요."
+
+    now = datetime.now()
+    begin = now - timedelta(days=days)
+
+    try:
+        data = _fetch_open_bids_page(begin, now, 1, dminstt_nm, keyword, region)
+    except Exception as e:
+        return [], f"조회 실패: {e}"
+
+    body = data.get("response", {}).get("body")
+    if body is None:
+        err_key = next(iter(data.keys()), "")
+        msg = data.get(err_key, {}).get("header", {}).get("resultMsg", "알 수 없는 오류")
+        return [], msg
+
+    total_count = body.get("totalCount", 0) or 0
+    items = list(body.get("items", []) or [])
+
+    # 999건을 넘는 경우에만 추가 페이지를 더 가져온다(과도한 호출 방지 위해 최대 5페이지=4995건까지).
+    if total_count > 999:
+        import concurrent.futures
+        import math
+
+        extra_pages = min(math.ceil(total_count / 999) - 1, 4)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=extra_pages) as executor:
+            futures = [
+                executor.submit(_fetch_open_bids_page, begin, now, p, dminstt_nm, keyword, region)
+                for p in range(2, extra_pages + 2)
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    page_data = future.result()
+                    page_body = page_data.get("response", {}).get("body", {})
+                    items.extend(page_body.get("items", []) or [])
+                except Exception:
+                    pass
+
+    open_items = []
+    for it in items:
+        clse_raw = it.get("bidClseDt")
+        if not clse_raw:
+            continue
+        try:
+            clse_dt = datetime.strptime(clse_raw, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+        if clse_dt > now:
+            open_items.append(it)
+
+    open_items.sort(key=lambda it: it.get("bidClseDt") or "")
+    return open_items, None
+
+
+def fetch_bid_base_amount(bid_ntce_no: str, bid_ntce_ord: str = "000"):
+    """특정 공고의 기초금액(bssamt)을 조회한다. 없으면 None."""
+    if not bid_ntce_no:
+        return None, "공고번호가 없습니다."
+
+    params = {
+        "serviceKey": PPS_BID_API_KEY,
+        "pageNo": "1",
+        "numOfRows": "5",
+        "inqryDiv": "2",
+        "bidNtceNo": bid_ntce_no,
+        "type": "json",
+    }
+
+    try:
+        res = requests.get(OPEN_BID_BASE_AMOUNT_URL, params=params, timeout=15)
+        res.encoding = "utf-8"
+        data = res.json()
+    except Exception as e:
+        return None, f"조회 실패: {e}"
+
+    body = data.get("response", {}).get("body")
+    if body is None:
+        err_key = next(iter(data.keys()), "")
+        msg = data.get(err_key, {}).get("header", {}).get("resultMsg", "알 수 없는 오류")
+        return None, msg
+
+    items = body.get("items", []) or []
+    if not items:
+        return None, "해당 공고의 기초금액 정보를 찾을 수 없습니다."
+
+    # bidNtceOrd(차수)가 일치하는 항목을 우선하고, 없으면 첫 항목 사용
+    match = next((it for it in items if it.get("bidNtceOrd") == bid_ntce_ord), items[0])
+    return match, None

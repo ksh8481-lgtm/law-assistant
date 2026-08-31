@@ -507,6 +507,70 @@ def api_bid_agency_search():
         return jsonify({"success": False, "message": str(e), "data": []})
 
 
+@app.route('/api/open_bids', methods=['GET'])
+def api_open_bids():
+    """'진행 중인 입찰공고 목록' - 아직 입찰마감이 지나지 않은 공고를 검색해서 보여준다.
+    여기서 공고를 하나 고르면(기초금액/발주기관을 그대로 가져다) 바로 낙찰가 예측으로
+    이어갈 수 있게 하기 위함(요청: "입찰해야 하는 정보도 보여주고 싶은거지... 기초금액
+    보고 어디 발주처인지 보고 낙찰가를 예견하는거지")."""
+    try:
+        from pps_bid import fetch_open_bids
+
+        dminstt_nm = (request.args.get('dminsttNm') or '').strip() or None
+        keyword = (request.args.get('keyword') or '').strip() or None
+        region = (request.args.get('region') or '').strip() or None
+
+        items, err = fetch_open_bids(days=30, dminstt_nm=dminstt_nm, keyword=keyword, region=region)
+        if err:
+            return jsonify({"success": False, "message": err, "data": []})
+
+        # 목록 카드 렌더링에 필요한 필드만 추려서 반환
+        data = [{
+            "bidNtceNo": it.get("bidNtceNo"),
+            "bidNtceOrd": it.get("bidNtceOrd"),
+            "bidNtceNm": it.get("bidNtceNm"),
+            "dminsttNm": it.get("dminsttNm"),
+            "ntceInsttNm": it.get("ntceInsttNm"),
+            "bidClseDt": it.get("bidClseDt"),
+            "opengDt": it.get("opengDt"),
+            "presmptPrce": it.get("presmptPrce"),
+            "bdgtAmt": it.get("bdgtAmt"),
+            "cnstrtsiteRgnNm": it.get("cnstrtsiteRgnNm"),
+            "sucsfbidMthdNm": it.get("sucsfbidMthdNm"),
+            "mainCnsttyNm": it.get("mainCnsttyNm"),
+            "bidNtceDtlUrl": it.get("bidNtceDtlUrl"),
+        } for it in items]
+
+        return jsonify({"success": True, "data": data, "count": len(data)})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e), "data": []})
+
+
+@app.route('/api/open_bids/base_amount', methods=['GET'])
+def api_open_bids_base_amount():
+    """특정 공고의 정확한 기초금액(bssamt)을 조회한다. 일부 공고(용역성/소액 등)는
+    기초금액 자료가 아직 없을 수 있어 그 경우 실패를 명시적으로 알린다(프론트에서는
+    이미 목록에 있는 추정가격/예산금액으로 대체 표시)."""
+    try:
+        from pps_bid import fetch_bid_base_amount
+
+        bid_ntce_no = request.args.get('bidNtceNo', '')
+        bid_ntce_ord = request.args.get('bidNtceOrd', '000')
+
+        match, err = fetch_bid_base_amount(bid_ntce_no, bid_ntce_ord)
+        if err:
+            return jsonify({"success": False, "message": err})
+
+        return jsonify({
+            "success": True,
+            "bssamt": match.get("bssamt"),
+            "rsrvtnPrceRngBgnRate": match.get("rsrvtnPrceRngBgnRate"),
+            "rsrvtnPrceRngEndRate": match.get("rsrvtnPrceRngEndRate"),
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+
 @app.route('/api/analyze/bid_predict', methods=['POST'])
 def api_bid_predict():
     """'낙찰가 예측' - 조달청 나라장터 과거 공사 낙찰 이력을 통계 내어, 이번 입찰에서
