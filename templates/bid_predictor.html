@@ -103,6 +103,14 @@
         }
         .target-result b { color: #6d28d9; }
 
+        .recommend-box {
+            background: linear-gradient(135deg, #f5f3ff, #ede9fe); border: 2px solid #a855f7;
+            border-radius: 14px; padding: 1.3rem 1.5rem; margin-top: 1.2rem; line-height: 1.7;
+        }
+        .recommend-box .title { font-size: 0.9rem; font-weight: 700; color: #7c3aed; margin-bottom: 0.5rem; }
+        .recommend-box .amount { font-size: 1.5rem; font-weight: 800; color: #4c1d95; }
+        .recommend-box .sub { font-size: 0.85rem; color: #6b21a8; margin-top: 0.4rem; }
+
         .error-box {
             background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 10px;
             padding: 1rem 1.2rem; margin-top: 1rem; font-size: 0.9rem; display: none;
@@ -162,6 +170,12 @@
                     </div>
                 </div>
 
+                <div class="form-group">
+                    <label for="baseAmount">이번 공고문의 기초금액 (원, 선택)</label>
+                    <input type="number" id="baseAmount" placeholder="예: 520000000">
+                    <div class="hint">입력하면 각 백분위(%)를 실제 목표 입찰가(원)로 환산해서 보여줍니다. (예정가격은 추첨으로 기초금액 대비 ±3% 정도 변동 가능해 근사치입니다)</div>
+                </div>
+
                 <button type="submit" class="submit-btn" id="submit-btn">
                     <span id="btn-text">📊 과거 낙찰 데이터 분석 시작</span>
                     <div class="spinner" id="spinner"></div>
@@ -184,6 +198,15 @@
             <div class="section-title" style="font-size:0.95rem;">구간별 백분위 (하위 %는 그 낙찰률보다 낮게/타이트하게 쓴 과거 사례의 비율)</div>
             <div style="overflow-x:auto;">
                 <table class="percentile-table" id="percentile-table"></table>
+            </div>
+
+            <div id="won-amount-section" style="display:none;">
+                <div class="recommend-box" id="recommend-box"></div>
+                <div class="section-title" style="font-size:0.95rem; margin-top:1.2rem;">백분위별 목표 입찰가 환산 (원)</div>
+                <p class="hint" style="margin-bottom:0.6rem;">예정가격은 복수예비가격 추첨으로 기초금액 대비 ±3% 정도 움직일 수 있어, 아래 금액은 근사치(범위)입니다.</p>
+                <div style="overflow-x:auto;">
+                    <table class="percentile-table" id="won-table"></table>
+                </div>
             </div>
 
             <div class="target-result" id="target-result" style="display:none;"></div>
@@ -209,6 +232,7 @@
                 months: parseInt(document.getElementById('months').value) || 12,
                 presumedPrice: document.getElementById('presumedPrice').value.trim(),
                 targetRate: document.getElementById('targetRate').value.trim(),
+                baseAmount: document.getElementById('baseAmount').value.trim(),
             };
 
             if (!payload.dminsttNm && !payload.keyword && !payload.region) {
@@ -266,6 +290,7 @@
 
             renderChart(data.histogram, s);
             renderPercentileTable(s, data.target_rate);
+            renderWonEstimates(data.won_estimates);
 
             const targetBox = document.getElementById('target-result');
             if (data.target_rate && data.target_percentile !== null && data.target_percentile !== undefined) {
@@ -328,6 +353,38 @@
             let html = '<tr>' + pcts.map(p => `<th>${p[0]}</th>`).join('') + '</tr>';
             html += '<tr>' + pcts.map(p => `<td>${p[1]}%</td>`).join('') + '</tr>';
             document.getElementById('percentile-table').innerHTML = html;
+        }
+
+        function formatWon(n) {
+            return Math.round(n).toLocaleString('ko-KR') + '원';
+        }
+
+        function renderWonEstimates(wonEstimates) {
+            const section = document.getElementById('won-amount-section');
+            if (!wonEstimates) {
+                section.style.display = 'none';
+                return;
+            }
+            section.style.display = 'block';
+
+            // 추천 목표가: 하위 10% 지점 - 하한율(최솟값)에 가깝지만 실격 위험이 있는
+            // min 자체보다는 약간의 안전마진을 둔 지점 (본문 설명과 동일한 논리)
+            const rec = wonEstimates.by_percentile.p10;
+            document.getElementById('recommend-box').innerHTML = `
+                <div class="title">💡 추천 목표 입찰가 (하위 10% 지점 기준)</div>
+                <div class="amount">${formatWon(rec.amount)} <span style="font-size:0.9rem; color:#7c3aed;">(낙찰률 ${rec.rate}%)</span></div>
+                <div class="sub">예정가격 변동(±${(wonEstimates.volatility*100).toFixed(0)}%)을 고려한 범위: ${formatWon(rec.amount_low)} ~ ${formatWon(rec.amount_high)}</div>
+                <div class="sub">※ 과거 최솟값(하한율에 가장 가까웠던 사례)보다 살짝 여유를 둔 지점입니다. 최솟값에 너무 가깝게 쓰면 실제 낙찰하한율 미만으로 떨어져 실격될 위험이 있습니다.</div>
+            `;
+
+            const rows = ['min', 'p10', 'p25', 'p40', 'p50', 'p60', 'p75', 'p90', 'max'];
+            const labels = { min: '최소', p10: '하위10%', p25: '하위25%', p40: '하위40%', p50: '중앙값', p60: '하위60%', p75: '하위75%', p90: '하위90%', max: '최대' };
+            let html = '<tr>' + rows.map(k => `<th>${labels[k]}</th>`).join('') + '</tr>';
+            html += '<tr>' + rows.map(k => {
+                const e = wonEstimates.by_percentile[k];
+                return `<td>${e.rate}%<br><strong>${formatWon(e.amount)}</strong></td>`;
+            }).join('') + '</tr>';
+            document.getElementById('won-table').innerHTML = html;
         }
     </script>
 </body>

@@ -554,6 +554,37 @@ def api_bid_predict():
             except (TypeError, ValueError):
                 pass
 
+        # 기초금액을 입력하면 각 백분위(%)를 실제 목표 입찰가(원)로 환산해서 보여준다
+        # (요청: "저걸 어떻게 사용하면 낙찰가를 확률적으로 근접할 수 있을까" ->
+        # %만으로는 실전에서 바로 못 쓰니 원 단위 금액까지 계산해달라는 후속 요청).
+        # 🚨 주의: sucsfbidRate(낙찰률)는 "예정가격 대비" 비율인데, 예정가격은 복수예비
+        # 가격 추첨으로 기초금액에서 통상 ±2~3% 정도 벗어날 수 있어 정확히 알 수 없다.
+        # 그래서 "기초금액 x 낙찰률"은 근사 추정치일 뿐이며, 이 오차 범위(±3%)를 함께
+        # 보여줘서 단일 숫자를 과신하지 않도록 한다.
+        won_estimates = None
+        base_amount = data.get('baseAmount')
+        if base_amount not in (None, ''):
+            try:
+                base = float(base_amount)
+                if base > 0:
+                    PRICE_VOLATILITY = 0.03  # 예정가격이 기초금액 대비 벌어질 수 있는 대략적 범위
+                    pct_keys = ['min', 'p10', 'p25', 'p40', 'p50', 'p60', 'p75', 'p90', 'max']
+                    won_estimates = {
+                        "base_amount": base,
+                        "volatility": PRICE_VOLATILITY,
+                        "by_percentile": {
+                            key: {
+                                "rate": stats[key],
+                                "amount": round(base * stats[key] / 100),
+                                "amount_low": round(base * (1 - PRICE_VOLATILITY) * stats[key] / 100),
+                                "amount_high": round(base * (1 + PRICE_VOLATILITY) * stats[key] / 100),
+                            }
+                            for key in pct_keys
+                        },
+                    }
+            except (TypeError, ValueError):
+                pass
+
         return jsonify({
             "success": True,
             "stats": stats,
@@ -562,6 +593,7 @@ def api_bid_predict():
             "used_filters": {"dminsttNm": dminstt_nm, "keyword": keyword, "region": region, "months": months},
             "target_rate": target_rate,
             "target_percentile": target_percentile,
+            "won_estimates": won_estimates,
             "errors": errors,
         })
     except Exception as e:
