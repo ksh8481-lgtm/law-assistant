@@ -258,6 +258,10 @@ def other_review_result():
 def duty_list():
     return render_template('duty_list.html')
 
+@app.route('/bid_predictor')
+def bid_predictor():
+    return render_template('bid_predictor.html')
+
 @app.route('/design_review')
 def design_review():
     return render_template('design_review.html')
@@ -466,10 +470,104 @@ def search_duties_chunk():
         }
         
         return jsonify({"success": True, "data": result_data})
-        
+
     except Exception as e:
         print("Chunked Duty Search Error:", e)
         return jsonify({"success": False, "message": f"서버 오류: {str(e)}"})
+
+
+def _build_bid_histogram(rates, bin_width=0.2):
+    """낙찰률 목록을 bin_width(%p) 단위 구간으로 나눠 차트용 히스토그램 데이터를 만든다."""
+    if not rates:
+        return []
+    lo = (min(rates) // bin_width) * bin_width
+    hi = max(rates)
+    buckets = {}
+    n_bins = int((hi - lo) / bin_width) + 2
+    for r in rates:
+        idx = int((r - lo) / bin_width)
+        buckets[idx] = buckets.get(idx, 0) + 1
+    result = []
+    for idx in range(n_bins):
+        start = round(lo + idx * bin_width, 2)
+        result.append({"range": start, "count": buckets.get(idx, 0)})
+    return result
+
+
+@app.route('/api/analyze/bid_predict', methods=['POST'])
+def api_bid_predict():
+    """'낙찰가 예측' - 조달청 나라장터 과거 공사 낙찰 이력을 통계 내어, 이번 입찰에서
+    경쟁력 있는 낙찰률(%) 구간을 확률적으로 가늠할 수 있게 돕는다.
+
+    🚨 주의: 적격심사 방식은 낙찰 전에 예정가격 자체가 복수예비가격 추첨으로 정해지므로,
+    특정 금액을 "이거다"라고 확정 예측하는 것은 원리상 불가능하다. 이 기능은 "비슷한
+    발주기관/공종/규모의 과거 낙찰들이 실제로 어느 낙찰률에 몰려 있었는지"를 실제
+    공공데이터로 통계 낼 뿐, AI가 숫자를 만들어내지 않는다(전부 파이썬 통계 계산).
+    """
+    try:
+        from pps_bid import fetch_bid_history, compute_rate_stats, percentile_of_value
+
+        data = request.json or {}
+        dminstt_nm = (data.get('dminsttNm') or '').strip() or None
+        keyword = (data.get('keyword') or '').strip() or None
+        region = (data.get('region') or '').strip() or None
+
+        try:
+            months = int(data.get('months', 12))
+        except (TypeError, ValueError):
+            months = 12
+        months = max(1, min(months, 24))
+
+        price_min = price_max = None
+        presumed_price = data.get('presumedPrice')
+        if presumed_price:
+            try:
+                p = float(presumed_price)
+                if p > 0:
+                    price_min, price_max = p * 0.5, p * 2.0
+            except (TypeError, ValueError):
+                pass
+
+        if not dminstt_nm and not keyword and not region:
+            return jsonify({"success": False, "message": "발주기관명, 공고 키워드, 참가제한지역 중 최소 하나는 입력해 주세요. (전체 조회는 데이터가 너무 많아 지원하지 않습니다.)"}), 400
+
+        items, errors = fetch_bid_history(
+            months=months, dminstt_nm=dminstt_nm, keyword=keyword, region=region,
+            presumed_price_min=price_min, presumed_price_max=price_max,
+        )
+
+        stats = compute_rate_stats(items)
+        if not stats:
+            return jsonify({
+                "success": False,
+                "message": "조건에 맞는 낙찰 이력을 찾을 수 없습니다. 조회 기간을 늘리거나 검색 조건(발주기관/키워드/지역)을 넓혀서 다시 시도해 주세요.",
+                "errors": errors,
+            })
+
+        rates = stats.pop('raw_rates')
+
+        target_percentile = None
+        target_rate = data.get('targetRate')
+        if target_rate not in (None, ''):
+            try:
+                target_percentile = percentile_of_value(rates, float(target_rate))
+            except (TypeError, ValueError):
+                pass
+
+        return jsonify({
+            "success": True,
+            "stats": stats,
+            "histogram": _build_bid_histogram(rates),
+            "sample_size": len(items),
+            "used_filters": {"dminsttNm": dminstt_nm, "keyword": keyword, "region": region, "months": months},
+            "target_rate": target_rate,
+            "target_percentile": target_percentile,
+            "errors": errors,
+        })
+    except Exception as e:
+        print("Bid Predict Error:", e)
+        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"}), 500
+
 
 @app.route('/api/search_duties', methods=['POST'])
 def search_duties():

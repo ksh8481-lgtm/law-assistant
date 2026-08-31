@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>낙찰가 예측 (베타)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #7c3aed;
+            --primary-hover: #6d28d9;
+            --bg-grad-1: #f5f3ff;
+            --bg-grad-2: #f8fafc;
+            --bg-grad-3: #f1f5f9;
+            --text-main: #0f172a;
+            --text-muted: #475569;
+            --card-bg: rgba(255, 255, 255, 0.9);
+            --card-border: #e2e8f0;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background: linear-gradient(135deg, var(--bg-grad-1) 0%, var(--bg-grad-2) 50%, var(--bg-grad-3) 100%);
+            background-attachment: fixed;
+            color: var(--text-main);
+            min-height: 100vh;
+        }
+        .container { max-width: 1000px; margin: 0 auto; padding: 2.5rem 1.5rem; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+        .header-content h1 {
+            font-size: 2rem; font-weight: 800;
+            background: linear-gradient(90deg, #6d28d9, #a855f7);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.5rem;
+        }
+        .header-content p { color: var(--text-muted); font-size: 1rem; }
+        .back-btn {
+            text-decoration: none; color: #475569; background: white; padding: 0.6rem 1.2rem;
+            border-radius: 999px; font-weight: 600; border: 1px solid var(--card-border);
+            display: flex; align-items: center; gap: 0.4rem; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .back-btn:hover { background: #f8fafc; }
+
+        .notice-box {
+            background: #fef9c3; border: 1px solid #fde047; border-radius: 12px; padding: 1rem 1.3rem;
+            font-size: 0.88rem; color: #713f12; line-height: 1.7; margin-bottom: 1.5rem;
+        }
+
+        .card {
+            background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 18px;
+            padding: 2rem; margin-bottom: 1.5rem; box-shadow: 0 8px 20px rgba(0,0,0,0.03);
+            backdrop-filter: blur(10px);
+        }
+        .section-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 1.1rem; color: #1e293b; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+        .form-group { margin-bottom: 1rem; }
+        label { display: block; font-weight: 600; margin-bottom: 0.4rem; color: #334155; font-size: 0.9rem; }
+        input[type="text"], input[type="number"] {
+            width: 100%; padding: 0.7rem 0.9rem; border: 1px solid #cbd5e1; border-radius: 8px;
+            font-size: 0.95rem; font-family: inherit; background: white;
+        }
+        input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12); }
+        .hint { font-size: 0.78rem; color: #94a3b8; margin-top: 0.3rem; }
+
+        .submit-btn {
+            width: 100%; padding: 1rem; background: linear-gradient(135deg, #7c3aed, #6d28d9);
+            color: white; border: none; border-radius: 12px; font-size: 1.05rem; font-weight: 700;
+            cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 0.6rem;
+            box-shadow: 0 8px 18px -4px rgba(124, 58, 237, 0.4);
+        }
+        .submit-btn:disabled { background: #94a3b8; cursor: not-allowed; box-shadow: none; }
+        .spinner {
+            width: 20px; height: 20px; border: 3px solid rgba(255,255,255,0.3); border-radius: 50%;
+            border-top-color: white; animation: spin 1s linear infinite; display: none;
+        }
+        .submit-btn:disabled .spinner { display: block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        #result-section { display: none; }
+
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 0.8rem; margin-bottom: 1.5rem; }
+        .stat-tile {
+            background: #faf5ff; border: 1px solid #e9d5ff; border-radius: 10px; padding: 0.9rem;
+            text-align: center;
+        }
+        .stat-tile .label { font-size: 0.75rem; color: #7c3aed; font-weight: 600; margin-bottom: 0.3rem; }
+        .stat-tile .value { font-size: 1.25rem; font-weight: 800; color: #1e293b; }
+        .stat-tile .value small { font-size: 0.8rem; font-weight: 600; color: #64748b; }
+
+        .chart-wrap { overflow-x: auto; margin-bottom: 1.5rem; }
+        .chart-svg-wrap { min-width: 600px; }
+
+        .percentile-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-bottom: 1rem; }
+        .percentile-table th, .percentile-table td {
+            border: 1px solid var(--card-border); padding: 0.6rem 0.7rem; text-align: center;
+        }
+        .percentile-table th { background: #faf5ff; color: #6d28d9; font-weight: 700; }
+        .percentile-table td.highlight { background: #ede9fe; font-weight: 800; color: #6d28d9; }
+
+        .target-result {
+            background: #ede9fe; border: 1px solid #c4b5fd; border-radius: 12px; padding: 1.2rem 1.4rem;
+            margin-top: 1rem; font-size: 0.95rem; line-height: 1.7; color: #4c1d95;
+        }
+        .target-result b { color: #6d28d9; }
+
+        .error-box {
+            background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 10px;
+            padding: 1rem 1.2rem; margin-top: 1rem; font-size: 0.9rem; display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <h1>🎯 낙찰가 예측 <span style="font-size:0.9rem; background:#8b5cf6; color:white; padding:0.2rem 0.6rem; border-radius:999px; font-weight:700;">BETA</span></h1>
+                <p>조달청 나라장터 과거 낙찰 데이터를 통계 내어 경쟁력 있는 낙찰률 구간을 가늠합니다.</p>
+            </div>
+            <a href="/" class="back-btn">🏠 홈으로</a>
+        </header>
+
+        <div class="notice-box">
+            ⚠️ <b>이 기능은 "정답"이 아니라 "과거 통계"입니다.</b> 적격심사 방식은 낙찰 전 예정가격 자체가 복수예비가격 추첨(15개 중 4개)으로 결정되기 때문에, 특정 공사의 낙찰가를 미리 정확히 계산하는 것은 원리상 불가능합니다.
+            이 도구는 "비슷한 발주기관/공종의 과거 낙찰들이 실제로 어느 낙찰률(%)에 몰려 있었는지"를 조달청 공공데이터로 통계만 낼 뿐이며, AI가 숫자를 만들어내지 않고 전부 실제 데이터 계산 결과입니다. 최종 투찰 결정은 반드시 본인 책임하에 판단하시기 바랍니다.
+        </div>
+
+        <div class="card">
+            <div class="section-title">📋 검색 조건</div>
+            <form id="predict-form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="dminsttNm">발주기관명 (부분입력 가능)</label>
+                        <input type="text" id="dminsttNm" placeholder="예: 남해군">
+                    </div>
+                    <div class="form-group">
+                        <label for="keyword">공고명 키워드 (공종 특성)</label>
+                        <input type="text" id="keyword" placeholder="예: 도로, 관로, 포장">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="region">참가제한지역</label>
+                        <input type="text" id="region" placeholder="예: 경상남도">
+                    </div>
+                    <div class="form-group">
+                        <label for="months">조회 기간 (최근 N개월)</label>
+                        <input type="number" id="months" value="12" min="1" max="24">
+                    </div>
+                </div>
+                <p class="hint" style="margin-bottom:1.2rem;">※ 발주기관명 / 공고명 키워드 / 참가제한지역 중 최소 1개는 입력해야 합니다 (전체 조회는 지원하지 않습니다).</p>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="presumedPrice">이번 공사 추정가격 (원, 선택)</label>
+                        <input type="number" id="presumedPrice" placeholder="예: 500000000">
+                        <div class="hint">입력하면 비슷한 규모(추정가격의 0.5~2배)의 과거 사례로만 좁혀서 비교합니다.</div>
+                    </div>
+                    <div class="form-group">
+                        <label for="targetRate">검토 중인 낙찰률(%) (선택)</label>
+                        <input type="number" id="targetRate" step="0.001" placeholder="예: 89.500">
+                        <div class="hint">입력하면 과거 사례 기준 이 값이 몇 % 지점인지 바로 알려줍니다.</div>
+                    </div>
+                </div>
+
+                <button type="submit" class="submit-btn" id="submit-btn">
+                    <span id="btn-text">📊 과거 낙찰 데이터 분석 시작</span>
+                    <div class="spinner" id="spinner"></div>
+                </button>
+            </form>
+            <div class="error-box" id="error-box"></div>
+        </div>
+
+        <div class="card" id="result-section">
+            <div class="section-title">📈 분석 결과</div>
+            <p id="result-summary" style="color:var(--text-muted); font-size:0.9rem; margin-bottom:1.2rem;"></p>
+
+            <div class="stat-grid" id="stat-grid"></div>
+
+            <div class="chart-wrap">
+                <div class="section-title" style="font-size:0.95rem;">낙찰률 분포 히스토그램</div>
+                <div class="chart-svg-wrap" id="chart-container"></div>
+            </div>
+
+            <div class="section-title" style="font-size:0.95rem;">구간별 백분위 (하위 %는 그 낙찰률보다 낮게/타이트하게 쓴 과거 사례의 비율)</div>
+            <div style="overflow-x:auto;">
+                <table class="percentile-table" id="percentile-table"></table>
+            </div>
+
+            <div class="target-result" id="target-result" style="display:none;"></div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('predict-form');
+        const submitBtn = document.getElementById('submit-btn');
+        const btnText = document.getElementById('btn-text');
+        const errorBox = document.getElementById('error-box');
+        const resultSection = document.getElementById('result-section');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            errorBox.style.display = 'none';
+            resultSection.style.display = 'none';
+
+            const payload = {
+                dminsttNm: document.getElementById('dminsttNm').value.trim(),
+                keyword: document.getElementById('keyword').value.trim(),
+                region: document.getElementById('region').value.trim(),
+                months: parseInt(document.getElementById('months').value) || 12,
+                presumedPrice: document.getElementById('presumedPrice').value.trim(),
+                targetRate: document.getElementById('targetRate').value.trim(),
+            };
+
+            if (!payload.dminsttNm && !payload.keyword && !payload.region) {
+                errorBox.textContent = '발주기관명, 공고 키워드, 참가제한지역 중 최소 하나는 입력해주세요.';
+                errorBox.style.display = 'block';
+                return;
+            }
+
+            submitBtn.disabled = true;
+            btnText.textContent = '조달청 데이터 조회 및 통계 분석 중... (최대 20초 소요)';
+
+            try {
+                const res = await fetch('/api/analyze/bid_predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+
+                if (!data.success) {
+                    errorBox.textContent = data.message || '분석에 실패했습니다.';
+                    errorBox.style.display = 'block';
+                    return;
+                }
+
+                renderResult(data);
+            } catch (err) {
+                errorBox.textContent = '서버 통신 오류: ' + err.message;
+                errorBox.style.display = 'block';
+            } finally {
+                submitBtn.disabled = false;
+                btnText.textContent = '📊 과거 낙찰 데이터 분석 시작';
+            }
+        });
+
+        function renderResult(data) {
+            const s = data.stats;
+            const f = data.used_filters;
+            const filterDesc = [
+                f.dminsttNm ? `발주기관: ${f.dminsttNm}` : null,
+                f.keyword ? `키워드: ${f.keyword}` : null,
+                f.region ? `지역: ${f.region}` : null,
+            ].filter(Boolean).join(' / ') || '전체';
+
+            document.getElementById('result-summary').textContent =
+                `최근 ${f.months}개월, ${filterDesc} 조건의 공사 낙찰 사례 ${data.sample_size}건 중, 낙찰률 데이터가 유효한 ${s.count}건을 분석했습니다.`;
+
+            const tiles = [
+                ['평균', s.mean, '%'], ['중앙값', s.median, '%'], ['표준편차', s.stdev, '%p'],
+                ['최소', s.min, '%'], ['최대', s.max, '%'], ['표본수', s.count, '건'],
+            ];
+            document.getElementById('stat-grid').innerHTML = tiles.map(([label, val, unit]) =>
+                `<div class="stat-tile"><div class="label">${label}</div><div class="value">${val}<small>${unit}</small></div></div>`
+            ).join('');
+
+            renderChart(data.histogram, s);
+            renderPercentileTable(s, data.target_rate);
+
+            const targetBox = document.getElementById('target-result');
+            if (data.target_rate && data.target_percentile !== null && data.target_percentile !== undefined) {
+                targetBox.style.display = 'block';
+                targetBox.innerHTML = `🎯 낙찰률 <b>${data.target_rate}%</b>로 투찰할 경우, 과거 ${s.count}건 기준 <b>하위 ${data.target_percentile}%</b> 지점입니다.
+                    ${data.target_percentile <= 20 ? ' (과거 사례 중 매우 낮은/타이트한 축에 속합니다 — 낙찰 가능성은 높아지지만 그만큼 이윤은 줄어듭니다.)' :
+                      data.target_percentile >= 80 ? ' (과거 사례 대비 다소 높은 편입니다 — 낙찰 하한율 근처가 아니라면 낙찰 가능성이 낮아질 수 있습니다.)' :
+                      ' (과거 사례들의 중간 밀집 구간에 해당합니다.)'}`;
+            } else {
+                targetBox.style.display = 'none';
+            }
+
+            if (data.errors && data.errors.length > 0) {
+                console.warn('일부 월 조회 실패:', data.errors);
+            }
+
+            resultSection.style.display = 'block';
+            resultSection.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function renderChart(histogram, s) {
+            const w = 900, h = 260, padL = 45, padB = 30, padT = 10, padR = 10;
+            const maxCount = Math.max(...histogram.map(b => b.count), 1);
+            const barW = (w - padL - padR) / histogram.length;
+
+            let bars = '';
+            histogram.forEach((b, i) => {
+                const barH = (b.count / maxCount) * (h - padT - padB);
+                const x = padL + i * barW;
+                const y = h - padB - barH;
+                const isPeak = b.count === maxCount;
+                bars += `<rect x="${x + 1}" y="${y}" width="${Math.max(barW - 2, 1)}" height="${barH}" fill="${isPeak ? '#7c3aed' : '#c4b5fd'}" rx="2"></rect>`;
+            });
+
+            // x축 라벨 (5개 정도만)
+            let labels = '';
+            const labelStep = Math.max(1, Math.floor(histogram.length / 6));
+            histogram.forEach((b, i) => {
+                if (i % labelStep === 0) {
+                    const x = padL + i * barW + barW / 2;
+                    labels += `<text x="${x}" y="${h - padB + 16}" font-size="10" fill="#64748b" text-anchor="middle">${b.range.toFixed(1)}</text>`;
+                }
+            });
+
+            const svg = `
+                <svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" style="width:100%; max-width:900px; height:auto;">
+                    <line x1="${padL}" y1="${h-padB}" x2="${w-padR}" y2="${h-padB}" stroke="#cbd5e1"/>
+                    ${bars}
+                    ${labels}
+                    <text x="${padL}" y="14" font-size="10" fill="#94a3b8">건수 (최대 ${maxCount}건)</text>
+                </svg>`;
+            document.getElementById('chart-container').innerHTML = svg;
+        }
+
+        function renderPercentileTable(s, targetRate) {
+            const pcts = [
+                ['하위 10%', s.p10], ['하위 25%', s.p25], ['하위 40%', s.p40],
+                ['중앙값(50%)', s.p50], ['하위 60%', s.p60], ['하위 75%', s.p75], ['하위 90%', s.p90],
+            ];
+            let html = '<tr>' + pcts.map(p => `<th>${p[0]}</th>`).join('') + '</tr>';
+            html += '<tr>' + pcts.map(p => `<td>${p[1]}%</td>`).join('') + '</tr>';
+            document.getElementById('percentile-table').innerHTML = html;
+        }
+    </script>
+</body>
+</html>
