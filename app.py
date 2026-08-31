@@ -797,6 +797,82 @@ def _extract_relevant_excerpt(content, keywords, max_len):
     return head + "\n...(중략)...\n" + "\n...(중략)...\n".join(p for _, p in picks)
 
 
+_LAW_TEXT_FOR_VERIFY_CACHE = {}
+
+
+def _verify_citation(item):
+    """AI 법규 검토(law_review)가 인용한 법령 조항(law_name + article)이 로컬 법령
+    원문(data/laws/*.md, 62개)에 실제로 존재하는지 대조한다.
+
+    law_review는 구글 검색 그라운딩에 의존하는데, 보고서 하나에 조항 인용이
+    10~20개씩 나오다 보니 AI가 매 항목을 실제로 검색해 검증하지 않고 자체 지식
+    (사전학습 기억)만으로 채우는 경우가 있다. 그 결과 아래 두 가지 사고가
+    실사용 중 발견됨:
+      1) 존재하지 않거나 이미 폐지된 조항을 현행처럼 인용
+         (예: "국토의 계획 및 이용에 관한 법률 제71조" - 실제로는 2006년에 삭제됨)
+      2) 조항 번호 자체는 실존하지만 완전히 다른 내용의 조항을 잘못 인용
+         (예: "건설산업기본법 제35조"를 "건설기술인 배치"에 인용했는데, 실제 제35조는
+         "하도급대금의 직접 지급"이라 전혀 무관함)
+
+    1)번은 기계적으로 확실히 걸러낼 수 있어 "확인필요"로 명확히 표시한다.
+    2)번은 AI 재판단(의미 비교) 없이는 "틀렸다"고 자동 단정하기 어렵고, 섣불리
+    단정하면 실제로는 맞는 인용까지 "확인필요"로 잘못 표시하는 역효과가 크다.
+    대신 로컬 원문에서 그 조항의 실제 제목을 찾아 인용 옆에 그대로 보여줘서,
+    "건설산업기본법 제35조(하도급대금의 직접 지급)"처럼 실제 제목과 이 항목의
+    설명이 안 맞으면 사람이 한눈에 알아챌 수 있게 한다.
+    (로컬에 원문이 없는 법은 대조 자체가 불가능해 그대로 둔다.)
+    """
+    import re
+    law_name = (item.get('law_name') or '').strip()
+    article_field = (item.get('article') or '').strip()
+    if not law_name or not article_field:
+        return
+
+    if law_name in _LAW_TEXT_FOR_VERIFY_CACHE:
+        text = _LAW_TEXT_FOR_VERIFY_CACHE[law_name]
+    else:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'laws', law_name.replace(' ', '_') + '.md')
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                text = f.read()
+        except (FileNotFoundError, OSError):
+            text = None
+        _LAW_TEXT_FOR_VERIFY_CACHE[law_name] = text
+
+    if text is None:
+        return  # 로컬 DB에 없는 법 - 검증 불가
+
+    tokens = re.findall(r'제\d+조(?:의\d+)?', article_field)
+    if not tokens:
+        return
+
+    reason_key = 'reason' if 'reason' in item else 'desc'
+    titles = []
+    for article_no in tokens:
+        if re.search(r'^' + re.escape(article_no) + r'\s*삭제', text, re.MULTILINE):
+            item['article'] = f"{article_field} (확인필요)"
+            item[reason_key] = (
+                f"⚠️ [자동 검증] {article_no}는 이미 삭제된 조항으로 확인되어 인용 근거가 부정확할 수 있습니다. 법제처 원문을 직접 확인하십시오. "
+                + (item.get(reason_key) or '')
+            )
+            return
+        m = re.search(r'^' + re.escape(article_no) + r'\(([^)]*)\)', text, re.MULTILINE)
+        if not m:
+            item['article'] = f"{article_field} (확인필요)"
+            item[reason_key] = (
+                f"⚠️ [자동 검증] {article_no}가 로컬 법령 원문에서 확인되지 않았습니다. 법제처 원문을 직접 확인하십시오. "
+                + (item.get(reason_key) or '')
+            )
+            return
+        titles.append((article_no, m.group(1)))
+
+    # 전부 실존하는 조항 - 실제 제목을 옆에 붙여서 사람이 주제 일치 여부를 스스로 판단할 수 있게 함
+    if len(titles) == 1:
+        item['article'] = f"{article_field}({titles[0][1]})"
+    else:
+        item['article'] = article_field + " (" + ", ".join(f"{no}: {t}" for no, t in titles) + ")"
+
+
 @app.route('/api/verify_parcel', methods=['POST'])
 def verify_parcel():
     data = request.json
@@ -1214,7 +1290,14 @@ def run_analysis(job_id, data):
                 
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
             executor.map(resolve_url, items_to_resolve)
-                
+
+        # AI가 구글 검색 그라운딩 없이 자체 지식만으로 답한 항목에서, 존재하지 않거나
+        # 이미 폐지된 조항을 현행처럼 인용하는 사고가 실사용 중 발견됨(예: 국토계획법
+        # 제71조 - 2006년 삭제 - 를 현행 조항처럼 인용). 로컬에 원문이 있는 법(62개)에
+        # 한해서만이라도 조항 실존 여부를 기계적으로 대조해 걸러낸다.
+        for item in items_to_resolve:
+            _verify_citation(item)
+
         JOBS[job_id] = {"status": "completed", "result": result}
         
     except json.JSONDecodeError as e:
