@@ -381,3 +381,113 @@ def fetch_bid_base_amount(bid_ntce_no: str, bid_ntce_ord: str = "000"):
     # bidNtceOrd(차수)가 일치하는 항목을 우선하고, 없으면 첫 항목 사용
     match = next((it for it in items if it.get("bidNtceOrd") == bid_ntce_ord), items[0])
     return match, None
+
+
+# ----------------------------------------------------------------------------
+# 전략 백테스트 (사후 검증)
+#
+# "낙찰가 예측"이 뽑아주는 백분위(p10 등)는 전체 조회 기간 데이터로 계산한
+# 것이라, 그 기간 자체의 승률과 맞아떨어지는 건 사실 당연하다(순환논리에
+# 가깝다). 진짜 궁금한 건 "더 예전 데이터로 학습한 감각이, 더 최근 실제
+# 결과에도 여전히 통하는가" - 즉 낙찰하한율 고시 개정 등으로 감이 틀어지지
+# 않았는지다. 그래서 조회 기간을 학습 구간(더 예전)/검증 구간(더 최근)으로
+# 나눠, 학습 구간에서 뽑은 각 백분위 낙찰률을 검증 구간의 실제 낙찰 사례들에
+# "그대로 투찰했다면" 몇 %나 이겼을지를 계산한다.
+#
+# 승/패 판정 로직: 적격심사는 "낙찰하한율 이상인 사람 중 최저가"가 이기므로,
+# 우리가 낸 가상의 투찰률이 실제 낙찰자의 낙찰률보다 낮거나 같으면(더 낮은
+# 가격을 썼다면) 그 실제 낙찰자를 앞질러 이겼을 것이라고 본다. 반대로 더
+# 높았다면 그 실제 낙찰자에게 졌을 것이다. (학습 구간에서 뽑은 백분위 값은
+# 정의상 항상 낙찰하한율 부근이므로, 이 값 자체가 하한율 미만이라 실격될
+# 위험은 사실상 없다고 가정한다.)
+# ----------------------------------------------------------------------------
+def _fetch_rate_group(ranges, dminstt_nm=None, keyword=None, region=None,
+                       presumed_price_min=None, presumed_price_max=None, max_workers=6):
+    import concurrent.futures
+
+    items = []
+    errors = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_fetch_month, y, m, dminstt_nm, keyword, region,
+                             presumed_price_min, presumed_price_max): (y, m)
+            for y, m in ranges
+        }
+        for future in concurrent.futures.as_completed(futures):
+            month_items, err = future.result()
+            items.extend(month_items)
+            if err:
+                errors.append(err)
+    return items, errors
+
+
+def _extract_valid_rates(items):
+    rates = []
+    for it in items:
+        raw = it.get("sucsfbidRate")
+        if raw in (None, "", "0"):
+            continue
+        try:
+            r = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if 50.0 < r <= 100.0:
+            rates.append(r)
+    return rates
+
+
+def backtest_bid_strategy(months=12, test_months=3, dminstt_nm=None, keyword=None, region=None,
+                           presumed_price_min=None, presumed_price_max=None):
+    """학습 구간(예전 데이터)의 추천 낙찰률을 검증 구간(최근 데이터)의 실제 결과에
+    사후 대입해서, 백분위 전략별 과거 승률을 계산한다.
+
+    Returns: (result: dict|None, error: str|None)
+    """
+    if not (dminstt_nm or keyword or region):
+        return None, "발주기관명, 키워드, 지역 중 하나 이상을 입력해주세요."
+    if test_months >= months:
+        return None, "검증 기간은 전체 조회 기간보다 짧아야 합니다."
+
+    ranges = _month_ranges(months)  # 최신순: ranges[0]이 이번 달
+    test_ranges = ranges[:test_months]
+    train_ranges = ranges[test_months:]
+
+    train_items, train_errors = _fetch_rate_group(
+        train_ranges, dminstt_nm, keyword, region, presumed_price_min, presumed_price_max)
+    test_items, test_errors = _fetch_rate_group(
+        test_ranges, dminstt_nm, keyword, region, presumed_price_min, presumed_price_max)
+
+    train_stats = compute_rate_stats(train_items)
+    if not train_stats:
+        return None, "학습 구간(예전 데이터)에 유효한 낙찰 사례가 없습니다. 조회 기간을 늘리거나 조건을 넓혀보세요."
+
+    test_rates = _extract_valid_rates(test_items)
+    if len(test_rates) < 3:
+        return None, (
+            f"검증 구간(최근 {test_months}개월)에 낙찰 사례가 {len(test_rates)}건뿐이라 "
+            "백테스트 신뢰도가 너무 낮습니다. 검증 기간을 줄이거나 검색 조건을 넓혀 다시 시도해 주세요."
+        )
+
+    pct_keys = ["min", "p10", "p25", "p40", "p50", "p60", "p75", "p90"]
+    n_test = len(test_rates)
+    per_percentile = {}
+    for key in pct_keys:
+        rec_rate = train_stats[key]
+        wins = [r for r in test_rates if rec_rate <= r]
+        win_rate = round(len(wins) / n_test * 100, 1)
+        avg_margin = round(statistics.mean([r - rec_rate for r in wins]), 3) if wins else None
+        per_percentile[key] = {
+            "trained_rate": rec_rate,
+            "win_count": len(wins),
+            "win_rate": win_rate,
+            "avg_margin": avg_margin,
+        }
+
+    return {
+        "train_months": len(train_ranges),
+        "train_count": train_stats["count"],
+        "test_months": test_months,
+        "test_count": n_test,
+        "per_percentile": per_percentile,
+        "errors": train_errors + test_errors,
+    }, None

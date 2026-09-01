@@ -678,6 +678,59 @@ def api_bid_predict():
         return jsonify({"success": False, "message": f"서버 오류: {str(e)}"}), 500
 
 
+@app.route('/api/analyze/bid_backtest', methods=['POST'])
+def api_bid_backtest():
+    """'전략 백테스트' - 조회 기간을 학습 구간(예전)/검증 구간(최근)으로 나눠서,
+    학습 구간에서 뽑은 추천 낙찰률(백분위)을 검증 구간의 실제 낙찰 결과에 그대로
+    대입했다면 몇 %나 이겼을지 사후 검증한다. "낙찰가 예측" 화면의 추천이 순환논리에
+    그치지 않고 시간이 지나도 실제로 통하는지 확인하기 위한 기능(요청: "백테스트 할 수
+    있는 기능도 만들자")."""
+    try:
+        from pps_bid import backtest_bid_strategy
+
+        data = request.json or {}
+        dminstt_nm = (data.get('dminsttNm') or '').strip() or None
+        keyword = (data.get('keyword') or '').strip() or None
+        region = (data.get('region') or '').strip() or None
+
+        try:
+            months = int(data.get('months', 12))
+        except (TypeError, ValueError):
+            months = 12
+        months = max(2, min(months, 24))
+
+        try:
+            test_months = int(data.get('testMonths', 3))
+        except (TypeError, ValueError):
+            test_months = 3
+        test_months = max(1, min(test_months, months - 1))
+
+        price_min = price_max = None
+        presumed_price = data.get('presumedPrice')
+        if presumed_price:
+            try:
+                p = float(presumed_price)
+                if p > 0:
+                    price_min, price_max = p * 0.5, p * 2.0
+            except (TypeError, ValueError):
+                pass
+
+        if not dminstt_nm and not keyword and not region:
+            return jsonify({"success": False, "message": "발주기관명, 공고 키워드, 참가제한지역 중 최소 하나는 입력해 주세요."}), 400
+
+        result, err = backtest_bid_strategy(
+            months=months, test_months=test_months, dminstt_nm=dminstt_nm, keyword=keyword,
+            region=region, presumed_price_min=price_min, presumed_price_max=price_max,
+        )
+        if err:
+            return jsonify({"success": False, "message": err})
+
+        return jsonify({"success": True, **result})
+    except Exception as e:
+        print("Bid Backtest Error:", e)
+        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"}), 500
+
+
 @app.route('/api/search_duties', methods=['POST'])
 def search_duties():
     try:

@@ -247,10 +247,22 @@
                     <div class="hint">입력하면 각 백분위(%)를 실제 목표 입찰가(원)로 환산해서 보여줍니다. (예정가격은 추첨으로 기초금액 대비 ±3% 정도 변동 가능해 근사치입니다)</div>
                 </div>
 
-                <button type="submit" class="submit-btn" id="submit-btn">
-                    <span id="btn-text">📊 과거 낙찰 데이터 분석 시작</span>
-                    <div class="spinner" id="spinner"></div>
-                </button>
+                <div class="form-group">
+                    <label for="testMonths">🧪 백테스트 검증 기간 (최근 N개월 - 위 조회 기간보다 짧아야 함)</label>
+                    <input type="number" id="testMonths" value="3" min="1" max="23">
+                    <div class="hint">조회 기간 중 가장 최근 N개월을 떼어내 "검증 구간"으로 삼고, 나머지 더 예전 데이터로 뽑은 추천 낙찰률이 그 검증 구간의 실제 결과에도 맞아떨어졌는지 사후 검증합니다.</div>
+                </div>
+
+                <div style="display:flex; gap:0.8rem; flex-wrap:wrap;">
+                    <button type="submit" class="submit-btn" id="submit-btn" style="flex:1; min-width:220px;">
+                        <span id="btn-text">📊 과거 낙찰 데이터 분석 시작</span>
+                        <div class="spinner" id="spinner"></div>
+                    </button>
+                    <button type="button" class="submit-btn" id="backtest-btn" style="flex:1; min-width:220px; background: linear-gradient(135deg, #059669, #047857); box-shadow: 0 8px 18px -4px rgba(5,150,105,0.4);">
+                        <span id="backtest-btn-text">🧪 전략 백테스트 실행</span>
+                        <div class="spinner" id="backtest-spinner"></div>
+                    </button>
+                </div>
             </form>
             <div class="error-box" id="error-box"></div>
         </div>
@@ -281,6 +293,17 @@
             </div>
 
             <div class="target-result" id="target-result" style="display:none;"></div>
+        </div>
+
+        <div class="card" id="backtest-section" style="display:none;">
+            <div class="section-title">🧪 전략 백테스트 결과 (사후 검증)</div>
+            <p class="hint" style="margin-bottom:1rem;">"학습 구간"(더 예전 데이터)에서 뽑은 추천 낙찰률을 그대로 썼다면, "검증 구간"(더 최근 데이터)의 실제 낙찰 사례들을 상대로 몇 %나 이겼을지 계산한 결과입니다. 이 값은 전체 기간을 통으로 본 백분위(위 분석 결과)와는 다른, 시간 순서를 지킨 사후 검증치입니다.</p>
+            <p id="backtest-summary" style="color:var(--text-muted); font-size:0.9rem; margin-bottom:1.2rem;"></p>
+            <div style="overflow-x:auto;">
+                <table class="percentile-table" id="backtest-table"></table>
+            </div>
+            <div class="target-result" id="backtest-explain" style="margin-top:1.2rem;"></div>
+            <div class="error-box" id="backtest-error-box"></div>
         </div>
     </div>
 
@@ -699,6 +722,118 @@
                 return `<td>${e.rate}%<br><strong>${formatWon(e.amount)}</strong></td>`;
             }).join('') + '</tr>';
             document.getElementById('won-table').innerHTML = html;
+        }
+
+        // ------------------------------------------------------------------
+        // 전략 백테스트 (요청: "백테스트 할 수 있는 기능도 만들자")
+        // 조회 기간을 학습 구간(예전)/검증 구간(최근)으로 나눠, 학습 구간에서
+        // 뽑은 추천 낙찰률을 검증 구간 실제 결과에 대입했을 때 승률이 어떻게
+        // 나오는지 - 즉 이 통계 방식이 시간이 지나도 여전히 통하는지 확인한다.
+        // ------------------------------------------------------------------
+        const backtestBtn = document.getElementById('backtest-btn');
+        const backtestBtnText = document.getElementById('backtest-btn-text');
+        const backtestSection = document.getElementById('backtest-section');
+        const backtestErrorBox = document.getElementById('backtest-error-box');
+
+        backtestBtn.addEventListener('click', async () => {
+            backtestErrorBox.style.display = 'none';
+            backtestSection.style.display = 'none';
+
+            const payload = {
+                dminsttNm: document.getElementById('dminsttNm').value.trim(),
+                keyword: document.getElementById('keyword').value.trim(),
+                region: document.getElementById('region').value.trim(),
+                months: parseInt(document.getElementById('months').value) || 12,
+                testMonths: parseInt(document.getElementById('testMonths').value) || 3,
+                presumedPrice: document.getElementById('presumedPrice').value.trim(),
+            };
+
+            if (!payload.dminsttNm && !payload.keyword && !payload.region) {
+                backtestErrorBox.textContent = '발주기관명, 공고 키워드, 참가제한지역 중 최소 하나는 입력해주세요.';
+                backtestErrorBox.style.display = 'block';
+                backtestErrorBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                return;
+            }
+            if (payload.testMonths >= payload.months) {
+                backtestErrorBox.textContent = '백테스트 검증 기간은 위 조회 기간보다 짧아야 합니다.';
+                backtestErrorBox.style.display = 'block';
+                backtestErrorBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                return;
+            }
+
+            backtestBtn.disabled = true;
+            backtestBtnText.textContent = '학습/검증 구간 나눠서 사후 검증 중... (최대 30초 소요)';
+
+            try {
+                const res = await fetch('/api/analyze/bid_backtest', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+
+                if (!data.success) {
+                    backtestErrorBox.textContent = data.message || '백테스트에 실패했습니다.';
+                    backtestErrorBox.style.display = 'block';
+                    return;
+                }
+
+                renderBacktestResult(data);
+            } catch (err) {
+                backtestErrorBox.textContent = '서버 통신 오류: ' + err.message;
+                backtestErrorBox.style.display = 'block';
+            } finally {
+                backtestBtn.disabled = false;
+                backtestBtnText.textContent = '🧪 전략 백테스트 실행';
+            }
+        });
+
+        function renderBacktestResult(data) {
+            document.getElementById('backtest-summary').textContent =
+                `학습 구간 ${data.train_months}개월(${data.train_count}건 데이터)로 뽑은 추천 낙찰률을, ` +
+                `검증 구간 최근 ${data.test_months}개월(${data.test_count}건 실제 사례)에 대입해 사후 검증했습니다.`;
+
+            const keys = ['min', 'p10', 'p25', 'p40', 'p50', 'p60', 'p75', 'p90'];
+            const labels = { min: '최소', p10: '하위10%', p25: '하위25%', p40: '하위40%', p50: '중앙값', p60: '하위60%', p75: '하위75%', p90: '하위90%' };
+
+            let html = '<tr><th>구분</th>' + keys.map(k => `<th>${labels[k]}${k === 'p10' ? ' ⭐' : ''}</th>`).join('') + '</tr>';
+
+            html += '<tr><td><b>학습구간 추천 낙찰률</b></td>' + keys.map(k => {
+                const p = data.per_percentile[k];
+                return `<td${k === 'p10' ? ' class="highlight"' : ''}>${p.trained_rate}%</td>`;
+            }).join('') + '</tr>';
+
+            html += '<tr><td><b>검증구간 승률</b></td>' + keys.map(k => {
+                const p = data.per_percentile[k];
+                const color = p.win_rate >= 80 ? '#15803d' : p.win_rate >= 50 ? '#b45309' : '#b91c1c';
+                return `<td${k === 'p10' ? ' class="highlight"' : ''} style="color:${color}; font-weight:700;">${p.win_rate}%</td>`;
+            }).join('') + '</tr>';
+
+            html += '<tr><td>평균 여유폭(%p)</td>' + keys.map(k => {
+                const p = data.per_percentile[k];
+                return `<td${k === 'p10' ? ' class="highlight"' : ''}>${p.avg_margin !== null && p.avg_margin !== undefined ? p.avg_margin : '-'}</td>`;
+            }).join('') + '</tr>';
+
+            document.getElementById('backtest-table').innerHTML = html;
+
+            const p10 = data.per_percentile.p10;
+            let verdict;
+            if (p10.win_rate >= 80) {
+                verdict = '학습 구간의 감각이 검증 구간(최근)에도 잘 맞아떨어지고 있습니다 — 이 조건에서는 현재 추천 낙찰률을 신뢰할 만합니다.';
+            } else if (p10.win_rate >= 50) {
+                verdict = '어느 정도는 맞지만 시차 오차가 있는 편입니다. 조회 기간을 좀 더 최근 위주로 좁혀서 다시 확인해보는 것을 권장합니다.';
+            } else {
+                verdict = '검증 구간에서 승률이 낮게 나왔습니다 — 최근 낙찰하한율 고시 개정이나 시장 상황 변화로 감이 틀어졌을 가능성이 있으니, 조회 기간을 최근 몇 개월로 크게 좁혀서 다시 분석해보시길 권장합니다.';
+            }
+            document.getElementById('backtest-explain').innerHTML =
+                `🧪 <b>하위10% 전략</b>(학습구간 기준 낙찰률 ${p10.trained_rate}%)을 검증 구간에 그대로 대입했다면 <b>${p10.win_rate}%</b> 승률이 나왔을 것으로 계산됩니다. ${verdict}`;
+
+            if (data.errors && data.errors.length > 0) {
+                console.warn('일부 월 조회 실패:', data.errors);
+            }
+
+            backtestSection.style.display = 'block';
+            backtestSection.scrollIntoView({ behavior: 'smooth' });
         }
     </script>
 </body>
