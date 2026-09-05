@@ -2276,10 +2276,17 @@ def api_design_review():
 
 # ----------------------------------------------------------------------------
 # 부처별 실무 지침 문서함 (요청: "각부처지침은 api가없으니 따로 업로드해야해")
-# KCSC API처럼 자동으로 못 가져오는 각 부처/발주기관 실무 지침·매뉴얼을 사용자가
-# 직접 업로드해서 쌓아두는 상시 보관함. 설계도서 검토 실행 시 자동으로 반영된다.
-# ⚠️ 로컬 디스크(data/guidelines/)에 저장되므로, 배포 환경에 반영하려면 로컬에서
-# 업로드 후 git commit/push가 필요하다(Cloudtype은 재배포 시 디스크 초기화).
+# KCSC API처럼 자동으로 못 가져오는 각 부처/발주기관 실무 지침·매뉴얼을 상시
+# 보관해두는 곳. 설계도서 검토 실행 시 자동으로 반영된다.
+#
+# ⚠️ 등록/삭제는 사이트에서 하지 않는다(요청: "저기서 입력하는게 아니라 클로드
+# 코드 여기서 입력하는거고"). 실제 파일 추가/삭제는 개발자가 Claude Code
+# 세션에서 guideline_store.add_guideline()/delete_guideline()을 직접 호출해
+# data/guidelines/에 반영한 뒤 git commit/push로 배포한다(Cloudtype은 재배포
+# 시 디스크가 초기화되므로 로컬 작업 후 커밋이 필수). 사이트에는 지금 무엇이
+# 등록돼 있는지 확인만 할 수 있는 조회 전용 API만 노출한다 - 인증 없는 공개
+# 업로드/삭제 엔드포인트를 배포된 사이트에 열어두는 것 자체가 보안상 바람직
+# 하지 않기도 해서, 이 결정이 그 문제도 함께 없애준다.
 # ----------------------------------------------------------------------------
 @app.route('/api/guidelines', methods=['GET'])
 def api_list_guidelines():
@@ -2288,47 +2295,6 @@ def api_list_guidelines():
         return jsonify({"success": True, "data": list_guidelines()})
     except Exception as e:
         return jsonify({"success": False, "message": str(e), "data": []})
-
-
-@app.route('/api/guidelines', methods=['POST'])
-def api_upload_guideline():
-    try:
-        from guideline_store import add_guideline
-
-        file_obj = request.files.get('file')
-        label = request.form.get('label', '').strip()
-        if not file_obj or not file_obj.filename:
-            return jsonify({"success": False, "message": "파일을 선택해주세요."}), 400
-
-        import tempfile
-        fname = file_obj.filename
-        ext = os.path.splitext(fname)[1]
-        fd, temp_path = tempfile.mkstemp(suffix=ext)
-        os.close(fd)
-        file_obj.save(temp_path)
-        try:
-            entry = add_guideline(temp_path, fname, label)
-        finally:
-            try:
-                os.remove(temp_path)
-            except Exception:
-                pass
-
-        return jsonify({"success": True, "data": entry})
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-
-@app.route('/api/guidelines/<guideline_id>', methods=['DELETE'])
-def api_delete_guideline(guideline_id):
-    try:
-        from guideline_store import delete_guideline
-        ok = delete_guideline(guideline_id)
-        if not ok:
-            return jsonify({"success": False, "message": "해당 지침 문서를 찾을 수 없습니다."}), 404
-        return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
 
 
 # 「건설공사 사업관리방식 검토기준 및 업무수행지침」 제127조(착공신고서 검토 및 보고) 원문.

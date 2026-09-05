@@ -227,33 +227,14 @@
         .progress-step.active { color: #34d399; font-weight: 700; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* 지침 문서함 */
-        .guideline-upload-row { display: grid; grid-template-columns: 2fr 1.5fr auto; gap: 0.7rem; margin-bottom: 1rem; align-items: center; }
-        .guideline-upload-row input[type="text"] { padding: 0.7rem 0.9rem; }
-        .guideline-upload-row input[type="file"] { font-size: 0.85rem; }
-        .guideline-btn {
-            padding: 0.7rem 1.2rem; background: var(--primary); color: white; border: none; border-radius: 10px;
-            font-weight: 700; font-size: 0.9rem; cursor: pointer; white-space: nowrap;
-        }
-        .guideline-btn:hover { background: var(--primary-dark); }
-        .guideline-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+        /* 지침 문서함 (조회 전용) */
         .guideline-list { display: flex; flex-direction: column; gap: 0.6rem; }
         .guideline-item {
-            display: flex; justify-content: space-between; align-items: center; gap: 1rem;
             padding: 0.8rem 1rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
+            font-size: 0.88rem; color: #334155;
         }
-        .guideline-item .info { font-size: 0.88rem; color: #334155; }
-        .guideline-item .info .fname { font-size: 0.78rem; color: #94a3b8; }
-        .guideline-item .del-btn {
-            background: none; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px;
-            padding: 0.35rem 0.7rem; font-size: 0.8rem; cursor: pointer; white-space: nowrap;
-        }
-        .guideline-item .del-btn:hover { background: #fef2f2; }
+        .guideline-item .fname { font-size: 0.78rem; color: #94a3b8; }
         .guideline-empty { color: #94a3b8; font-size: 0.85rem; padding: 0.5rem 0; }
-        .error-box-inline {
-            background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 10px;
-            padding: 0.7rem 1rem; margin-bottom: 1rem; font-size: 0.85rem;
-        }
     </style>
 </head>
 <body>
@@ -328,18 +309,12 @@
                 </div>
             </div>
 
-            <!-- 2-1. 부처별 지침 문서함 -->
+            <!-- 2-1. 부처별 지침 문서함 (조회 전용) -->
             <div class="form-card">
-                <div class="section-title">📚 부처별 실무 지침 문서함 (상시 보관 - 검토 시 자동 반영)</div>
+                <div class="section-title">📚 부처별 실무 지침 문서함 (현재 등록된 지침 - 검토 시 자동 반영)</div>
                 <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 1.2rem;">
-                    💡 KCSC 국가건설기준과 별개로, 발주기관/부처가 자체 배포하는 실무 지침·매뉴얼(API 미지원)은 여기에 미리 올려두면 <b>이후 모든 설계도서 검토에 자동으로 반영</b>됩니다. 지침이 개정되면 기존 것을 삭제하고 새 버전을 다시 올려주세요.
+                    💡 KCSC 국가건설기준과 별개로, 발주기관/부처가 자체 배포하는 실무 지침·매뉴얼(API 미지원)이 아래 등록돼 있으면 <b>모든 설계도서 검토에 자동으로 반영</b>됩니다. 새 지침 등록/삭제는 이 화면에서 할 수 없고 관리자에게 요청해주세요.
                 </p>
-                <div class="guideline-upload-row">
-                    <input type="text" id="guideline-label" placeholder="지침명 (예: 국토교통부 흙막이 가시설 설계 매뉴얼 2025)">
-                    <input type="file" id="guideline-file" accept=".pdf,.doc,.docx,.hwp,.txt,.xlsx,.xls">
-                    <button type="button" id="guideline-upload-btn" class="guideline-btn">📤 업로드</button>
-                </div>
-                <div class="error-box-inline" id="guideline-error" style="display:none;"></div>
                 <div id="guideline-list" class="guideline-list"></div>
             </div>
 

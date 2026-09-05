@@ -182,13 +182,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ------------------------------------------------------------------
-    // 부처별 실무 지침 문서함 (요청: "각부처지침은 api가없으니 따로 업로드해야해")
+    // 부처별 실무 지침 문서함 (조회 전용 - 등록/삭제는 Claude Code를 통해서만
+    // 이뤄진다. 요청: "저기서 입력하는게 아니라 클로드 코드 여기서 입력하는거고
+    // 어떤게 올라가있는지 볼수있게 사이트에서 그렇게 만들자")
     // ------------------------------------------------------------------
     const guidelineList = document.getElementById('guideline-list');
-    const guidelineLabelInput = document.getElementById('guideline-label');
-    const guidelineFileInput = document.getElementById('guideline-file');
-    const guidelineUploadBtn = document.getElementById('guideline-upload-btn');
-    const guidelineError = document.getElementById('guideline-error');
 
     function escapeHtml(str) {
         const div = document.createElement('div');
@@ -213,77 +211,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderGuidelineList(items) {
         if (!items || items.length === 0) {
-            guidelineList.innerHTML = '<div class="guideline-empty">아직 업로드된 지침 문서가 없습니다.</div>';
+            guidelineList.innerHTML = '<div class="guideline-empty">아직 등록된 지침 문서가 없습니다.</div>';
             return;
         }
         guidelineList.innerHTML = items.map(it => `
-            <div class="guideline-item" data-id="${it.id}">
-                <div class="info">
-                    <div>📄 ${escapeHtml(it.label)}</div>
-                    <div class="fname">${escapeHtml(it.filename)} · ${it.char_count.toLocaleString('ko-KR')}자 · ${it.uploaded_at}</div>
-                </div>
-                <button type="button" class="del-btn" data-id="${it.id}">삭제</button>
+            <div class="guideline-item">
+                <div>📄 ${escapeHtml(it.label)}</div>
+                <div class="fname">${escapeHtml(it.filename)} · ${it.char_count.toLocaleString('ko-KR')}자 · ${it.uploaded_at} 등록</div>
             </div>
         `).join('');
-
-        guidelineList.querySelectorAll('.del-btn').forEach(btn => {
-            btn.addEventListener('click', () => deleteGuideline(btn.dataset.id));
-        });
-    }
-
-    async function deleteGuideline(id) {
-        if (!confirm('이 지침 문서를 삭제할까요? 삭제하면 이후 검토에 더 이상 반영되지 않습니다.')) return;
-        try {
-            const res = await fetch(`/api/guidelines/${id}`, { method: 'DELETE' });
-            const data = await res.json();
-            if (!data.success) {
-                alert('삭제 실패: ' + (data.message || '알 수 없는 오류'));
-                return;
-            }
-            loadGuidelines();
-        } catch (e) {
-            alert('삭제 중 서버 통신 오류: ' + e.message);
-        }
-    }
-
-    if (guidelineUploadBtn) {
-        guidelineUploadBtn.addEventListener('click', async () => {
-            guidelineError.style.display = 'none';
-            const file = guidelineFileInput.files[0];
-            const label = guidelineLabelInput.value.trim();
-
-            if (!file) {
-                guidelineError.textContent = '업로드할 파일을 선택해주세요.';
-                guidelineError.style.display = 'block';
-                return;
-            }
-
-            const fd = new FormData();
-            fd.append('file', file);
-            fd.append('label', label);
-
-            guidelineUploadBtn.disabled = true;
-            guidelineUploadBtn.textContent = '업로드 중...';
-
-            try {
-                const res = await fetch('/api/guidelines', { method: 'POST', body: fd });
-                const data = await res.json();
-                if (!data.success) {
-                    guidelineError.textContent = data.message || '업로드에 실패했습니다.';
-                    guidelineError.style.display = 'block';
-                    return;
-                }
-                guidelineLabelInput.value = '';
-                guidelineFileInput.value = '';
-                loadGuidelines();
-            } catch (e) {
-                guidelineError.textContent = '서버 통신 오류: ' + e.message;
-                guidelineError.style.display = 'block';
-            } finally {
-                guidelineUploadBtn.disabled = false;
-                guidelineUploadBtn.textContent = '📤 업로드';
-            }
-        });
     }
 
     loadGuidelines();
