@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const fileInputs = [
         { id: 'file-report', nameId: 'name-report', boxId: 'box-report' },
         { id: 'file-estimate', nameId: 'name-estimate', boxId: 'box-estimate' },
+        { id: 'file-quantity', nameId: 'name-quantity', boxId: 'box-quantity' },
         { id: 'file-drawing', nameId: 'name-drawing', boxId: 'box-drawing' }
     ];
 
@@ -54,10 +55,11 @@ document.addEventListener('DOMContentLoaded', () => {
             // 파일 묶음 가져오기
             const reportFiles = document.getElementById('file-report').files;
             const estimateFiles = document.getElementById('file-estimate').files;
+            const quantityFiles = document.getElementById('file-quantity').files;
             const drawingFiles = document.getElementById('file-drawing').files;
 
-            if (reportFiles.length === 0 && estimateFiles.length === 0 && drawingFiles.length === 0 && !additionalNotes) {
-                alert('💡 설계보고서, 내역서, 도면 중 하나 이상을 첨부하거나 추가 질의를 입력해주세요!');
+            if (reportFiles.length === 0 && estimateFiles.length === 0 && quantityFiles.length === 0 && drawingFiles.length === 0 && !additionalNotes) {
+                alert('💡 설계보고서, 내역서, 물량산출서, 도면 중 하나 이상을 첨부하거나 추가 질의를 입력해주세요!');
                 return;
             }
 
@@ -72,6 +74,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             for (let i = 0; i < estimateFiles.length; i++) {
                 formData.append('file_estimate', estimateFiles[i]);
+            }
+            for (let i = 0; i < quantityFiles.length; i++) {
+                formData.append('file_quantity', quantityFiles[i]);
             }
             for (let i = 0; i < drawingFiles.length; i++) {
                 formData.append('file_drawing', drawingFiles[i]);
@@ -175,4 +180,111 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // ------------------------------------------------------------------
+    // 부처별 실무 지침 문서함 (요청: "각부처지침은 api가없으니 따로 업로드해야해")
+    // ------------------------------------------------------------------
+    const guidelineList = document.getElementById('guideline-list');
+    const guidelineLabelInput = document.getElementById('guideline-label');
+    const guidelineFileInput = document.getElementById('guideline-file');
+    const guidelineUploadBtn = document.getElementById('guideline-upload-btn');
+    const guidelineError = document.getElementById('guideline-error');
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    async function loadGuidelines() {
+        if (!guidelineList) return;
+        try {
+            const res = await fetch('/api/guidelines');
+            const data = await res.json();
+            if (!data.success) {
+                guidelineList.innerHTML = '<div class="guideline-empty">지침 목록을 불러오지 못했습니다.</div>';
+                return;
+            }
+            renderGuidelineList(data.data);
+        } catch (e) {
+            guidelineList.innerHTML = '<div class="guideline-empty">지침 목록을 불러오지 못했습니다.</div>';
+        }
+    }
+
+    function renderGuidelineList(items) {
+        if (!items || items.length === 0) {
+            guidelineList.innerHTML = '<div class="guideline-empty">아직 업로드된 지침 문서가 없습니다.</div>';
+            return;
+        }
+        guidelineList.innerHTML = items.map(it => `
+            <div class="guideline-item" data-id="${it.id}">
+                <div class="info">
+                    <div>📄 ${escapeHtml(it.label)}</div>
+                    <div class="fname">${escapeHtml(it.filename)} · ${it.char_count.toLocaleString('ko-KR')}자 · ${it.uploaded_at}</div>
+                </div>
+                <button type="button" class="del-btn" data-id="${it.id}">삭제</button>
+            </div>
+        `).join('');
+
+        guidelineList.querySelectorAll('.del-btn').forEach(btn => {
+            btn.addEventListener('click', () => deleteGuideline(btn.dataset.id));
+        });
+    }
+
+    async function deleteGuideline(id) {
+        if (!confirm('이 지침 문서를 삭제할까요? 삭제하면 이후 검토에 더 이상 반영되지 않습니다.')) return;
+        try {
+            const res = await fetch(`/api/guidelines/${id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (!data.success) {
+                alert('삭제 실패: ' + (data.message || '알 수 없는 오류'));
+                return;
+            }
+            loadGuidelines();
+        } catch (e) {
+            alert('삭제 중 서버 통신 오류: ' + e.message);
+        }
+    }
+
+    if (guidelineUploadBtn) {
+        guidelineUploadBtn.addEventListener('click', async () => {
+            guidelineError.style.display = 'none';
+            const file = guidelineFileInput.files[0];
+            const label = guidelineLabelInput.value.trim();
+
+            if (!file) {
+                guidelineError.textContent = '업로드할 파일을 선택해주세요.';
+                guidelineError.style.display = 'block';
+                return;
+            }
+
+            const fd = new FormData();
+            fd.append('file', file);
+            fd.append('label', label);
+
+            guidelineUploadBtn.disabled = true;
+            guidelineUploadBtn.textContent = '업로드 중...';
+
+            try {
+                const res = await fetch('/api/guidelines', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (!data.success) {
+                    guidelineError.textContent = data.message || '업로드에 실패했습니다.';
+                    guidelineError.style.display = 'block';
+                    return;
+                }
+                guidelineLabelInput.value = '';
+                guidelineFileInput.value = '';
+                loadGuidelines();
+            } catch (e) {
+                guidelineError.textContent = '서버 통신 오류: ' + e.message;
+                guidelineError.style.display = 'block';
+            } finally {
+                guidelineUploadBtn.disabled = false;
+                guidelineUploadBtn.textContent = '📤 업로드';
+            }
+        });
+    }
+
+    loadGuidelines();
 });

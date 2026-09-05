@@ -19,6 +19,7 @@ try:
 except Exception as e:
     print(f"Failed to import kcsc_engine: {e}")
     kcsc_engine = None
+from doc_extract import extract_text_from_file
 
 app = Flask(__name__)
 CORS(app)
@@ -2052,92 +2053,148 @@ def api_chat_report():
         print(f"Report Chat API Error: {e}")
         return jsonify({"success": False, "message": f"서버 오류: {str(e)}"})
 
+# saved_files의 category 값 -> 사람이 읽을 라벨 (프롬프트/로그용)
+DESIGN_DOC_LABELS = {
+    'file_report': '설계보고서',
+    'file_estimate': '설계내역서(공사비)',
+    'file_quantity': '물량산출서(수량산출서)',
+    'file_drawing': '설계도면',
+}
+
+
 def run_design_review(job_id, project_name, project_domain, review_modes, additional_notes, saved_files):
     try:
         import os
         import google.generativeai as genai
         genai.configure(api_key=GEMINI_KEY)
-        
+
+        # 카테고리(문서 종류)별로 텍스트를 따로 모아둔다 - 뒤에서 "도면 vs 물량산출서
+        # vs 내역서" 3자 대조를 프롬프트에 명시적으로 지시하려면, 어느 텍스트가
+        # 어느 문서에서 나왔는지 구분이 돼 있어야 하기 때문(요청: "도면을 보고 물량을
+        # 산출했을 때 내가 주는 물량산출내역서와 같은지 다른지를 알고싶어").
+        texts_by_category = {cat: "" for cat in DESIGN_DOC_LABELS}
+        filenames_by_category = {cat: [] for cat in DESIGN_DOC_LABELS}
         extracted_text_combined = ""
         uploaded_genai_files = []
-        
+
         for file_key, file_info in saved_files.items():
             path = file_info['path']
             fname = file_info['name']
+            category = file_info.get('category', 'file_report')
             if os.path.exists(path):
                 try:
                     gfile = upload_file_for_gemini(path, display_name=fname)
                     uploaded_genai_files.append(gfile)
                 except Exception as e:
                     print(f"genai upload failed for {fname}: {e}")
-                    
-                try:
-                    if path.endswith('.xlsx') or path.endswith('.xls'):
-                        import openpyxl
-                        wb = openpyxl.load_workbook(path, data_only=True)
-                        for sheet in wb.sheetnames:
-                            ws = wb[sheet]
-                            extracted_text_combined += f"\n[엑셀 시트: {sheet}]\n"
-                            for row in ws.iter_rows(values_only=True):
-                                row_str = " | ".join([str(c) for c in row if c is not None])
-                                if row_str.strip():
-                                    extracted_text_combined += row_str + "\n"
-                    elif path.endswith('.pdf'):
-                        import fitz
-                        doc = fitz.open(path)
-                        for page in doc:
-                            extracted_text_combined += page.get_text() + "\n"
-                        doc.close()
-                    else:
-                        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                            extracted_text_combined += f.read() + "\n"
-                except Exception as e:
-                    print(f"Text extraction failed for {fname}: {e}")
-                
+
+                text = extract_text_from_file(path)
+                texts_by_category[category] = texts_by_category.get(category, "") + text
+                filenames_by_category.setdefault(category, []).append(fname)
+                extracted_text_combined += text
+
                 try:
                     os.remove(path)
                 except:
                     pass
-                    
+
         kcsc_context = ""
         if kcsc_engine:
             kcsc_context = kcsc_engine.build_kcsc_context_for_llm(project_name, project_domain, review_modes, extracted_text_combined)
-            
+
+        guideline_context = ""
+        try:
+            from guideline_store import build_guideline_context_for_llm
+            guideline_context = build_guideline_context_for_llm()
+        except Exception as e:
+            print(f"[Design Review] guideline_store 로드 실패: {e}")
+
         try:
             available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
             models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-pro' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3 if '1.5-flash' in x else 4))
         except:
             models_to_try = ['models/gemini-1.5-pro', 'models/gemini-2.5-pro', 'models/gemini-1.5-flash']
-            
-        system_instruction = """
+
+        has_drawing = len(filenames_by_category['file_drawing']) > 0
+        has_quantity_doc = len(filenames_by_category['file_quantity']) > 0
+        has_estimate_doc = len(filenames_by_category['file_estimate']) > 0
+
+        # 도면에서 AI가 직접 읽어낸 개략 물량을, 사용자가 제공한 물량산출서/내역서
+        # 수량과 항목별로 대조하는 표를 만들도록 명시적으로 지시. 도면이나 비교
+        # 대상 문서가 없으면 이 표 자체를 건너뛰라고 못박아서, 자료도 없이 표를
+        # 지어내는 것을 막는다.
+        if has_drawing and (has_quantity_doc or has_estimate_doc):
+            compare_targets = []
+            if has_quantity_doc:
+                compare_targets.append("물량산출서")
+            if has_estimate_doc:
+                compare_targets.append("내역서")
+            quantity_check_instruction = f"""
+        [물량 대조 검증 - 반드시 별도 표로 작성]
+        - 첨부된 '설계도면'의 치수·개수·면적·연장 등을 직접 판독하여, 확인 가능한 주요 공종별 개략 물량을 산출하십시오
+          (예: 굴착/터파기 물량 m³, 콘크리트 물량 m³, 철근 물량 ton, 포장 면적 m², 배관 연장 m 등 도면에서 실제로 치수를 딸 수 있는 항목).
+        - 이렇게 도면에서 직접 산출한 값을, 첨부된 {' 및 '.join(compare_targets)}에 기재된 수량과 항목별로 대조하십시오.
+        - 반드시 아래 표 형식으로 "📐 물량 대조 결과"라는 별도 섹션에 제시하십시오:
+
+          | 공종/항목 | 도면 기준 AI 산출물량 (산출근거) | 물량산출서 기재값 | 내역서 기재값 | 대조 결과 |
+          |---|---|---|---|---|
+          | (예: 흙막이 벽체 면적) | 000 m² (OO도면, 길이 00m x 높이 00m 기준) | 000 m² | 000 m² | 🟢 일치 / 🟡 차이 N% / 🔴 확인불가 |
+
+        - "산출근거" 칸에는 반드시 어느 도면의 어떤 치수를 근거로 계산했는지 구체적으로 밝히십시오. 근거를 특정할 수 없으면 그 항목은 "🔴 확인불가"로 표기하고 임의로 숫자를 만들어내지 마십시오.
+        - 도면 판독으로 산출한 물량은 AI의 육안 판독에 의한 "개략치"이며, 실제 CAD 수치/현장 실측과 다를 수 있다는 점을 이 표 바로 위에 명시하십시오.
+        - 차이가 5% 이상 나는 항목은 🟡 또는 🔴 등급 판정 목록에도 반드시 함께 반영하십시오.
+        """
+        else:
+            missing = []
+            if not has_drawing:
+                missing.append("설계도면")
+            if not (has_quantity_doc or has_estimate_doc):
+                missing.append("물량산출서/내역서")
+            quantity_check_instruction = f"""
+        [물량 대조 검증]
+        - {' 및 '.join(missing)}이(가) 첨부되지 않아 물량 대조가 불가능합니다. "📐 물량 대조 결과" 섹션에는 어떤 자료가 부족해서 대조를 못 했는지만 명시하고, 표는 만들지 마십시오(자료 없이 물량을 추정해서 표를 지어내지 마십시오).
+        """
+
+        system_instruction = f"""
         당신은 대한민국 최고 권위의 국가기술자격 기술사(토목/건축/안전)이자 건설공사 설계도서 심사 위원장입니다.
-        제공된 3대 설계 성과물(설계보고서, 설계내역서, 설계도면)과 KCSC 국가건설기준(KDS/KCS) MCP 검색 데이터를 바탕으로 정밀 교차 검증을 수행하세요.
-        
+        제공된 설계 성과물(설계보고서/설계내역서/물량산출서/설계도면)과 KCSC 국가건설기준(KDS/KCS) 데이터, 그리고 업로드된 부처별 실무 지침을 바탕으로 정밀 교차 검증을 수행하세요.
+
         [검증 및 작성 원칙]
         1. 반드시 아래의 4단계 등급화 판정 체계로 명확히 구분하여 작성하세요:
-           - 🔴 [법규/지침 위반 및 필수 누락 사항] (감사 지적 1순위, 법정 경비 요율 미달, 시방서 규격 위반 등)
-           - 🟡 [도면 ↔ 내역서 ↔ 보고서 간 불일치 의심 항목] (수량 상이, 공법 표기 불일치, 누락 공종 등)
-           - 🟢 [적정 및 우수 반영 사항] (KCSC 기준 및 안전 지침 준수 항목)
-           - 💡 [KCSC 표준시방서 기반 개선 권고사항] (품질 향상 및 시공성 개선을 위한 제언)
-        2. 지적 사항에는 반드시 구체적인 법적 근거(고시명, 법조항) 또는 국가건설기준 코드(예: KDS 21 30 00, KCS 14 20 00)를 명시하세요.
-        3. 실무 전문가답게 격식 있고 구체적인 한국어로 작성하세요.
+           - 🔴 [법규/지침 위반 및 필수 누락 사항] (감사 지적 1순위, 법정 경비 요율 미달, 시방서/부처 지침 규격 위반, 물량 중대 불일치 등)
+           - 🟡 [도면 ↔ 내역서 ↔ 물량산출서 ↔ 보고서 간 불일치 의심 항목] (수량 상이, 공법 표기 불일치, 누락 공종 등)
+           - 🟢 [적정 및 우수 반영 사항] (KCSC 기준, 부처 지침 및 안전 지침 준수 항목)
+           - 💡 [KCSC 표준시방서 및 부처 지침 기반 개선 권고사항] (품질 향상 및 시공성 개선을 위한 제언)
+        2. 지적 사항에는 반드시 구체적인 법적 근거(고시명, 법조항) 또는 국가건설기준 코드(예: KDS 21 30 00, KCS 14 20 00) 또는 업로드된 지침 문서명을 명시하세요.
+        3. {quantity_check_instruction}
+        4. 실무 전문가답게 격식 있고 구체적인 한국어로 작성하세요.
         """
-        
+
+        doc_summary = "\n".join(
+            f"  - {DESIGN_DOC_LABELS[cat]}: {', '.join(filenames_by_category[cat]) if filenames_by_category[cat] else '(첨부 없음)'}"
+            for cat in DESIGN_DOC_LABELS
+        )
+
         prompt = f"""
         [공사 기본 정보]
         - 공사명: {project_name}
         - 공종 분야: {project_domain}
         - 집중 검토 모드: {', '.join(review_modes)}
         - 추가 질의 사항: {additional_notes or '없음'}
-        
+
+        [첨부된 문서 종류]
+        {doc_summary}
+
         {kcsc_context}
-        
-        [추출된 문서 요약/텍스트 일부]
+
+        {guideline_context}
+
+        [추출된 문서 요약/텍스트 일부 - 전체 결합]
         {extracted_text_combined[:25000]}
-        
-        위 제공된 문서 파일들과 KCSC 국가건설기준, 법정 경비 고시 기준을 정밀 대조하여 4단계 등급화 판정 보고서를 마크다운 형식으로 작성해 주십시오.
+
+        위 제공된 문서 파일들과 KCSC 국가건설기준, 업로드된 부처 지침, 법정 경비 고시 기준을 정밀 대조하여 4단계 등급화 판정 보고서를 마크다운 형식으로 작성해 주십시오.
         """
-        
+
         content_payload = []
         for gfile in uploaded_genai_files:
             content_payload.append(gemini_file_part(gfile))
@@ -2184,9 +2241,9 @@ def api_design_review():
         
         saved_files = {}
         import tempfile
-        
+
         file_idx = 0
-        for key in ['file_report', 'file_estimate', 'file_drawing']:
+        for key in ['file_report', 'file_estimate', 'file_quantity', 'file_drawing']:
             file_objs = request.files.getlist(key)
             for file_obj in file_objs:
                 if file_obj and file_obj.filename:
@@ -2197,10 +2254,11 @@ def api_design_review():
                     file_obj.save(temp_path)
                     saved_files[f"{key}_{file_idx}"] = {
                         'path': temp_path,
-                        'name': fname
+                        'name': fname,
+                        'category': key
                     }
                     file_idx += 1
-                
+
         job_id = str(uuid.uuid4())
         JOBS[job_id] = {"status": "processing"}
         
@@ -2214,6 +2272,64 @@ def api_design_review():
         return jsonify({"success": True, "jobId": job_id})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
+
+
+# ----------------------------------------------------------------------------
+# 부처별 실무 지침 문서함 (요청: "각부처지침은 api가없으니 따로 업로드해야해")
+# KCSC API처럼 자동으로 못 가져오는 각 부처/발주기관 실무 지침·매뉴얼을 사용자가
+# 직접 업로드해서 쌓아두는 상시 보관함. 설계도서 검토 실행 시 자동으로 반영된다.
+# ⚠️ 로컬 디스크(data/guidelines/)에 저장되므로, 배포 환경에 반영하려면 로컬에서
+# 업로드 후 git commit/push가 필요하다(Cloudtype은 재배포 시 디스크 초기화).
+# ----------------------------------------------------------------------------
+@app.route('/api/guidelines', methods=['GET'])
+def api_list_guidelines():
+    try:
+        from guideline_store import list_guidelines
+        return jsonify({"success": True, "data": list_guidelines()})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e), "data": []})
+
+
+@app.route('/api/guidelines', methods=['POST'])
+def api_upload_guideline():
+    try:
+        from guideline_store import add_guideline
+
+        file_obj = request.files.get('file')
+        label = request.form.get('label', '').strip()
+        if not file_obj or not file_obj.filename:
+            return jsonify({"success": False, "message": "파일을 선택해주세요."}), 400
+
+        import tempfile
+        fname = file_obj.filename
+        ext = os.path.splitext(fname)[1]
+        fd, temp_path = tempfile.mkstemp(suffix=ext)
+        os.close(fd)
+        file_obj.save(temp_path)
+        try:
+            entry = add_guideline(temp_path, fname, label)
+        finally:
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+        return jsonify({"success": True, "data": entry})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route('/api/guidelines/<guideline_id>', methods=['DELETE'])
+def api_delete_guideline(guideline_id):
+    try:
+        from guideline_store import delete_guideline
+        ok = delete_guideline(guideline_id)
+        if not ok:
+            return jsonify({"success": False, "message": "해당 지침 문서를 찾을 수 없습니다."}), 404
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
 
 # 「건설공사 사업관리방식 검토기준 및 업무수행지침」 제127조(착공신고서 검토 및 보고) 원문.
 # 이 문서 자체는 682KB짜리라 fetch_local_law_data의 키워드 매칭에 맡기면 제127조가 잘려

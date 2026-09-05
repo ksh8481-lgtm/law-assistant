@@ -226,6 +226,34 @@
         .progress-step { font-size: 0.95rem; margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.6rem; color: #e2e8f0; }
         .progress-step.active { color: #34d399; font-weight: 700; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* 지침 문서함 */
+        .guideline-upload-row { display: grid; grid-template-columns: 2fr 1.5fr auto; gap: 0.7rem; margin-bottom: 1rem; align-items: center; }
+        .guideline-upload-row input[type="text"] { padding: 0.7rem 0.9rem; }
+        .guideline-upload-row input[type="file"] { font-size: 0.85rem; }
+        .guideline-btn {
+            padding: 0.7rem 1.2rem; background: var(--primary); color: white; border: none; border-radius: 10px;
+            font-weight: 700; font-size: 0.9rem; cursor: pointer; white-space: nowrap;
+        }
+        .guideline-btn:hover { background: var(--primary-dark); }
+        .guideline-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+        .guideline-list { display: flex; flex-direction: column; gap: 0.6rem; }
+        .guideline-item {
+            display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+            padding: 0.8rem 1rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
+        }
+        .guideline-item .info { font-size: 0.88rem; color: #334155; }
+        .guideline-item .info .fname { font-size: 0.78rem; color: #94a3b8; }
+        .guideline-item .del-btn {
+            background: none; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px;
+            padding: 0.35rem 0.7rem; font-size: 0.8rem; cursor: pointer; white-space: nowrap;
+        }
+        .guideline-item .del-btn:hover { background: #fef2f2; }
+        .guideline-empty { color: #94a3b8; font-size: 0.85rem; padding: 0.5rem 0; }
+        .error-box-inline {
+            background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 10px;
+            padding: 0.7rem 1rem; margin-bottom: 1rem; font-size: 0.85rem;
+        }
     </style>
 </head>
 <body>
@@ -257,13 +285,13 @@
                 </div>
             </div>
 
-            <!-- 2. 3대 성과물 업로드 -->
+            <!-- 2. 4대 성과물 업로드 -->
             <div class="form-card">
-                <div class="section-title">📂 3대 설계 성과물 첨부 (하나 이상 업로드 필수)</div>
+                <div class="section-title">📂 설계 성과물 첨부 (하나 이상 업로드 필수)</div>
                 <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 1.2rem;">
-                    💡 보고서, 내역서, 도면 중 보유하신 파일을 올려주세요. AI(Gemini Flash)가 문서 내 치수, 수량, 공법을 자동으로 추출하여 교차 대조합니다.
+                    💡 보고서, 내역서, 물량산출서, 도면 중 보유하신 파일을 올려주세요. <b>도면과 물량산출서(또는 내역서)를 함께 올리면</b>, AI가 도면 치수를 직접 판독해서 산출한 개략 물량을 물량산출서/내역서 수치와 항목별로 대조한 표를 별도로 만들어 드립니다.
                 </p>
-                
+
                 <div class="upload-grid">
                     <!-- 보고서 -->
                     <div class="upload-box" id="box-report">
@@ -276,20 +304,43 @@
                     <!-- 내역서 -->
                     <div class="upload-box" id="box-estimate">
                         <div class="upload-icon">📊</div>
-                        <div class="upload-title">2. 설계내역서 / 수량산출서</div>
+                        <div class="upload-title">2. 설계내역서</div>
                         <div class="upload-desc">Excel (.xlsx, .xls), PDF<br>(공사비, 법정경비 요율 등)</div>
                         <input type="file" class="file-input" id="file-estimate" accept=".xlsx,.xls,.csv,.pdf" multiple>
                         <div class="file-name" id="name-estimate"></div>
                     </div>
+                    <!-- 물량산출서 -->
+                    <div class="upload-box" id="box-quantity">
+                        <div class="upload-icon">📐</div>
+                        <div class="upload-title">3. 물량산출서</div>
+                        <div class="upload-desc">Excel (.xlsx, .xls), PDF<br>(도면 대조용 수량 근거 자료)</div>
+                        <input type="file" class="file-input" id="file-quantity" accept=".xlsx,.xls,.csv,.pdf" multiple>
+                        <div class="file-name" id="name-quantity"></div>
+                    </div>
                     <!-- 도면 -->
                     <div class="upload-box" id="box-drawing">
                         <div class="upload-icon">🖼️</div>
-                        <div class="upload-title">3. 설계도면 / 가설도면</div>
+                        <div class="upload-title">4. 설계도면 / 가설도면</div>
                         <div class="upload-desc">PDF, 이미지 (.png, .jpg)<br>(흙막이, 평면도, 종단면도 등)</div>
                         <input type="file" class="file-input" id="file-drawing" accept=".pdf,.png,.jpg,.jpeg" multiple>
                         <div class="file-name" id="name-drawing"></div>
                     </div>
                 </div>
+            </div>
+
+            <!-- 2-1. 부처별 지침 문서함 -->
+            <div class="form-card">
+                <div class="section-title">📚 부처별 실무 지침 문서함 (상시 보관 - 검토 시 자동 반영)</div>
+                <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 1.2rem;">
+                    💡 KCSC 국가건설기준과 별개로, 발주기관/부처가 자체 배포하는 실무 지침·매뉴얼(API 미지원)은 여기에 미리 올려두면 <b>이후 모든 설계도서 검토에 자동으로 반영</b>됩니다. 지침이 개정되면 기존 것을 삭제하고 새 버전을 다시 올려주세요.
+                </p>
+                <div class="guideline-upload-row">
+                    <input type="text" id="guideline-label" placeholder="지침명 (예: 국토교통부 흙막이 가시설 설계 매뉴얼 2025)">
+                    <input type="file" id="guideline-file" accept=".pdf,.doc,.docx,.hwp,.txt,.xlsx,.xls">
+                    <button type="button" id="guideline-upload-btn" class="guideline-btn">📤 업로드</button>
+                </div>
+                <div class="error-box-inline" id="guideline-error" style="display:none;"></div>
+                <div id="guideline-list" class="guideline-list"></div>
             </div>
 
             <!-- 3. 검토 모드 선택 -->
