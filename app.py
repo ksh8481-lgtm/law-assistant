@@ -928,6 +928,32 @@ def extract_cases_via_llm(text, uploaded_file=None):
     return ""
 
 
+# 한국어는 조사(은/는/이/가/을/를/으로/에서 등)가 명사에 바로 붙어서(띄어쓰기 없이)
+# 문장이 만들어지는 교착어라, 사용자가 자연스럽게 "재난관리기금으로", "행동매뉴얼을"
+# 처럼 쓴 문장에서 뽑은 토큰은 법령 원문에 그 정확한 형태(다른 조사가 붙은 채)로는
+# 거의 등장하지 않는다 - 실사용 중 발견: "재난관리기금으로"라는 토큰으로는
+# _extract_relevant_excerpt의 등장 횟수 집계에서 0회로 잡혀, 정작 로컬 원문에 실제로
+# 있는 "재난관리기금" 관련 조문(제67조~제75조)을 완전히 놓치고 AI가 조문 내용을
+# 통째로 지어내는 사고로 이어졌다. 흔한 조사를 뒤에서부터 제거해 "명사 원형"에
+# 가깝게 만들어주는 가벼운 보정을 추가한다(완벽한 형태소분석기는 아니지만, 뒤에서
+# 최장 일치하는 조사 하나만 떼어내는 것만으로도 매칭률이 크게 개선됨).
+_KOREAN_PARTICLES = sorted([
+    '으로는', '에서는', '에게서', '로부터', '에게는', '이라도', '이라는',
+    '에서', '으로', '이나', '부터', '까지', '이랑', '하고', '에게', '한테',
+    '처럼', '만큼', '밖에', '마다', '조차', '마저', '이라', '라는', '와는', '과는',
+    '은', '는', '이', '가', '을', '를', '의', '에', '로', '와', '과', '도', '만', '나', '랑',
+], key=len, reverse=True)
+
+
+def _strip_korean_particle(word: str) -> str:
+    """단어 끝에 붙은 흔한 조사를 최장 일치로 하나만 제거한다. 2자 미만이 되면
+    (오탐 위험이 커서) 제거하지 않고 원래 단어를 그대로 반환한다."""
+    for particle in _KOREAN_PARTICLES:
+        if word.endswith(particle) and len(word) - len(particle) >= 2:
+            return word[:-len(particle)]
+    return word
+
+
 def fetch_local_law_data(query, moleg_context):
     import glob
     import os
@@ -945,8 +971,10 @@ def fetch_local_law_data(query, moleg_context):
     #  훨씬 길어서 거의 매칭되지 않았다. 그 결과 관련 로컬 법령이 전혀 검색되지 않고
     #  AI가 사전지식만으로 답하다가 완전히 다른 법(환경영향평가법)을 재해영향평가로
     #  착각해 답하는 사고로 이어짐.)
+    # 따옴표/괄호류(「」『』""''〈〉《》 등, 공식 법령명을 인용할 때 흔히 씀)가 단어
+    # 끝에 붙어 매칭을 방해하지 않도록 분리 대상 문자에 포함시킨다.
     combined_text = f"{query} {moleg_context}"
-    keywords = set(w for w in re.split(r'[\s,./()·\[\]]+', combined_text) if len(w) >= 3)
+    keywords = set(w for w in re.split(r'[\s,./()·\[\]「」『』""\'\'“”‘’〈〉《》]+', combined_text) if len(w) >= 3)
 
     # 위 키워드 매칭은 "질의 단어가 파일명에 연속해서 그대로 들어있는지"만 보기 때문에,
     # 정식 법령명이 길어서 실무에서 줄임말(약칭)로 더 자주 불리는 법은 여전히 못 찾는다.
@@ -976,7 +1004,10 @@ def fetch_local_law_data(query, moleg_context):
     # 파일명 매칭용 keywords는 오탐 방지를 위해 3자 이상만 쓰지만, "인도"/"철거"처럼
     # 정작 조문 안에서는 2자 단어가 핵심인 경우가 많다. 파일 "안"에서 관련 부분을
     # 찾을 때는 원 질의(모호한 MCP 검색결과 산문은 제외)에서 2자 이상까지 넓게 뽑는다.
-    locate_keywords = keywords | set(w for w in re.split(r'[\s,./()·\[\]]+', query) if len(w) >= 2)
+    raw_locate_words = set(w for w in re.split(r'[\s,./()·\[\]「」『』""\'\'“”‘’〈〉《》]+', query) if len(w) >= 2)
+    # 조사가 붙은 원형("재난관리기금으로")과 조사를 뗀 형태("재난관리기금") 둘 다 넣어서,
+    # 조문 원문에 어느 쪽이 등장하든 걸리도록 한다(위 _strip_korean_particle 참고).
+    locate_keywords = keywords | raw_locate_words | set(_strip_korean_particle(w) for w in raw_locate_words)
 
     # 파일 하나가 통째로(최대 1.8MB짜리도 있음) 프롬프트를 잡아먹지 않도록 파일당/전체 상한을 둔다.
     # (moleg_context는 실시간 검색 결과 산문이라 법령명을 여러 개 언급하기 쉬워서,
@@ -985,19 +1016,38 @@ def fetch_local_law_data(query, moleg_context):
     MAX_PER_FILE = 8000
     MAX_TOTAL = 24000
 
+    # "기본법"처럼 짧은 키워드는 여러 무관한 법(건설산업기본법, 지방자치단체 기금관리
+    # 기본법 등)의 파일명에도 전부 걸린다. 예전에는 glob이 반환하는 순서(사실상 임의)대로
+    # 처리하다가 MAX_TOTAL에 먼저 도달해버려서, 정작 가장 관련 있는 법(재난 및 안전관리
+    # 기본법)이 예산을 다 못 받고 시작부분만 잘려 들어가는 사고로 이어졌다(실사용 중
+    # 발견: "조례를 왜 못 읽어오지" 문의를 계기로 재난관리기금 조문이 통째로 빠진
+    # 것을 확인). 그래서 매칭 강도를 점수로 매겨, 관련성 높은 파일부터 먼저 처리한다.
+    combined_nospace = re.sub(r'\s+', '', combined_text)
+    scored_files = []
     for md_file in glob.glob(os.path.join(laws_dir, '*.md')):
+        law_name_key = os.path.basename(md_file).replace('.md', '').replace('_', '')
+        matched = [kw for kw in keywords if kw in law_name_key]
+        if not matched:
+            continue
+        score = sum(len(kw) for kw in matched)
+        # 법령 정식명칭(띄어쓰기 포함)이 질의에 통째로 그대로 언급된 경우는 훨씬
+        # 강한 신호이므로 가중치를 크게 준다.
+        if law_name_key in combined_nospace:
+            score += len(law_name_key) * 2
+        scored_files.append((score, md_file))
+
+    scored_files.sort(key=lambda x: x[0], reverse=True)
+
+    for _score, md_file in scored_files:
         if len(local_data) >= MAX_TOTAL:
             break
-        law_name_key = os.path.basename(md_file).replace('.md', '').replace('_', '')
-
-        if any(kw in law_name_key for kw in keywords):
-            try:
-                with open(md_file, "r", encoding="utf-8") as f:
-                    content = f.read()
-                remaining = MAX_TOTAL - len(local_data)
-                local_data += _extract_relevant_excerpt(content, locate_keywords, min(MAX_PER_FILE, remaining)) + "\n\n"
-            except:
-                pass
+        try:
+            with open(md_file, "r", encoding="utf-8") as f:
+                content = f.read()
+            remaining = MAX_TOTAL - len(local_data)
+            local_data += _extract_relevant_excerpt(content, locate_keywords, min(MAX_PER_FILE, remaining)) + "\n\n"
+        except:
+            pass
     return local_data
 
 
