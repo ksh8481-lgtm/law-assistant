@@ -23,6 +23,7 @@ import re
 import google.generativeai as genai
 
 from moleg_mcp import search_law, search_precedents_by_keyword, search_precedent_by_case_number, search_ordinance
+from korea_regions import find_jurisdiction_in_text
 
 # 대법원 판례 사건번호 패턴 (예: 2010두11641, 2018다12345)
 _CASE_NO_PATTERN = re.compile(r'\d{2,4}[가-힣]\d{3,7}')
@@ -46,7 +47,7 @@ def _extract_keyword_and_jurisdiction(query: str) -> tuple:
             "(예: 영업손실보상, 재해영향평가, 하도급)\n"
             "- 지자체명: 텍스트에 특정 시/군/구 등 기초/광역 지방자치단체 이름이 명시되어 "
             "있으면 그 이름만(예: 남해군, 수원시, 강남구), 없으면 비워둬. (예: '하도급|')\n"
-            "텍스트: " + query[:2000]
+            "텍스트: " + query[:8000]
         )
         resp = model.generate_content(prompt)
         line = resp.text.strip().splitlines()[0].strip()
@@ -67,6 +68,14 @@ def get_mcp_context_sync(query: str, uploaded_file=None) -> str:
     if not keyword:
         # 키워드 추출 자체가 실패해도 빈 컨텍스트보다는 질의 앞부분이라도 검색어로 쓰는 게 낫다.
         keyword = query.strip()[:15]
+
+    if not jurisdiction:
+        # LLM 추출은 비용/속도 때문에 텍스트 앞부분(8,000자)만 보므로, 그보다 뒤에
+        # 지자체명이 나오는 긴 첨부문서에서는 놓칠 수 있다. 이 경우 전체 텍스트를
+        # 결정적으로(LLM 없이) 훑어서 실제 존재하는 지자체명을 찾아내는 것으로
+        # 보완한다 (실사용 중 발견: "조례를 왜 못 읽어오지" 문의 - 지자체명이
+        # 8,000자 자르기 지점 이후에 있어 통째로 놓쳤던 사례).
+        jurisdiction = find_jurisdiction_in_text(query)
 
     sections = []
 
