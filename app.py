@@ -1088,21 +1088,43 @@ def _extract_relevant_excerpt(content, keywords, max_len):
     def overlaps(s, e):
         return any(s < ce and e > cs for cs, ce in covered)
 
+    # 키워드 하나당 "가장 먼저 등장하는 위치"만 대표로 뽑던 예전 방식은, 그 키워드가
+    # 정작 우리가 찾는 조문(예: 제74조 "재난관리기금의 용도")보다 훨씬 앞쪽의 전혀
+    # 무관한 조문(예: 제70조 "특별재난지역 선포시 예비비 집행")에서 딱 한 번 먼저
+    # 등장해버리면, 정작 그 키워드가 몰려있는(=진짜 관련 있는) 뒷부분 조문 덩어리를
+    # 통째로 놓치는 사고로 이어졌다(실사용 중 발견: "재난관리기금"이 문서 앞쪽에
+    # 1번, 제74~75조 부근에 8번 몰려있었는데 앞쪽 1번만 뽑혀서 정작 필요한 "용도"
+    # 조문이 통째로 빠짐 -> AI가 그 조문 내용을 지어내는 사고로 이어짐). 그래서
+    # 그래서 같은 키워드의 여러 등장 위치를 "인접한(1200자 이내) 것끼리" 클러스터로
+    # 묶고, 가장 원소가 많은(=가장 밀집된) 클러스터를 고른 뒤, 그 클러스터의 "첫
+    # 위치"부터 창을 연다(첫 위치 기준으로 열어야 조문 제목처럼 클러스터 맨 앞에
+    # 있는 내용을 놓치지 않는다). 예: "재난관리기금"이 문서 앞쪽에 1번(무관한
+    # 조문), 제74~75조 부근에 8번 몰려있었다면 -> 8개짜리 클러스터를 고르고 그
+    # 클러스터의 시작 위치(제74조 제목 직후)부터 창을 열어 조문 전체를 담는다.
     picks = []  # (start, piece)
     for kw, _cnt in sorted(counts.items(), key=lambda x: x[1]):  # 희귀한 키워드부터
         if budget <= 0:
             break
-        for m in re.finditer(re.escape(kw), content):
-            pos = m.start()
-            start = max(0, pos - 150)
-            end = min(len(content), pos + 1200)
+        positions = sorted(m.start() for m in re.finditer(re.escape(kw), content))
+
+        clusters = [[positions[0]]]
+        for p in positions[1:]:
+            if p - clusters[-1][-1] <= 1200:
+                clusters[-1].append(p)
+            else:
+                clusters.append([p])
+        # 밀집도(원소 수) 높은 클러스터부터 시도하다가, 이미 다른 키워드가 차지한
+        # 구간과 겹치지 않는 첫 후보를 채택한다.
+        for cluster in sorted(clusters, key=len, reverse=True):
+            start = max(0, cluster[0] - 150)
+            end = min(len(content), cluster[-1] + 800)
             if overlaps(start, end):
                 continue
             piece = content[start:end][:budget]
             picks.append((start, piece))
             covered.append((start, start + len(piece)))
             budget -= len(piece)
-            break  # 키워드 하나당 대표 지점 1곳만
+            break  # 키워드 하나당 대표 클러스터 1곳만
 
     picks.sort(key=lambda x: x[0])  # 읽기 자연스럽도록 원문 등장 순서로 재정렬
     return head + "\n...(중략)...\n" + "\n...(중략)...\n".join(p for _, p in picks)
