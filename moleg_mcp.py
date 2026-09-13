@@ -158,11 +158,42 @@ def search_law(keyword: str) -> str:
     except Exception as e:
         return f"Error searching laws: {str(e)}"
 
+def _ordinance_detail_text(mst: str, max_len: int = 6000) -> str:
+    """자치법규 상세조회(lawService.do target=ordin)로 조례 원문(조문 전체)을
+    가져온다. search_ordinance는 이름/링크만 주지 검토에 필요한 실제 조문
+    내용을 안 줘서, 사용자가 링크는 열리는데 AI가 "그 안에 뭐라고 쓰여
+    있는지"는 검토를 못 하는 사고로 이어졌음(실사용 중 발견: "조례는 잘
+    열리는데 왜 대답할 때 조례를 검토를 안 하는 것 같지"). 이 함수로 실제
+    원문을 가져와 메인 프롬프트에 넣어야 AI가 조례 조문 자체를 검토할 수 있다.
+    """
+    try:
+        url = f"https://www.law.go.kr/DRF/lawService.do?OC={MOLEG_API_KEY}&target=ordin&MST={mst}&type=XML"
+        res = requests.get(url, timeout=10)
+        res.encoding = 'utf-8'
+        root = ET.fromstring(res.text)
+
+        lines = []
+        for jo in root.findall('.//조'):
+            title = jo.findtext('조제목', '') or ''
+            content = (jo.findtext('조내용', '') or '').strip()
+            if content:
+                lines.append(content)
+            if sum(len(l) for l in lines) >= max_len:
+                break
+
+        text = "\n".join(lines)
+        return text[:max_len]
+    except Exception as e:
+        return f"(조례 원문 조회 실패: {e})"
+
+
 @mcp.tool()
 def search_ordinance(keyword: str) -> str:
     """
     Search MOLEG (법제처) 자치법규(지방자치단체 조례/규칙) by keyword.
-    Returns matching ordinance names, issuing jurisdiction, and links.
+    Returns matching ordinance names, issuing jurisdiction, links, and the
+    full article text of the top match (so the main analysis can actually
+    review what the ordinance says, not just know that it exists).
     키워드에 지자체명(예: "남해군 공유재산")을 함께 넣으면 해당 지자체 조례로 좁혀진다.
     """
     try:
@@ -172,18 +203,30 @@ def search_ordinance(keyword: str) -> str:
         root = ET.fromstring(res.text)
 
         results = []
+        top_mst = None
+        top_name = None
         for law in root.findall('.//law')[:5]:
             name = law.findtext('자치법규명', '')
             org = law.findtext('지자체기관명', '')
             kind = law.findtext('자치법규종류', '')
+            mst = law.findtext('자치법규일련번호', '')
             if name:
                 link = f"https://www.law.go.kr/자치법규/{urllib.parse.quote(name)}"
                 results.append(f"- [{name}]({link}) ({org}, {kind})")
+                if top_mst is None and mst:
+                    top_mst = mst
+                    top_name = name
 
         if not results:
             return f"No ordinances found for keyword: {keyword}"
 
-        return "Found ordinances:\n" + "\n".join(results)
+        output = "Found ordinances:\n" + "\n".join(results)
+
+        if top_mst:
+            detail = _ordinance_detail_text(top_mst)
+            output += f"\n\n[가장 관련성 높은 조례 원문: '{top_name}']\n{detail}"
+
+        return output
     except Exception as e:
         return f"Error searching ordinances: {str(e)}"
 
