@@ -941,7 +941,7 @@ _KOREAN_PARTICLES = sorted([
     '으로는', '에서는', '에게서', '로부터', '에게는', '이라도', '이라는',
     '에서', '으로', '이나', '부터', '까지', '이랑', '하고', '에게', '한테',
     '처럼', '만큼', '밖에', '마다', '조차', '마저', '이라', '라는', '와는', '과는',
-    '은', '는', '이', '가', '을', '를', '의', '에', '로', '와', '과', '도', '만', '나', '랑',
+    '은', '는', '이', '가', '을', '를', '의', '에', '로', '와', '과', '도', '만', '나', '랑', '상',
 ], key=len, reverse=True)
 
 
@@ -975,6 +975,15 @@ def fetch_local_law_data(query, moleg_context):
     # 끝에 붙어 매칭을 방해하지 않도록 분리 대상 문자에 포함시킨다.
     combined_text = f"{query} {moleg_context}"
     keywords = set(w for w in re.split(r'[\s,./()·\[\]「」『』""\'\'“”‘’〈〉《》]+', combined_text) if len(w) >= 3)
+    # 파일명 매칭은 "kw가 파일명 안에 부분 포함되는지"(kw in law_name_key)로 보는데,
+    # "건설산업기본법상"처럼 조사가 붙은 원형은 파일명 "건설산업기본법"보다 길어서
+    # 아예 포함될 수가 없다(긴 문자열이 짧은 문자열 "안에" 들어갈 수 없음) - 그
+    # 결과 정식 법령명을 조사와 함께 그대로 언급했을 뿐인데도 파일이 단 하나도
+    # 안 걸리는 사고로 이어졌다(실사용 중 발견: "건설산업기본법상"이 유일한 매칭
+    # 후보였는데 조사 때문에 통째로 무효화됨). 조사를 뗀 형태도 함께 넣어준다
+    # (원형은 그대로 두고 "추가"하는 것 - 파일명 매칭은 겹쳐도 사고가 안 나므로,
+    # _extract_relevant_excerpt의 locate_keywords와 달리 원형을 없앨 필요는 없음).
+    keywords |= set(_strip_korean_particle(w) for w in keywords)
 
     # 위 키워드 매칭은 "질의 단어가 파일명에 연속해서 그대로 들어있는지"만 보기 때문에,
     # 정식 법령명이 길어서 실무에서 줄임말(약칭)로 더 자주 불리는 법은 여전히 못 찾는다.
@@ -1069,13 +1078,60 @@ def _extract_relevant_excerpt(content, keywords, max_len):
     if len(content) <= max_len:
         return content
 
-    # 키워드별로 문서 안에서 몇 번이나 등장하는지 센다. "공익사업"/"보상금"처럼
-    # 법 전체에 수십 번 나오는 흔한 단어는 조문 위치를 특정하는 데 도움이 안 되고,
-    # 오히려 그 흔한 단어들이 문서 앞부분에 몰려있어서 예산을 다 잡아먹고 정작
-    # 필요한 뒷부분 조항(드물게/한 번만 나오는 단어 근처)을 놓치는 사고로
-    # 이어졌다(실사용 중 발견: "인도"는 8번뿐이라 걸러졌어야 했는데 3글자
-    # 미만이라 애초에 키워드에서 빠졌던 문제와 겹쳐서 발생). 그래서 흔한 단어는
-    # 아예 건너뛰고, 희귀한(구체적인) 키워드부터 우선 발췌한다.
+    head = content[:400]
+    budget = max_len - len(head)
+    covered = [(0, len(head))]
+
+    def overlaps(s, e):
+        return any(s < ce and e > cs for cs, ce in covered)
+
+    picks = []  # (start, piece)
+
+    # 0단계: 조문 "제목"(예: "제29조(건설공사의 하도급 제한)")부터 먼저 스캔한다.
+    # 아래 1단계("흔한 단어는 건너뛰고 희귀한 키워드부터")는, 질의의 핵심 주제가
+    # 하필 그 법의 가장 중심 주제와 같을 때(예: 하도급 규정이 잔뜩 있는 건설산업
+    # 기본법에 "하도급"을 물어보는 경우) 무너진다 - "하도급"이 문서에 180번 넘게
+    # 나온다는 이유로 통째로 걸러지고, 정작 "것으"/"서류"처럼 우연히 20번 이하로
+    # 나온 의미 없는 단어들만 뽑혀서 진짜 필요한 조문(제29조)이 빠지는 사고로
+    # 이어졌다(실사용 중 발견). 조문 제목은 그 조문 하나의 핵심을 압축해서
+    # 보여주므로, 본문에서는 아무리 흔한 단어라도 "그 단어가 제목에 들어간 조문"
+    # 자체는 문서 전체에서 몇 개 안 되어 훨씬 정확한 신호가 된다.
+    #
+    # 점수는 "매칭된 키워드 개수"가 아니라 "매칭된 키워드 길이의 합"으로 매긴다.
+    # "재난"(2자)처럼 아주 흔한 단어 하나 걸린 제목과 "재난관리기금"(6자)처럼
+    # 구체적인 단어가 걸린 제목이 개수로는 똑같이 "1점"이 되면, 문서 안에 "재난"
+    # 정도만 우연히 걸리는 무관한 조문 제목이 수십 개라 그것들이 먼저 처리되며
+    # 예산을 다 가져가고 정작 "재난관리기금"이 제목에 있는 진짜 조문(제74조)이
+    # 밀려나는 사고로 이어졌다(실사용 중 발견). 길이 합으로 매기면 구체적인
+    # 키워드가 걸린 제목이 확실히 더 높은 점수를 받는다.
+    heading_scores = []  # (score, start, end)
+    for m in re.finditer(r'제\d+조(?:의\d+)?\([^)\n]{2,80}\)', content):
+        title = m.group(0)
+        score = sum(len(kw) for kw in keywords if len(kw) >= 2 and kw in title)
+        if score > 0:
+            heading_scores.append((score, m.start(), m.end()))
+    heading_scores.sort(key=lambda x: x[0], reverse=True)
+
+    for _score, start, end in heading_scores:
+        if budget <= 0:
+            break
+        win_start = max(0, start - 50)
+        win_end = min(len(content), end + 1400)  # 제목 뒤로 조문 본문까지 담을 여유
+        if overlaps(win_start, win_end):
+            continue
+        piece = content[win_start:win_end][:budget]
+        picks.append((win_start, piece))
+        covered.append((win_start, win_start + len(piece)))
+        budget -= len(piece)
+
+    # 1단계: 위 제목 매칭으로 못 찾은(=조문 제목엔 없고 본문에만 나오는) 나머지는
+    # 기존 방식대로, 키워드별로 문서 안에서 몇 번이나 등장하는지 세어 발췌한다.
+    # "공익사업"/"보상금"처럼 법 전체에 수십 번 나오는 흔한 단어는 조문 위치를
+    # 특정하는 데 도움이 안 되고, 오히려 그 흔한 단어들이 문서 앞부분에 몰려있어서
+    # 예산을 다 잡아먹고 정작 필요한 뒷부분 조항(드물게/한 번만 나오는 단어 근처)을
+    # 놓치는 사고로 이어졌다(실사용 중 발견: "인도"는 8번뿐이라 걸러졌어야 했는데
+    # 3글자 미만이라 애초에 키워드에서 빠졌던 문제와 겹쳐서 발생). 그래서 흔한
+    # 단어는 아예 건너뛰고, 희귀한(구체적인) 키워드부터 우선 발췌한다.
     counts = {}
     for kw in keywords:
         if len(kw) < 2:
@@ -1083,15 +1139,8 @@ def _extract_relevant_excerpt(content, keywords, max_len):
         c = content.count(kw)
         if 0 < c <= 20:
             counts[kw] = c
-    if not counts:
+    if not counts and not picks:
         return content[:max_len]
-
-    head = content[:400]
-    budget = max_len - len(head)
-    covered = [(0, len(head))]
-
-    def overlaps(s, e):
-        return any(s < ce and e > cs for cs, ce in covered)
 
     # 키워드 하나당 "가장 먼저 등장하는 위치"만 대표로 뽑던 예전 방식은, 그 키워드가
     # 정작 우리가 찾는 조문(예: 제74조 "재난관리기금의 용도")보다 훨씬 앞쪽의 전혀
@@ -1114,7 +1163,6 @@ def _extract_relevant_excerpt(content, keywords, max_len):
     # 짧은 일반 서술어는 특정 조문을 가리키는 신호로서 가치가 낮고, 오히려 길고
     # 구체적인(=복합명사인) 키워드일수록 특정 조문과 직결될 가능성이 높다. 그래서
     # "등장 횟수"보다 "키워드 길이"를 1순위 정렬 기준으로 삼는다.
-    picks = []  # (start, piece)
     for kw, _cnt in sorted(counts.items(), key=lambda x: (-len(x[0]), x[1])):  # 길고 구체적인 키워드부터
         if budget <= 0:
             break
