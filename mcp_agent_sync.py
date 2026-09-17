@@ -134,7 +134,19 @@ def get_mcp_context_sync(query: str, uploaded_file=None) -> str:
     search_kw = ordinance_keyword or keyword
     if jurisdiction and search_kw:
         try:
-            sections.append(f"[자치법규(조례) 검색 결과: '{jurisdiction} {search_kw}']\n{search_ordinance(f'{jurisdiction} {search_kw}')}")
+            ord_result = search_ordinance(f'{jurisdiction} {search_kw}')
+            # ordinance_keyword로도 못 찾으면(예: "개발행위"는 조례 제목엔 안 쓰이고
+            # "도시계획 조례" 안의 세부 내용일 뿐인 경우), 일반 법령검색용 keyword로도
+            # 한 번 더 시도해본다 - LLM이 두 후보 중 하나는 실제 조례 제목과 더 가깝게
+            # 뽑을 때가 있다(실사용 중 발견: "강남구 도시계획위원회 심의 대상 개발행위"
+            # 질의에서 ordinance_keyword="개발행위"는 실패했지만 일반 keyword 쪽이
+            # 조례 제목에 더 가까운 경우가 있음).
+            if ord_result.startswith("No ordinances found") and keyword and keyword != search_kw:
+                retry = search_ordinance(f'{jurisdiction} {keyword}')
+                if not retry.startswith("No ordinances found"):
+                    ord_result = retry
+                    search_kw = keyword
+            sections.append(f"[자치법규(조례) 검색 결과: '{jurisdiction} {search_kw}']\n{ord_result}")
         except Exception as e:
             sections.append(f"[자치법규 검색 실패: {e}]")
 
