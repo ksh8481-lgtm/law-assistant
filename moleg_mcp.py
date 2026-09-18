@@ -13,26 +13,35 @@ MOLEG_API_KEY = os.environ.get("MOLEG_API_KEY", "ksh8481")
 mcp = FastMCP("moleg_mcp_server")
 
 
-def _get_with_retry(url: str, timeout: float = 12, retries: int = 1):
-    """law.go.kr 호출 공용 래퍼.
+def _fetch_law_xml_with_retry(url: str, timeout: float = 12, retries: int = 2):
+    """law.go.kr 호출 + XML 파싱까지 묶어서 재시도하는 공용 함수.
 
-    예전엔 각 함수가 timeout=5(짧으면 10)로 requests.get을 직접 호출하고
-    재시도가 전혀 없었다. law.go.kr은 정부 사이트라 가끔 응답이 5초를 넘게
-    걸리는 경우가 실제로 있는데, 그럴 때마다 예외로 빠져서 "법령/판례 검색에서
-    오류가 발생했습니다"라는 문구가 검토 결과에 그대로 노출되는 사고로
-    이어졌다(실사용 중 발견: "왜 계속 똑같은 문제가 일어나지" 문의 - 매번
-    같은 코드 버그가 아니라 그때그때 다른 네트워크 지연이 원인이었을
-    가능성). 타임아웃을 넉넉하게 늘리고, 1회 정도는 자동 재시도해서 일시적인
-    지연/끊김에 흔들리지 않게 한다.
+    예전엔 timeout=5(짧으면 10)로 requests.get만 직접 호출하고 재시도가
+    전혀 없었다. 그 뒤 1차로 "네트워크 예외만 1회 재시도"하도록 고쳤지만,
+    실사용 중 배포 환경(Cloudtype)에서 여전히 "통신 오류로 조례를 확인할
+    수 없었다"는 사고가 재발했다 - 로컬 PC에서 같은 API를 여러 번 호출하면
+    항상 정상 응답하는데, 배포 서버에서만 실패하는 걸 보면 순수 타임아웃
+    보다는 응답 자체는 왔지만 예상한 XML 구조가 아닌 경우(요청 제한, 일시적
+    서버 오류 응답 등)일 가능성이 있다. 그래서 "요청"뿐 아니라 "XML 파싱"
+    까지 한 단위로 묶어 재시도 횟수를 2회로 늘리고, 매 재시도 간격도
+    점진적으로 늘렸다(0.5s, 1.5s). 그래도 끝내 실패하면 마지막 예외 메시지에
+    상태코드와 응답 앞부분을 덧붙여, 다음에 같은 문제가 재발했을 때 서버
+    로그에서 실제 원인(순수 타임아웃인지, HTTP 오류 응답인지, 다른 XML
+    구조인지)을 바로 구분할 수 있게 한다.
     """
     last_err = None
     for attempt in range(retries + 1):
         try:
-            return requests.get(url, timeout=timeout)
-        except requests.exceptions.RequestException as e:
+            res = requests.get(url, timeout=timeout)
+            if res.status_code != 200:
+                raise RuntimeError(f"HTTP {res.status_code}: {res.text[:200]}")
+            res.encoding = 'utf-8'
+            return ET.fromstring(res.text)
+        except Exception as e:
             last_err = e
+            print(f"[moleg_mcp] law.go.kr 호출 실패(시도 {attempt + 1}/{retries + 1}): {type(e).__name__}: {e}")
             if attempt < retries:
-                time.sleep(0.5)
+                time.sleep(0.5 * (attempt + 1))
     raise last_err
 
 # law.go.kr 검색 API가 반환하는 사건번호는 "법원명-연도-사건종류-번호" 형식인데
@@ -74,9 +83,7 @@ def search_precedents_by_keyword(keyword: str) -> str:
     """
     try:
         search_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={MOLEG_API_KEY}&target=prec&type=XML&query={urllib.parse.quote(keyword)}"
-        res = _get_with_retry(search_url)
-        res.encoding = 'utf-8'
-        root = ET.fromstring(res.text)
+        root = _fetch_law_xml_with_retry(search_url)
 
         results = []
         for prec in root.findall('prec')[:5]:  # 상위 5개 반환
@@ -106,9 +113,7 @@ def search_precedent_by_case_number(case_number: str) -> str:
         # 1. 사건번호로 판례일련번호 조회 (법원명이 붙은 전체 형식이 들어와도
         # 축약형으로 정규화 - 검색 안정성 문제는 _normalize_case_no_for_search 참고)
         search_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={MOLEG_API_KEY}&target=prec&type=XML&query={urllib.parse.quote(_normalize_case_no_for_search(case_number))}"
-        res = _get_with_retry(search_url)
-        res.encoding = 'utf-8'
-        root = ET.fromstring(res.text)
+        root = _fetch_law_xml_with_retry(search_url)
 
         prec = root.find('prec')
         if prec is None:
@@ -130,9 +135,7 @@ def search_precedent_by_case_number(case_number: str) -> str:
         # 예전 코드는 이 오류를 감지하지 못해 그냥 빈 문자열들을 반환했었다
         # (실사용 중 발견: search_precedent_by_case_number가 항상 빈 결과를 냄).
         detail_url = f"https://www.law.go.kr/DRF/lawService.do?OC={MOLEG_API_KEY}&target=prec&ID={prec_id}&type=XML"
-        res_detail = _get_with_retry(detail_url)
-        res_detail.encoding = 'utf-8'
-        root_detail = ET.fromstring(res_detail.text)
+        root_detail = _fetch_law_xml_with_retry(detail_url)
 
         if root_detail.tag != 'PrecService':
             # 상세 원문 조회 실패 - 검색 단계에서 얻은 정보만이라도 정확하게 제공한다.
@@ -164,9 +167,7 @@ def search_law(keyword: str) -> str:
     """
     try:
         law_url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={MOLEG_API_KEY}&target=law&type=XML&query={urllib.parse.quote(keyword)}"
-        res = _get_with_retry(law_url)
-        res.encoding = 'utf-8'
-        root = ET.fromstring(res.text)
+        root = _fetch_law_xml_with_retry(law_url)
         
         laws = []
         for law in root.findall('.//law')[:5]:
@@ -192,9 +193,7 @@ def _ordinance_detail_text(mst: str, max_len: int = 6000) -> str:
     """
     try:
         url = f"https://www.law.go.kr/DRF/lawService.do?OC={MOLEG_API_KEY}&target=ordin&MST={mst}&type=XML"
-        res = _get_with_retry(url)
-        res.encoding = 'utf-8'
-        root = ET.fromstring(res.text)
+        root = _fetch_law_xml_with_retry(url)
 
         lines = []
         for jo in root.findall('.//조'):
@@ -224,9 +223,7 @@ def _search_ordinance_once(jurisdiction: str, keyword: str):
     """검색 1회 시도. (results_lines, top_mst, top_name) 또는 결과 없으면 None."""
     query = f"{jurisdiction} {keyword}".strip()
     url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={MOLEG_API_KEY}&target=ordin&type=XML&query={urllib.parse.quote(query)}"
-    res = _get_with_retry(url)
-    res.encoding = 'utf-8'
-    root = ET.fromstring(res.text)
+    root = _fetch_law_xml_with_retry(url)
 
     results = []
     top_mst = None
