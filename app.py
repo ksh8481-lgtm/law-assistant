@@ -19,6 +19,7 @@ try:
 except Exception as e:
     print(f"Failed to import kcsc_engine: {e}")
     kcsc_engine = None
+from law_linkify import linkify_law_citations, extract_law_names_from_context
 from doc_extract import extract_text_from_file
 
 app = Flask(__name__)
@@ -372,6 +373,49 @@ def search_law_list():
     except Exception as e:
         print("Law List Search Error:", e)
         return jsonify({"success": False, "message": f"법령 목록 검색 오류: {str(e)}"})
+
+
+@app.route('/api/debug/net', methods=['GET'])
+def debug_net():
+    """[임시 진단용] 배포 서버에서 법제처(law.go.kr)로 나가는 연결이 왜 막히는지 좁히기 위한 점검.
+    DNS/TCP(443,80)/HTTPS 응답과 대조군(다른 사이트), 서버의 외부 공인 IP를 반환한다.
+    비밀값은 출력하지 않는다. 원인 확인 후 삭제할 것."""
+    import socket
+    import time as _t
+
+    def tcp(host, port, timeout=6):
+        t = _t.time()
+        try:
+            ip = socket.gethostbyname(host)
+        except Exception as e:
+            return {"dns": f"실패: {e}"}
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return {"ip": ip, "tcp": "성공", "sec": round(_t.time() - t, 1)}
+        except Exception as e:
+            return {"ip": ip, "tcp": f"실패: {type(e).__name__}", "sec": round(_t.time() - t, 1)}
+
+    def http(url, timeout=8):
+        t = _t.time()
+        try:
+            r = requests.get(url, timeout=timeout)
+            return {"status": r.status_code, "sec": round(_t.time() - t, 1), "head": r.text[:120]}
+        except Exception as e:
+            return {"error": f"{type(e).__name__}", "sec": round(_t.time() - t, 1)}
+
+    out = {
+        "law.go.kr:443": tcp("www.law.go.kr", 443),
+        "law.go.kr:80": tcp("www.law.go.kr", 80),
+        "open.law.go.kr:443": tcp("open.law.go.kr", 443),
+        "elis.go.kr:443": tcp("www.elis.go.kr", 443),
+        "data.go.kr:443": tcp("www.data.go.kr", 443),
+        "naver.com:443": tcp("www.naver.com", 443),
+        "google.com:443": tcp("www.google.com", 443),
+        "law_api_https": http(f"https://www.law.go.kr/DRF/lawSearch.do?OC={LAW_KEY}&target=law&type=XML&query=%EA%B1%B4%EC%84%A4%EC%82%B0%EC%97%85%EA%B8%B0%EB%B3%B8%EB%B2%95"),
+        "law_api_http": http(f"http://www.law.go.kr/DRF/lawSearch.do?OC={LAW_KEY}&target=law&type=XML&query=%EA%B1%B4%EC%84%A4%EC%82%B0%EC%97%85%EA%B8%B0%EB%B3%B8%EB%B2%95"),
+        "outbound_ip": http("https://api.ipify.org"),
+    }
+    return jsonify(out)
 
 
 LAW_TEXT_CACHE = {}
@@ -1892,7 +1936,7 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
         file_name = uploaded_file.name if uploaded_file else ""
         JOBS[job_id] = {
             "status": "completed",
-            "result": response.text,
+            "result": linkify_law_citations(response.text, extract_law_names_from_context(mcp_rag_context)),
             "file_name": file_name,
             "initial_context": full_query_for_rag
         }
@@ -2024,7 +2068,7 @@ def api_chat_other_review():
         if not response:
             raise Exception(f"채팅 응답 생성 실패: {last_err}")
             
-        return jsonify({"success": True, "result": response.text})
+        return jsonify({"success": True, "result": linkify_law_citations(response.text)})
         
     except Exception as e:
         print(f"Chat Review API Error: {e}")
@@ -2112,7 +2156,7 @@ def api_chat_duty_list():
         if not response:
             raise Exception(f"채팅 응답 생성 실패: {last_err}")
 
-        return jsonify({"success": True, "result": response.text})
+        return jsonify({"success": True, "result": linkify_law_citations(response.text)})
 
     except Exception as e:
         print(f"Chat Duty List API Error: {e}")
@@ -2352,7 +2396,7 @@ def run_design_review(job_id, project_name, project_domain, review_modes, additi
             
         JOBS[job_id] = {
             "status": "completed",
-            "result": ai_result
+            "result": linkify_law_citations(ai_result)
         }
     except Exception as e:
         print(f"run_design_review error: {e}")
@@ -2656,7 +2700,7 @@ def run_commencement_review(job_id, project_name, contract_amount, total_cost, a
 
         JOBS[job_id] = {
             "status": "completed",
-            "result": ai_result
+            "result": linkify_law_citations(ai_result)
         }
     except Exception as e:
         print(f"run_commencement_review error: {e}")
