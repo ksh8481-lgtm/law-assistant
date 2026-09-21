@@ -382,39 +382,46 @@ def debug_net():
     비밀값은 출력하지 않는다. 원인 확인 후 삭제할 것."""
     import socket
     import time as _t
+    from concurrent.futures import ThreadPoolExecutor
 
-    def tcp(host, port, timeout=6):
+    # 항목마다 타임아웃(2초)을 병렬로 기다려서 전체가 ~3초 안에 끝나게 한다.
+    # (순차 + 긴 타임아웃이면 60초를 넘겨 gunicorn 워커를 붙잡고 사이트 전체가 멈춘다.)
+    def tcp(host, port, timeout=2):
         t = _t.time()
         try:
             ip = socket.gethostbyname(host)
         except Exception as e:
-            return {"dns": f"실패: {e}"}
+            return {"dns": f"실패: {type(e).__name__}"}
         try:
-            with socket.create_connection((host, port), timeout=timeout):
+            with socket.create_connection((ip, port), timeout=timeout):
                 return {"ip": ip, "tcp": "성공", "sec": round(_t.time() - t, 1)}
         except Exception as e:
             return {"ip": ip, "tcp": f"실패: {type(e).__name__}", "sec": round(_t.time() - t, 1)}
 
-    def http(url, timeout=8):
+    def http(url, timeout=3):
         t = _t.time()
         try:
-            r = requests.get(url, timeout=timeout)
+            r = requests.get(url, timeout=(2, timeout))
             return {"status": r.status_code, "sec": round(_t.time() - t, 1), "head": r.text[:120]}
         except Exception as e:
             return {"error": f"{type(e).__name__}", "sec": round(_t.time() - t, 1)}
 
-    out = {
-        "law.go.kr:443": tcp("www.law.go.kr", 443),
-        "law.go.kr:80": tcp("www.law.go.kr", 80),
-        "open.law.go.kr:443": tcp("open.law.go.kr", 443),
-        "elis.go.kr:443": tcp("www.elis.go.kr", 443),
-        "data.go.kr:443": tcp("www.data.go.kr", 443),
-        "naver.com:443": tcp("www.naver.com", 443),
-        "google.com:443": tcp("www.google.com", 443),
-        "law_api_https": http(f"https://www.law.go.kr/DRF/lawSearch.do?OC={LAW_KEY}&target=law&type=XML&query=%EA%B1%B4%EC%84%A4%EC%82%B0%EC%97%85%EA%B8%B0%EB%B3%B8%EB%B2%95"),
-        "law_api_http": http(f"http://www.law.go.kr/DRF/lawSearch.do?OC={LAW_KEY}&target=law&type=XML&query=%EA%B1%B4%EC%84%A4%EC%82%B0%EC%97%85%EA%B8%B0%EB%B3%B8%EB%B2%95"),
-        "outbound_ip": http("https://api.ipify.org"),
+    q = f"OC={LAW_KEY}&target=law&type=XML&query=%EA%B1%B4%EC%84%A4%EC%82%B0%EC%97%85%EA%B8%B0%EB%B3%B8%EB%B2%95"
+    tasks = {
+        "law.go.kr:443": lambda: tcp("www.law.go.kr", 443),
+        "law.go.kr:80": lambda: tcp("www.law.go.kr", 80),
+        "open.law.go.kr:443": lambda: tcp("open.law.go.kr", 443),
+        "elis.go.kr:443": lambda: tcp("www.elis.go.kr", 443),
+        "data.go.kr:443": lambda: tcp("www.data.go.kr", 443),
+        "naver.com:443": lambda: tcp("www.naver.com", 443),
+        "google.com:443": lambda: tcp("www.google.com", 443),
+        "law_api_https": lambda: http("https://www.law.go.kr/DRF/lawSearch.do?" + q),
+        "law_api_http": lambda: http("http://www.law.go.kr/DRF/lawSearch.do?" + q),
+        "outbound_ip": lambda: http("https://api.ipify.org"),
     }
+    with ThreadPoolExecutor(max_workers=len(tasks)) as ex:
+        futs = {k: ex.submit(f) for k, f in tasks.items()}
+        out = {k: fut.result(timeout=10) for k, fut in futs.items()}
     return jsonify(out)
 
 
