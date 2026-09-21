@@ -1,4 +1,5 @@
 import os
+import math
 import re
 import time
 import urllib.parse
@@ -182,6 +183,114 @@ def search_law(keyword: str) -> str:
         return "Found laws:\n" + "\n".join(laws)
     except Exception as e:
         return f"Error searching laws: {str(e)}"
+
+def _law_articles(mst: str) -> list:
+    """법령 본문 조회(lawService.do target=law)로 조문 목록을 [(조문 전체 텍스트)]로
+    돌려준다. 장/절 제목(조문여부='전문')은 제외하고 실제 조문만 반환.
+    항/호/목 내용까지 문서 순서대로 이어붙인다."""
+    url = f"https://www.law.go.kr/DRF/lawService.do?OC={MOLEG_API_KEY}&target=law&MST={mst}&type=XML"
+    root = _fetch_law_xml_with_retry(url, timeout=20)
+    articles = []
+    for jo in root.findall('.//조문단위'):
+        if (jo.findtext('조문여부', '') or '').strip() != '조문':
+            continue
+        parts = []
+        for el in jo.iter():
+            if el.tag in ('조문내용', '항내용', '호내용', '목내용') and el.text and el.text.strip():
+                parts.append(el.text.strip())
+        if parts:
+            articles.append("\n".join(parts))
+    return articles
+
+
+def _law_detail_text(mst: str, keywords: list, max_len: int = 6000) -> str:
+    """법령 전체(수백 개 조문)를 프롬프트에 다 넣을 수 없으므로, 질의 핵심어가 조문
+    제목/내용에 많이 등장하는 조문만 골라 원문 그대로 넘긴다(제목 일치에 가중치).
+    이렇게 원문을 넘겨야 AI가 "원문이 없어 일반 원칙으로 설명"하는 대신 실제
+    조문에 근거해 요건/예외를 검토할 수 있다(실사용 중 발견: 영업손실보상 질의에서
+    법령은 이름·링크만 주어 조문 원문 없이 일반론으로만 답함)."""
+    try:
+        articles = _law_articles(mst)
+    except Exception as e:
+        return f"(법령 원문 조회 실패: {e})"
+
+    kws = [k for k in dict.fromkeys(keywords) if k and len(k) >= 2]
+    # 공백/'의'를 뺀 형태로도 비교한다("영업손실" <-> 조문의 "영업의 손실").
+    def _norm(t):
+        return t.replace(" ", "").replace("의", "")
+    norm_arts = [_norm(a) for a in articles]
+    n = len(articles)
+    # 여러 조문에 흔히 나오는 키워드(예: 사업인정고시일)는 변별력이 낮으므로 IDF로 가중치를 낮춘다.
+    idf = {}
+    for k in kws:
+        nk = _norm(k)
+        df = sum(1 for a in norm_arts if nk in a)
+        idf[k] = math.log((n + 1) / (df + 1)) if df else 0.0
+    scored = []
+    for idx, art in enumerate(articles):
+        title = _norm(art.splitlines()[0][:100])
+        na = norm_arts[idx]
+        score = 0.0
+        for k in kws:
+            nk = _norm(k)
+            score += idf[k] * (4 * (nk in title) + min(na.count(nk), 3))
+        if score > 0:
+            scored.append((score, idx))
+    scored.sort(key=lambda x: -x[0])
+    if scored:
+        # 최고점의 35% 미만인 조문은 우연히 키워드 하나만 스친 잡음으로 보고 버린다.
+        scored = [x for x in scored if x[0] >= scored[0][0] * 0.35]
+
+    picked, total = [], 0
+    for score, idx in scored:
+        art = articles[idx]
+        if total + len(art) > max_len and picked:
+            continue
+        picked.append(idx)
+        total += len(art)
+        if total >= max_len:
+            break
+    return "\n\n".join(articles[i][:2500] for i in sorted(picked))
+
+
+def search_laws_with_text(law_names: list, topic_keywords: list,
+                          per_law_len: int = 6000, max_laws: int = 3) -> str:
+    """정식 법령명(예: 공익사업을 위한 토지 등의 취득 및 보상에 관한 법률)으로 검색해,
+    그 법령과 시행령/시행규칙 중 질의와 관련된 조문 원문을 가져온다.
+
+    law.go.kr 법령 검색은 정식 법령명/약칭이 아니면 결과가 0건이다(실측: "영업손실보상"
+    0건, "토지보상법"은 성공). 그래서 일반 키워드가 아니라 법령명으로 검색해야 한다."""
+    sections, fetched = [], 0
+    seen = set()
+    for name in law_names:
+        if fetched >= max_laws:
+            break
+        try:
+            root = _fetch_law_xml_with_retry(
+                f"https://www.law.go.kr/DRF/lawSearch.do?OC={MOLEG_API_KEY}&target=law&type=XML"
+                f"&query={urllib.parse.quote(name)}")
+        except Exception as e:
+            sections.append(f"[법령 '{name}' 검색 실패: {e}]")
+            continue
+        hits = [(l.findtext('법령명한글', ''), l.findtext('법령일련번호', ''))
+                for l in root.findall('.//law')]
+        # 정식명 계열(법/시행령/시행규칙)만 채택. 약칭 검색이면 첫 결과의 정식명 기준으로 계열을 잡는다.
+        if not hits:
+            continue
+        base = hits[0][0]
+        for nm, mst in hits:
+            if fetched >= max_laws:
+                break
+            if not mst or mst in seen or not nm.startswith(base):
+                continue
+            seen.add(mst)
+            text = _law_detail_text(mst, topic_keywords, per_law_len)
+            link = f"https://www.law.go.kr/법령/{urllib.parse.quote(nm)}"
+            if text:
+                sections.append(f"[법령 원문 발췌: {nm}] ({link})\n{text}")
+            fetched += 1
+    return "\n\n".join(sections)
+
 
 def _ordinance_detail_text(mst: str, max_len: int = 6000) -> str:
     """자치법규 상세조회(lawService.do target=ordin)로 조례 원문(조문 전체)을

@@ -22,7 +22,7 @@ import os
 import re
 import google.generativeai as genai
 
-from moleg_mcp import search_law, search_precedents_by_keyword, search_precedent_by_case_number, search_ordinance
+from moleg_mcp import search_law, search_precedents_by_keyword, search_precedent_by_case_number, search_ordinance, search_laws_with_text
 from korea_regions import find_jurisdiction_in_text, BASIC_REGIONS, METROPOLITAN_REGIONS
 
 _VALID_REGIONS = set(BASIC_REGIONS) | set(METROPOLITAN_REGIONS)
@@ -32,7 +32,9 @@ _CASE_NO_PATTERN = re.compile(r'\d{2,4}[가-힣]\d{3,7}')
 
 
 def _extract_keyword_and_jurisdiction(query: str) -> tuple:
-    """법제처 검색에 쓸 핵심 키워드 1개, 지자체(예: 남해군) 이름, 그리고 자치법규
+    """(keyword, jurisdiction, ordinance_keyword, law_names, topic_keywords)를 돌려준다.
+
+    법제처 검색에 쓸 핵심 키워드 1개, 지자체(예: 남해군) 이름, 그리고 자치법규
     (조례) 검색에 쓸 별도 키워드를 뽑는다. 실패하면 전부 빈 문자열.
 
     (예전에는 키워드만 뽑았는데, 그러면 "남해군이 ~조례에 따라~"처럼 지자체 조례가
@@ -53,9 +55,9 @@ def _extract_keyword_and_jurisdiction(query: str) -> tuple:
         genai.configure(api_key=os.environ.get('GEMINI_API_KEY'))
         model = genai.GenerativeModel('gemini-2.5-flash')
         prompt = (
-            "다음 텍스트에서 세 가지를 뽑아서 정확히 '키워드|지자체명|조례검색키워드' "
+            "다음 텍스트에서 다섯 가지를 뽑아서 정확히 '키워드|지자체명|조례검색키워드|법령명들|조문키워드들' "
             "형식의 한 줄로만 답해. 다른 설명은 절대 하지 마. 구분자 파이프(|)는 정확히 "
-            "2개만 써야 한다.\n"
+            "4개만 써야 한다.\n"
             "- 키워드: 대한민국 법제처(law.go.kr) 법령/판례 검색에 가장 적합한 핵심 명사 1개 "
             "(예: 영업손실보상, 재해영향평가, 하도급)\n"
             "- 지자체명: 텍스트에 특정 시/군/구 등 기초/광역 지방자치단체 이름이 명시되어 "
@@ -66,13 +68,22 @@ def _extract_keyword_and_jurisdiction(query: str) -> tuple:
             "'조례 제목에 실제로 들어갈 법한' 단어를 골라라(예: 사업명이 '현장조치 행동매뉴얼 "
             "작성 용역'이고 재원이 '재난관리기금'이면, 조례검색키워드는 '재난관리기금'). "
             "특정할 게 없으면 위 '키워드'와 동일하게 써도 됨.\n"
-            "예시: '하도급|남해군|하도급' 또는 '재난관리기금|남해군|재난관리기금'\n"
+            "- 법령명들: 이 질의를 검토하려면 조문을 봐야 하는 핵심 법률의 '정식 법령명'을 "
+            "쉼표로 구분해 최대 2개(시행령/시행규칙은 쓰지 말고 법률명만; 예: 공익사업을 위한 "
+            "토지 등의 취득 및 보상에 관한 법률, 재난 및 안전관리 기본법). 확실히 존재하는 "
+            "정식 명칭만 쓰고 확신이 없으면 비워둬.\n"
+            "- 조문키워드들: 그 법령 안에서 관련 조문을 찾아내는 데 쓸 핵심어를 쉼표로 3~6개 "
+            "(예: 영업손실,영업의 폐지,휴업,사업인정고시일,무허가건축물).\n"
+            "예시: '하도급|남해군|하도급|건설산업기본법|하도급,직접시공' 또는 "
+            "'영업손실보상||영업손실|공익사업을 위한 토지 등의 취득 및 보상에 관한 법률|영업손실,휴업,폐업'\n"
             "텍스트: " + query[:8000]
         )
         resp = model.generate_content(prompt)
         line = resp.text.strip().splitlines()[0].strip()
         parts = line.split('|')
         keyword = parts[0].strip().replace("'", "").replace('"', "")[:15]
+        law_names = [x.strip() for x in (parts[3] if len(parts) > 3 else "").split(',') if x.strip()][:2]
+        topic_keywords = [x.strip() for x in (parts[4] if len(parts) > 4 else "").split(',') if x.strip()][:6]
         jurisdiction_raw = parts[1].strip().replace("'", "").replace('"', "")[:10] if len(parts) > 1 else ""
         ordinance_keyword = parts[2].strip().replace("'", "").replace('"', "")[:15] if len(parts) > 2 else keyword
 
@@ -82,17 +93,17 @@ def _extract_keyword_and_jurisdiction(query: str) -> tuple:
         # find_jurisdiction_in_text 결정적 보완 로직에 맡긴다.
         jurisdiction = jurisdiction_raw if jurisdiction_raw in _VALID_REGIONS else ""
 
-        return keyword, jurisdiction, ordinance_keyword
+        return keyword, jurisdiction, ordinance_keyword, law_names, topic_keywords
     except Exception as e:
         print(f"[mcp_agent_sync] keyword/jurisdiction extraction failed: {e}")
-        return "", "", ""
+        return "", "", "", [], []
 
 
 def get_mcp_context_sync(query: str, uploaded_file=None) -> str:
     if uploaded_file:
         query = f"{query}\n(첨부 파일명: {uploaded_file})"
 
-    keyword, jurisdiction, ordinance_keyword = _extract_keyword_and_jurisdiction(query)
+    keyword, jurisdiction, ordinance_keyword, law_names, topic_keywords = _extract_keyword_and_jurisdiction(query)
     if not keyword:
         # 키워드 추출 자체가 실패해도 빈 컨텍스트보다는 질의 앞부분이라도 검색어로 쓰는 게 낫다.
         keyword = query.strip()[:15]
@@ -114,6 +125,16 @@ def get_mcp_context_sync(query: str, uploaded_file=None) -> str:
             sections.append(f"[사건번호 '{case_no}' 조회 결과]\n{search_precedent_by_case_number(case_no)}")
         except Exception as e:
             sections.append(f"[사건번호 '{case_no}' 조회 실패: {e}]")
+
+    # 정식 법령명으로 조문 원문을 가져온다(일반 키워드 검색은 결과가 0건인 경우가 많고
+    # 이름/링크만 줘서 AI가 조문 내용을 검토하지 못했음).
+    if law_names:
+        try:
+            law_text = search_laws_with_text(law_names, topic_keywords or [keyword])
+            if law_text:
+                sections.append(law_text)
+        except Exception as e:
+            sections.append(f"[법령 원문 조회 실패: {e}]")
 
     if keyword:
         try:
