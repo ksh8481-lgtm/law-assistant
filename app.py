@@ -43,7 +43,26 @@ VWORLD_KEY = os.environ.get('VWORLD_API_KEY', '') or base64.b64decode(_V).decode
 # INCORRECT_KEY로 실패하고 있었다(실사용 중 발견: 지역지구가 항상 "API 에러"로만 나와
 # AI 분석이 실제 지역지구 없이 진행됨). req/search(주소 검색)만 도메인 검증이 느슨해
 # 우연히 통과했었다. 실제 VWorld에 등록된 도메인으로 직접 호출해 확인 후 수정.
-VWORLD_DOMAIN = os.environ.get('VWORLD_DOMAIN', 'port-0-law-assistant-mpgbhts4cec2050f.sel3.cloudtype.app')
+#
+# 이 값을 배포 주소 하나로만 하드코딩해두면, 나중에 다른 호스트(로컬 개발 서버,
+# 새 Cloudtype 서브도메인으로의 재배포 등)에서 이 코드를 실행할 때 VWORLD_DOMAIN
+# 환경변수를 깜빡하면 지금 고친 바로 그 버그가 그대로 재발한다. 그래서 라우트
+# 핸들러 안에서 부르는 _vworld_domain()은 매 요청마다 실제로 들어온 Host(요청이
+# 도달한 실제 주소)를 우선 쓰고, 환경변수로 명시했다면 그걸 최우선으로, 요청 컨텍스트
+# 밖이라 request.host를 못 쓰는 경우에만 이 하드코딩된 값을 마지막 수단으로 쓴다.
+_VWORLD_DOMAIN_FALLBACK = 'port-0-law-assistant-mpgbhts4cec2050f.sel3.cloudtype.app'
+
+
+def _vworld_domain() -> str:
+    env = os.environ.get('VWORLD_DOMAIN')
+    if env:
+        return env
+    try:
+        if request and request.host:
+            return request.host
+    except RuntimeError:
+        pass  # 요청 컨텍스트 밖(예: 백그라운드 스레드)에서 호출된 경우
+    return _VWORLD_DOMAIN_FALLBACK
 
 _L = "a3NoODQ4MQ==" # ksh8481
 LAW_KEY = os.environ.get('LAW_API_KEY', '') or base64.b64decode(_L).decode('utf-8')
@@ -122,6 +141,75 @@ def generate_with_search_grounding(prompt, model_name):
     return client.models.generate_content(model=clean_model_name, contents=prompt, config=config)
 
 
+def _citation_verification_output_ok(original: str, verified: str) -> bool:
+    """verify_law_citations_via_search()가 받은 2차 응답을 실제로 채택해도 되는지 판단한다.
+
+    길이가 원문의 절반을 넘는지만 보는 건 너무 약한 방어선이다 - 검증 모델이 "법조항만
+    고치고 나머지는 그대로 두라"는 지시를 완벽히 안 지키고 물량 대조 표나 등급 판정
+    부분을 요약/재구성해버려도, 결과가 여전히 원문의 50%보다 길기만 하면 그 손상된
+    버전이 그대로 채택돼버린다. 그래서 길이 체크에 더해 "물량 대조 결과" 같은 핵심
+    섹션 제목이 원문에 있었다면 검증본에도 남아있는지, 등급 판정 이모지(🔴🟡🟢💡)
+    개수가 크게 줄지 않았는지도 함께 확인한다."""
+    if not verified or len(verified.strip()) <= len(original) * 0.5:
+        return False
+    for heading in ("물량 대조 결과", "종합 검토 의견", "종합 의견"):
+        if heading in original and heading not in verified:
+            return False
+    markers = "🔴🟡🟢💡"
+    orig_count = sum(original.count(m) for m in markers)
+    verified_count = sum(verified.count(m) for m in markers)
+    if orig_count > 0 and verified_count < orig_count * 0.7:
+        return False
+    return True
+
+
+def verify_law_citations_via_search(ai_result: str, model_name: str = 'gemini-2.5-pro') -> str:
+    """법조항 인용을 구글 검색으로 검증/교정하는 공용 2차 패스.
+
+    파일(도면 이미지 등)을 첨부해야 하는 1차 생성은 구글 검색 그라운딩을 못 붙이는
+    구버전 SDK(genai.GenerativeModel)로 실행되기 때문에, 법조항 번호를 AI가 학습 당시
+    기억에만 의존해 답한다(실사용 중 발견: 설계도서 검토에서 "건설기술진흥법 시행령
+    제75조(설계도서의 작성)"라고 인용했는데 실제 제75조는 "설계의 경제성등 검토"로
+    완전히 다른 조항이었음). 1차 결과(표·수치 등)는 그대로 두고, 텍스트만 다루는 이
+    2차 패스에서 신버전 SDK(generate_with_search_grounding)로 실제 조문을 검색해
+    검증/수정한다.
+
+    파일 첨부가 필요 없는 다른 호출자(예: run_other_review)도 법조항을 인용하는 이상
+    똑같은 구버전 SDK 한계에 노출되므로, 이 함수를 공용 헬퍼로 두고 여러 곳에서
+    재사용한다(한 곳에만 붙이면 다른 호출자는 똑같은 할루시네이션 위험을 그대로
+    안고 있게 된다)."""
+    if not ai_result:
+        return ai_result
+    verify_prompt = f"""
+당신은 건설행정 법제 검증 전문가입니다. 아래는 검토 보고서 초안입니다.
+
+[검증 원칙]
+1. 보고서 안에서 "OO법 제N조" 또는 "KDS/KCS 코드"처럼 구체적인 조항 번호나 기준 코드를
+   인용한 부분만 골라, 구글 검색으로 그 법령의 그 조항이 실제로 보고서에 쓰인 내용과
+   일치하는지 하나씩 확인하십시오.
+2. 조항 번호나 내용이 틀렸다면 실제 올바른 조항 번호로 고치고, 올바른 조항을 찾을 수
+   없다면 그 조항 번호를 지우고 "(정확한 근거 조항 확인 필요)"로 대체하십시오.
+   절대 확인 안 된 조항 번호를 새로 지어내지 마십시오.
+3. 표, 수치, 등급 판정(🔴🟡🟢💡), 문단 구성 등 법조항 인용이 아닌 나머지 내용은 절대
+   요약하거나 바꾸지 말고 원문 그대로 유지하십시오.
+4. 확인 결과 전체가 맞다면 원문을 그대로(수정 없이) 돌려주십시오.
+5. 검증 과정에 대한 설명 없이, 최종 보고서 본문만 그대로 출력하십시오.
+
+[검토 보고서 초안]
+{ai_result}
+"""
+    try:
+        verify_resp = generate_with_search_grounding(verify_prompt, model_name)
+    except Exception as e:
+        print(f"[법조항 검증] 패스 실패(원본 유지): {e}")
+        return ai_result
+
+    if verify_resp and verify_resp.text and _citation_verification_output_ok(ai_result, verify_resp.text):
+        return verify_resp.text
+    print("[법조항 검증] 응답이 비정상적이거나 핵심 내용이 손상돼 원본 유지")
+    return ai_result
+
+
 SIDO_DATA = [
     {"code": "11", "name": "서울특별시"}, {"code": "26", "name": "부산광역시"},
     {"code": "27", "name": "대구광역시"}, {"code": "28", "name": "인천광역시"},
@@ -153,7 +241,7 @@ def get_regions(layer):
         return jsonify({"success": False, "message": "Invalid layer"})
         
     v_layer, code_field, name_field = layer_map[layer]
-    url = f"https://api.vworld.kr/req/data?service=data&request=GetFeature&data={v_layer}&key={vworld_key}&domain={VWORLD_DOMAIN}&size=1000&geometry=false"
+    url = f"https://api.vworld.kr/req/data?service=data&request=GetFeature&data={v_layer}&key={vworld_key}&domain={_vworld_domain()}&size=1000&geometry=false"
     
     if parent_code:
         url += f"&attrFilter={code_field}:like:{parent_code}"
@@ -1291,7 +1379,7 @@ def verify_parcel():
                 "service": "search", "request": "search", "version": "2.0",
                 "size": "10", "page": "1", "query": full_address,
                 "type": "address", "category": "parcel", "format": "json",
-                "errorformat": "json", "key": VWORLD_KEY.strip(), "domain": VWORLD_DOMAIN
+                "errorformat": "json", "key": VWORLD_KEY.strip(), "domain": _vworld_domain()
             }
             res_search = requests.get("https://api.vworld.kr/req/search", params=params, timeout=5).json()
             items = res_search.get('response', {}).get('result', {}).get('items', [])
@@ -1366,7 +1454,7 @@ def verify_parcel():
 
     # (1) 토지특성정보 조회
     try:
-        url_char = f"http://api.vworld.kr/ned/data/getLandCharacteristics?key={VWORLD_KEY.strip()}&domain={VWORLD_DOMAIN}&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
+        url_char = f"http://api.vworld.kr/ned/data/getLandCharacteristics?key={VWORLD_KEY.strip()}&domain={_vworld_domain()}&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
         res_char = requests.get(url_char, timeout=10).json()
         if 'landCharacteristicss' in res_char and 'field' in res_char['landCharacteristicss']:
             fields = res_char['landCharacteristicss']['field']
@@ -1381,7 +1469,7 @@ def verify_parcel():
 
     # (2) 토지이용계획(지역지구) 실데이터 조회
     try:
-        url_zoning = f"http://api.vworld.kr/ned/data/getLandUseAttr?key={VWORLD_KEY.strip()}&domain={VWORLD_DOMAIN}&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
+        url_zoning = f"http://api.vworld.kr/ned/data/getLandUseAttr?key={VWORLD_KEY.strip()}&domain={_vworld_domain()}&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
         res_zoning = requests.get(url_zoning, timeout=10).json()
             
         if 'landUses' in res_zoning:
@@ -1896,11 +1984,16 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
                 
         if not response:
             raise Exception(f"모든 AI 모델이 요청 한도 초과 또는 오류로 실패했습니다. 마지막 오류: {last_err}")
-            
+
+        # 🚨 법조항 인용 검증 패스(공용 헬퍼: verify_law_citations_via_search 참고). 이
+        # 함수도 파일 첨부 시 구버전 SDK로 실행돼 설계도서 검토와 똑같은 "법조항 번호를
+        # 기억에만 의존해 답함" 위험에 노출되므로 같은 검증을 적용한다.
+        verified_result = verify_law_citations_via_search(response.text)
+
         file_name = uploaded_file.name if uploaded_file else ""
         JOBS[job_id] = {
             "status": "completed",
-            "result": linkify_law_citations(response.text, extract_law_names_from_context(mcp_rag_context)),
+            "result": linkify_law_citations(verified_result, extract_law_names_from_context(mcp_rag_context)),
             "file_name": file_name,
             "initial_context": full_query_for_rag
         }
@@ -2358,40 +2451,11 @@ def run_design_review(job_id, project_name, project_domain, review_modes, additi
         if not ai_result:
             ai_result = "🔴 [오류]: 첨부파일 및 AI 분석 과정에서 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
         else:
-            # 🚨 법조항 인용 검증 패스: 위 1차 생성은 도면(이미지) 첨부가 있어서 구글 검색
-            # 그라운딩을 못 붙이는 구버전 SDK(genai.GenerativeModel)로 실행하다 보니, 법조항
-            # 번호를 AI가 학습 당시 기억에만 의존해 답한다. 실사용 중 발견: "건설기술진흥법
-            # 시행령 제75조(설계도서의 작성)"이라고 인용했는데 실제 제75조는 "설계의 경제성등
-            # 검토"로 완전히 다른 조항이었음 - 물량 대조 등 다른 부분은 정확한데 법조항 번호만
-            # 이런 식으로 틀릴 위험이 있다. 1차 결과(물량 대조 표 등)는 그대로 두고, 텍스트만
-            # 다루는 2차 패스에서 신버전 SDK(generate_with_search_grounding)로 실제 조문을
+            # 🚨 법조항 인용 검증 패스 (공용 헬퍼: verify_law_citations_via_search 참고).
+            # 1차 생성은 도면(이미지) 첨부 때문에 구글 검색 그라운딩을 못 붙이는 구버전
+            # SDK로 실행되어 법조항 번호를 AI 기억에만 의존해 답하므로, 여기서 실제 조문을
             # 검색해 검증/수정한다.
-            try:
-                verify_prompt = f"""
-당신은 건설행정 법제 검증 전문가입니다. 아래는 설계도서 검토 보고서 초안입니다.
-
-[검증 원칙]
-1. 보고서 안에서 "OO법 제N조" 또는 "KDS/KCS 코드"처럼 구체적인 조항 번호나 기준 코드를
-   인용한 부분만 골라, 구글 검색으로 그 법령의 그 조항이 실제로 보고서에 쓰인 내용과
-   일치하는지 하나씩 확인하십시오.
-2. 조항 번호나 내용이 틀렸다면 실제 올바른 조항 번호로 고치고, 올바른 조항을 찾을 수
-   없다면 그 조항 번호를 지우고 "(정확한 근거 조항 확인 필요)"로 대체하십시오.
-   절대 확인 안 된 조항 번호를 새로 지어내지 마십시오.
-3. 물량 대조 결과 표, 수치, 등급 판정(🔴🟡🟢💡), 문단 구성 등 법조항 인용이 아닌 나머지
-   내용은 절대 요약하거나 바꾸지 말고 원문 그대로 유지하십시오.
-4. 확인 결과 전체가 맞다면 원문을 그대로(수정 없이) 돌려주십시오.
-5. 검증 과정에 대한 설명 없이, 최종 보고서 본문만 그대로 출력하십시오.
-
-[검토 보고서 초안]
-{ai_result}
-"""
-                verify_resp = generate_with_search_grounding(verify_prompt, 'gemini-2.5-pro')
-                if verify_resp and verify_resp.text and len(verify_resp.text.strip()) > len(ai_result) * 0.5:
-                    ai_result = verify_resp.text
-                else:
-                    print("[Design Review] 법조항 검증 패스 응답이 비정상적으로 짧아 원본 유지")
-            except Exception as e:
-                print(f"[Design Review] 법조항 검증 패스 실패(원본 유지): {e}")
+            ai_result = verify_law_citations_via_search(ai_result)
 
         JOBS[job_id] = {
             "status": "completed",
@@ -2520,6 +2584,23 @@ COMMENCEMENT_PRACTICAL_REFERENCE = """
 18. 노무비 구분관리 및 지급확인제 관련 서류 (건설산업기본법 - 대상/제외 여부에 따라 합의서 또는 적용제외 확인서)
 """
 
+# 위 COMMENCEMENT_CHECKLIST_ARTICLE/COMMENCEMENT_PRACTICAL_REFERENCE의 18개 항목이 실제로
+# 근거로 삼는 법령/키워드 목록. run_commencement_review()가 법제처에서 조문 원문(부칙 포함)을
+# 가져올 때 이 목록을 그대로 쓴다. 체크리스트 바로 옆에 둬서, 위 두 상수를 고쳐 서류 종류나
+# 근거 법령이 바뀌면 이 목록도 같이 봐야 한다는 걸 눈에 띄게 한다(따로 떨어진 곳에 있으면
+# 한쪽만 고치고 잊어버리기 쉽다).
+COMMENCEMENT_LAW_NAMES = [
+    '건설기술 진흥법',
+    '중대재해 처벌 등에 관한 법률',
+    '산업안전보건법',
+    '건설산업기본법',
+    '건설근로자의 고용개선 등에 관한 법률',
+]
+COMMENCEMENT_TOPIC_KEYWORDS = [
+    '안전관리계획', '품질관리', '품질시험계획', '유해위험방지계획서', '안전보건관리체계',
+    '공사금액', '퇴직공제', '기술지도', '건설기계 대여', '노무비',
+]
+
 
 def run_commencement_review(job_id, project_name, contract_amount, total_cost, additional_notes, saved_files):
     try:
@@ -2575,23 +2656,46 @@ def run_commencement_review(job_id, project_name, contract_amount, total_cost, a
         # "추측"해서 뽑아오는 범용 경로라 호출마다 결과가 달라질 수 있다(실사용 중 발견:
         # 같은 질의를 반복해도 어떤 때는 중대재해처벌법이 뽑히고 어떤 때는 안 뽑힘 -> 뽑히지
         # 않은 호출에서는 이미 끝난 유예기간을 여전히 적용 중이라고 오판). 착공계 검토는
-        # 18개 세부 항목의 근거 법령이 항상 이 5개로 고정돼 있으므로, 추측에 맡기지 않고
-        # search_laws_with_text를 직접 고정 목록으로 호출해 매번 빠짐없이 원문(부칙 포함)을
-        # 가져온다. 판례/조례처럼 자유 텍스트 검색이 필요한 항목은 이 도구에 없으므로
-        # get_mcp_context_sync 전체를 쓸 필요가 없다.
-        from moleg_mcp import search_laws_with_text
-        commencement_law_names = [
-            '건설기술 진흥법',
-            '중대재해 처벌 등에 관한 법률',
-            '산업안전보건법',
-            '건설산업기본법',
-            '건설근로자의 고용개선 등에 관한 법률',
-        ]
-        commencement_topic_keywords = [
-            '안전관리계획', '품질관리', '품질시험계획', '유해위험방지계획서', '안전보건관리체계',
-            '공사금액', '퇴직공제', '기술지도', '건설기계 대여', '노무비',
-        ]
-        moleg_context = search_laws_with_text(commencement_law_names, commencement_topic_keywords)
+        # 18개 세부 항목의 근거 법령이 항상 COMMENCEMENT_LAW_NAMES로 고정돼 있으므로, 추측에
+        # 맡기지 않고 search_laws_with_text를 직접 고정 목록으로 호출해 매번 빠짐없이 원문
+        # (부칙 포함)을 가져온다.
+        #
+        # 다만 get_mcp_context_sync를 통째로 안 쓰면 그게 같이 하던 판례/자치법규(조례)
+        # 검색도 같이 빠진다 - 착공서류 요건에 지자체 조례가 추가 규정을 두는 경우가 있어
+        # (실사용 중 다른 기능에서 이미 확인된 패턴) 이건 그대로 유지해야 한다. 그리고 이
+        # 다섯 항목(법령 원문/판례/조례) 각각을 개별 try/except로 감싼다 - 하나라도
+        # 전체를 감싸는 try 없이 예외를 던지면 착공계 검토 작업 전체가 통째로 실패하는
+        # 사고로 이어지기 때문(실사용 중 발견: 예전엔 get_mcp_context_sync 내부에서
+        # 이 조회 하나하나를 개별적으로 감쌌었는데, 이 함수를 우회하면서 그 보호가 같이
+        # 사라졌었음).
+        from moleg_mcp import search_laws_with_text, search_precedents_by_keyword, search_ordinance
+        from korea_regions import find_jurisdiction_in_text
+
+        moleg_sections = []
+        try:
+            law_text = search_laws_with_text(COMMENCEMENT_LAW_NAMES, COMMENCEMENT_TOPIC_KEYWORDS)
+            if law_text:
+                moleg_sections.append(law_text)
+        except Exception as e:
+            moleg_sections.append(f"[법령 원문 조회 실패: {e}]")
+
+        try:
+            precedent_text = search_precedents_by_keyword("착공신고")
+            if precedent_text and not precedent_text.startswith("No precedents found"):
+                moleg_sections.append(f"[판례 검색 결과: '착공신고']\n{precedent_text}")
+        except Exception as e:
+            print(f"[Commencement Review] 판례 검색 실패(계속 진행): {e}")
+
+        try:
+            jurisdiction = find_jurisdiction_in_text(f"{project_name} {additional_notes or ''}")
+            if jurisdiction:
+                ordinance_text = search_ordinance(f"{jurisdiction} 착공")
+                if ordinance_text and not ordinance_text.startswith("No ordinances found"):
+                    moleg_sections.append(f"[자치법규(조례) 검색 결과: '{jurisdiction} 착공']\n{ordinance_text}")
+        except Exception as e:
+            print(f"[Commencement Review] 자치법규 검색 실패(계속 진행): {e}")
+
+        moleg_context = "\n\n".join(moleg_sections)
 
         try:
             available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]

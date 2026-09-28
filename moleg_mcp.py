@@ -184,12 +184,21 @@ def search_law(keyword: str) -> str:
     except Exception as e:
         return f"Error searching laws: {str(e)}"
 
-def _law_articles(mst: str) -> list:
-    """법령 본문 조회(lawService.do target=law)로 조문 목록을 [(조문 전체 텍스트)]로
-    돌려준다. 장/절 제목(조문여부='전문')은 제외하고 실제 조문만 반환.
-    항/호/목 내용까지 문서 순서대로 이어붙인다."""
+def _fetch_law_root(mst: str, timeout: float = 20):
+    """법령 본문 XML을 한 번만 조회해서 파싱된 루트를 돌려준다.
+
+    _law_articles_from_root와 _recent_buchik_from_root가 둘 다 이 함수가 반환한
+    같은 root를 나눠 쓴다 - 예전엔 두 함수가 각자 독립적으로 이 URL을 다시 조회해서,
+    한 법령을 조회할 때마다 law.go.kr에 같은 XML을 두 번 요청하고 있었다(실사용 중
+    발견: _law_detail_text 하나가 항상 네트워크 왕복을 2번씩 함)."""
     url = f"https://www.law.go.kr/DRF/lawService.do?OC={MOLEG_API_KEY}&target=law&MST={mst}&type=XML"
-    root = _fetch_law_xml_with_retry(url, timeout=20)
+    return _fetch_law_xml_with_retry(url, timeout=timeout)
+
+
+def _law_articles_from_root(root) -> list:
+    """이미 조회된 법령 XML 루트에서 조문 목록을 [(조문 전체 텍스트)]로 돌려준다.
+    장/절 제목(조문여부='전문')은 제외하고 실제 조문만 반환. 항/호/목 내용까지
+    문서 순서대로 이어붙인다."""
     articles = []
     for jo in root.findall('.//조문단위'):
         if (jo.findtext('조문여부', '') or '').strip() != '조문':
@@ -203,28 +212,29 @@ def _law_articles(mst: str) -> list:
     return articles
 
 
-def _law_recent_buchik(mst: str, max_len: int = 1500) -> str:
-    """법령의 최근 부칙(시행일·유예기간·경과조치 등)을 가져온다.
+def _law_articles(mst: str) -> list:
+    """법령 본문 조회(lawService.do target=law)로 조문 목록을 가져온다.
+    (mst만 있고 아직 root를 조회한 적이 없을 때 쓰는 진입점. root를 이미 갖고 있다면
+    _law_articles_from_root를 직접 쓰는 게 중복 조회를 피할 수 있다.)"""
+    return _law_articles_from_root(_fetch_law_root(mst))
+
+
+def _recent_buchik_from_root(root, max_len: int = 1500) -> str:
+    """이미 조회된 법령 XML 루트에서 최근 부칙(시행일·유예기간·경과조치 등)을 뽑아낸다.
 
     law.go.kr은 부칙을 본문 조문과 별도 섹션(부칙단위/부칙내용)으로만 제공하고 조
-    단위로 쪼개지 않으며, _law_articles()는 조문만 훑기 때문에 부칙 내용은 원천적으로
-    프롬프트에 들어가지 않았다. 부칙에는 "이 법은 공사금액 50억원 미만 건설공사에는
-    공포 후 3년간 적용하지 않는다" 같은, 특정 요건이 지금 실제로 적용되는지 판단하는 데
-    결정적인 시행일·유예기간·경과조치가 담겨 있는데, 이 갭 때문에 AI가 이미 끝난
-    유예기간을 여전히 유효한 것처럼 오래된 지식으로 답하는 사고로 이어졌다(실사용 중
-    발견: 착공계 검토에서 중대재해처벌법의 "50억원 미만 유예"가 2024.1.27 이미
-    끝났는데도 여전히 적용 중인 기준처럼 답함).
+    단위로 쪼개지 않으며, 조문만 훑는 로직은 부칙 내용을 원천적으로 놓친다. 부칙에는
+    "이 법은 공사금액 50억원 미만 건설공사에는 공포 후 3년간 적용하지 않는다" 같은,
+    특정 요건이 지금 실제로 적용되는지 판단하는 데 결정적인 시행일·유예기간·경과조치가
+    담겨 있는데, 이 갭 때문에 AI가 이미 끝난 유예기간을 여전히 유효한 것처럼 오래된
+    지식으로 답하는 사고로 이어졌다(실사용 중 발견: 착공계 검토에서 중대재해처벌법의
+    "50억원 미만 유예"가 2024.1.27 이미 끝났는데도 여전히 적용 중인 기준처럼 답함).
 
     법이 수십 차례 개정된 경우 부칙이 수십 개까지 쌓이므로(예: 건설산업기본법 61개),
-    전부 넣을 수 없어 가장 최근 개정의 부칙 몇 개만 가져온다. 오래된 경과조치는 이미
-    종료됐을 가능성이 높고, 현재 진행 중인 유예·경과조치는 최근 개정에 있을 가능성이
-    높다는 가정이다(완벽하지는 않지만, 본문 조문만 보고 시행일을 아예 놓치는 것보다는
-    낫다)."""
-    try:
-        url = f"https://www.law.go.kr/DRF/lawService.do?OC={MOLEG_API_KEY}&target=law&MST={mst}&type=XML"
-        root = _fetch_law_xml_with_retry(url, timeout=20)
-    except Exception:
-        return ""
+    전부 넣을 수 없어 최근 개정분 최대 3개만 가져온다. 항상 "가장 최근 것부터" 순서대로
+    채우고, 예산이 부족해 하나가 안 들어가면 그 자리에서 멈춘다(그보다 더 오래된,
+    당연히 덜 관련 있을 항목으로 건너뛰어 채우지 않는다 - 예전엔 이렇게 건너뛰다가
+    정작 예산 안에 들어갔어야 할 최근 항목을 통째로 놓치는 사고가 있었음)."""
     blocks = [(b.findtext('부칙내용', '') or '').strip() for b in root.findall('.//부칙단위')]
     blocks = [b for b in blocks if b]
     if not blocks:
@@ -232,13 +242,23 @@ def _law_recent_buchik(mst: str, max_len: int = 1500) -> str:
     # XML 순서는 오래된 개정 -> 최근 개정 순이므로, 뒤에서부터(최근 것부터) 담는다.
     picked, total = [], 0
     for b in reversed(blocks):
-        if total + len(b) > max_len and picked:
-            continue
+        if picked and total + len(b) > max_len:
+            break
         picked.append(b)
         total += len(b)
-        if total >= max_len or len(picked) >= 3:
+        if len(picked) >= 3:
             break
     return "\n\n".join(picked)
+
+
+def _law_recent_buchik(mst: str, max_len: int = 1500) -> str:
+    """법령의 최근 부칙을 mst로 직접 조회한다. (root를 이미 갖고 있다면
+    _recent_buchik_from_root를 직접 쓰는 게 중복 조회를 피할 수 있다.)"""
+    try:
+        root = _fetch_law_root(mst)
+    except Exception:
+        return ""
+    return _recent_buchik_from_root(root, max_len)
 
 
 def _law_detail_text(mst: str, keywords: list, max_len: int = 6000) -> str:
@@ -246,9 +266,12 @@ def _law_detail_text(mst: str, keywords: list, max_len: int = 6000) -> str:
     제목/내용에 많이 등장하는 조문만 골라 원문 그대로 넘긴다(제목 일치에 가중치).
     이렇게 원문을 넘겨야 AI가 "원문이 없어 일반 원칙으로 설명"하는 대신 실제
     조문에 근거해 요건/예외를 검토할 수 있다(실사용 중 발견: 영업손실보상 질의에서
-    법령은 이름·링크만 주어 조문 원문 없이 일반론으로만 답함)."""
+    법령은 이름·링크만 주어 조문 원문 없이 일반론으로만 답함).
+
+    XML을 한 번만 조회(_fetch_law_root)해서 조문과 부칙 추출에 같은 root를 나눠 쓴다."""
     try:
-        articles = _law_articles(mst)
+        root = _fetch_law_root(mst)
+        articles = _law_articles_from_root(root)
     except Exception as e:
         return f"(법령 원문 조회 실패: {e})"
 
@@ -290,7 +313,7 @@ def _law_detail_text(mst: str, keywords: list, max_len: int = 6000) -> str:
             break
     body = "\n\n".join(articles[i][:2500] for i in sorted(picked))
 
-    buchik = _law_recent_buchik(mst)
+    buchik = _recent_buchik_from_root(root)
     if buchik:
         body += (
             "\n\n[부칙(최근 개정분) - 시행일·유예기간·경과조치. 조문 내용이 실제로 "
@@ -301,7 +324,8 @@ def _law_detail_text(mst: str, keywords: list, max_len: int = 6000) -> str:
 
 
 def search_laws_with_text(law_names: list, topic_keywords: list,
-                          per_law_len: int = 5000, per_name_max: int = 2) -> str:
+                          per_law_len: int = 5000, per_name_max: int = 2,
+                          max_total_len: int = 20000) -> str:
     """정식 법령명(예: 공익사업을 위한 토지 등의 취득 및 보상에 관한 법률)으로 검색해,
     그 법령과 시행령/시행규칙 중 질의와 관련된 조문 원문을 가져온다.
 
@@ -316,10 +340,18 @@ def search_laws_with_text(law_names: list, topic_keywords: list,
     진흥법(법+시행령+시행규칙)이 예산을 다 써서 중대재해처벌법이 아예 빠짐 -> "이미
     끝난 유예기간을 여전히 적용 중"이라고 오판). 이제 법령마다 개별적으로
     per_name_max(기본 2: 법률+시행령)만큼만 가져와서, 여러 법령을 요청하면 그 개수만큼
-    고르게 커버되도록 한다."""
+    고르게 커버되도록 한다.
+
+    다만 per_name_max만 있고 law_names 개수 자체에는 상한이 없으면(호출부가 4~5개를
+    넘겨도 이 함수는 그대로 다 처리한다), 프롬프트에 들어가는 법령 원문 총량이 무제한으로
+    커질 수 있다. max_total_len으로 전체 합계에도 상한을 둬서, 법령이 여러 개 걸린
+    질의에서도 프롬프트 크기가 과도하게 불어나지 않게 한다."""
     sections = []
     seen = set()
+    total_len = 0
     for name in law_names:
+        if total_len >= max_total_len:
+            break
         try:
             root = _fetch_law_xml_with_retry(
                 f"https://www.law.go.kr/DRF/lawSearch.do?OC={MOLEG_API_KEY}&target=law&type=XML"
@@ -335,7 +367,7 @@ def search_laws_with_text(law_names: list, topic_keywords: list,
         base = hits[0][0]
         fetched_for_name = 0
         for nm, mst in hits:
-            if fetched_for_name >= per_name_max:
+            if fetched_for_name >= per_name_max or total_len >= max_total_len:
                 break
             if not mst or mst in seen or not nm.startswith(base):
                 continue
@@ -344,6 +376,7 @@ def search_laws_with_text(law_names: list, topic_keywords: list,
             link = f"https://www.law.go.kr/법령/{urllib.parse.quote(nm)}"
             if text:
                 sections.append(f"[법령 원문 발췌: {nm}] ({link})\n{text}")
+                total_len += len(text)
             fetched_for_name += 1
     return "\n\n".join(sections)
 
