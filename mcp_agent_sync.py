@@ -69,9 +69,12 @@ def _extract_keyword_and_jurisdiction(query: str) -> tuple:
             "작성 용역'이고 재원이 '재난관리기금'이면, 조례검색키워드는 '재난관리기금'). "
             "특정할 게 없으면 위 '키워드'와 동일하게 써도 됨.\n"
             "- 법령명들: 이 질의를 검토하려면 조문을 봐야 하는 핵심 법률의 '정식 법령명'을 "
-            "쉼표로 구분해 최대 2개(시행령/시행규칙은 쓰지 말고 법률명만; 예: 공익사업을 위한 "
-            "토지 등의 취득 및 보상에 관한 법률, 재난 및 안전관리 기본법). 확실히 존재하는 "
-            "정식 명칭만 쓰고 확신이 없으면 비워둬.\n"
+            "쉼표로 구분해 최대 4개(시행령/시행규칙은 쓰지 말고 법률명만; 예: 공익사업을 위한 "
+            "토지 등의 취득 및 보상에 관한 법률, 재난 및 안전관리 기본법). 질의가 서로 다른 "
+            "여러 종류의 서류/의무를 한 번에 묻고 있고 그 근거 법률이 각각 다르면(예: 안전관리 "
+            "계획서-건설기술진흥법, 유해위험방지계획서-산업안전보건법, 퇴직공제-건설산업기본법처럼 "
+            "서로 다른 법이 여러 개 걸려 있으면) 최대한 그 법률들을 빠짐없이 나열해라. 확실히 "
+            "존재하는 정식 명칭만 쓰고 확신이 없으면 비워둬.\n"
             "- 조문키워드들: 그 법령 안에서 관련 조문을 찾아내는 데 쓸 핵심어를 쉼표로 3~6개 "
             "(예: 영업손실,영업의 폐지,휴업,사업인정고시일,무허가건축물).\n"
             "예시: '하도급|남해군|하도급|건설산업기본법|하도급,직접시공' 또는 "
@@ -82,7 +85,7 @@ def _extract_keyword_and_jurisdiction(query: str) -> tuple:
         line = resp.text.strip().splitlines()[0].strip()
         parts = line.split('|')
         keyword = parts[0].strip().replace("'", "").replace('"', "")[:15]
-        law_names = [x.strip() for x in (parts[3] if len(parts) > 3 else "").split(',') if x.strip()][:2]
+        law_names = [x.strip() for x in (parts[3] if len(parts) > 3 else "").split(',') if x.strip()][:4]
         topic_keywords = [x.strip() for x in (parts[4] if len(parts) > 4 else "").split(',') if x.strip()][:6]
         jurisdiction_raw = parts[1].strip().replace("'", "").replace('"', "")[:10] if len(parts) > 1 else ""
         ordinance_keyword = parts[2].strip().replace("'", "").replace('"', "")[:15] if len(parts) > 2 else keyword

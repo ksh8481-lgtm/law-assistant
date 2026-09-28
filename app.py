@@ -2357,7 +2357,42 @@ def run_design_review(job_id, project_name, project_domain, review_modes, additi
                 
         if not ai_result:
             ai_result = "🔴 [오류]: 첨부파일 및 AI 분석 과정에서 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
-            
+        else:
+            # 🚨 법조항 인용 검증 패스: 위 1차 생성은 도면(이미지) 첨부가 있어서 구글 검색
+            # 그라운딩을 못 붙이는 구버전 SDK(genai.GenerativeModel)로 실행하다 보니, 법조항
+            # 번호를 AI가 학습 당시 기억에만 의존해 답한다. 실사용 중 발견: "건설기술진흥법
+            # 시행령 제75조(설계도서의 작성)"이라고 인용했는데 실제 제75조는 "설계의 경제성등
+            # 검토"로 완전히 다른 조항이었음 - 물량 대조 등 다른 부분은 정확한데 법조항 번호만
+            # 이런 식으로 틀릴 위험이 있다. 1차 결과(물량 대조 표 등)는 그대로 두고, 텍스트만
+            # 다루는 2차 패스에서 신버전 SDK(generate_with_search_grounding)로 실제 조문을
+            # 검색해 검증/수정한다.
+            try:
+                verify_prompt = f"""
+당신은 건설행정 법제 검증 전문가입니다. 아래는 설계도서 검토 보고서 초안입니다.
+
+[검증 원칙]
+1. 보고서 안에서 "OO법 제N조" 또는 "KDS/KCS 코드"처럼 구체적인 조항 번호나 기준 코드를
+   인용한 부분만 골라, 구글 검색으로 그 법령의 그 조항이 실제로 보고서에 쓰인 내용과
+   일치하는지 하나씩 확인하십시오.
+2. 조항 번호나 내용이 틀렸다면 실제 올바른 조항 번호로 고치고, 올바른 조항을 찾을 수
+   없다면 그 조항 번호를 지우고 "(정확한 근거 조항 확인 필요)"로 대체하십시오.
+   절대 확인 안 된 조항 번호를 새로 지어내지 마십시오.
+3. 물량 대조 결과 표, 수치, 등급 판정(🔴🟡🟢💡), 문단 구성 등 법조항 인용이 아닌 나머지
+   내용은 절대 요약하거나 바꾸지 말고 원문 그대로 유지하십시오.
+4. 확인 결과 전체가 맞다면 원문을 그대로(수정 없이) 돌려주십시오.
+5. 검증 과정에 대한 설명 없이, 최종 보고서 본문만 그대로 출력하십시오.
+
+[검토 보고서 초안]
+{ai_result}
+"""
+                verify_resp = generate_with_search_grounding(verify_prompt, 'gemini-2.5-pro')
+                if verify_resp and verify_resp.text and len(verify_resp.text.strip()) > len(ai_result) * 0.5:
+                    ai_result = verify_resp.text
+                else:
+                    print("[Design Review] 법조항 검증 패스 응답이 비정상적으로 짧아 원본 유지")
+            except Exception as e:
+                print(f"[Design Review] 법조항 검증 패스 실패(원본 유지): {e}")
+
         JOBS[job_id] = {
             "status": "completed",
             "result": linkify_law_citations(ai_result)
@@ -2533,16 +2568,30 @@ def run_commencement_review(job_id, project_name, contract_amount, total_cost, a
                 except:
                     pass
 
-        # 3개 조건부 서류(품질관리계획서/안전관리계획서/유해위험방지계획서) 대상 여부 판단을 돕기 위해
-        # 법제처 실시간 검색 컨텍스트를 확보 (없으면 프롬프트 지시대로 "확인 필요"로 처리됨)
-        from mcp_agent_sync import get_mcp_context_sync
-        mcp_query = (
-            f"공사금액(도급액) {contract_amount}원, 총공사비 {total_cost}원 규모의 건설공사에서 "
-            f"안전관리계획서, 안전보건관리계획서(중대재해처벌법), 유해위험방지계획서, "
-            f"품질관리계획서(또는 품질시험계획서), 퇴직공제가입, 기술지도계약, 건설기계대여보증, "
-            f"노무비구분관리 대상 및 작성 의무 기준 금액"
-        )
-        moleg_context = get_mcp_context_sync(mcp_query)
+        # 3개 조건부 서류(품질관리계획서/안전관리계획서/유해위험방지계획서) 등 대상 여부 판단을 돕기
+        # 위해 법제처 실시간 검색 컨텍스트를 확보 (없으면 프롬프트 지시대로 "확인 필요"로 처리됨).
+        #
+        # get_mcp_context_sync(자유 텍스트 질의)는 LLM이 질의에서 법령명을 최대 4개까지
+        # "추측"해서 뽑아오는 범용 경로라 호출마다 결과가 달라질 수 있다(실사용 중 발견:
+        # 같은 질의를 반복해도 어떤 때는 중대재해처벌법이 뽑히고 어떤 때는 안 뽑힘 -> 뽑히지
+        # 않은 호출에서는 이미 끝난 유예기간을 여전히 적용 중이라고 오판). 착공계 검토는
+        # 18개 세부 항목의 근거 법령이 항상 이 5개로 고정돼 있으므로, 추측에 맡기지 않고
+        # search_laws_with_text를 직접 고정 목록으로 호출해 매번 빠짐없이 원문(부칙 포함)을
+        # 가져온다. 판례/조례처럼 자유 텍스트 검색이 필요한 항목은 이 도구에 없으므로
+        # get_mcp_context_sync 전체를 쓸 필요가 없다.
+        from moleg_mcp import search_laws_with_text
+        commencement_law_names = [
+            '건설기술 진흥법',
+            '중대재해 처벌 등에 관한 법률',
+            '산업안전보건법',
+            '건설산업기본법',
+            '건설근로자의 고용개선 등에 관한 법률',
+        ]
+        commencement_topic_keywords = [
+            '안전관리계획', '품질관리', '품질시험계획', '유해위험방지계획서', '안전보건관리체계',
+            '공사금액', '퇴직공제', '기술지도', '건설기계 대여', '노무비',
+        ]
+        moleg_context = search_laws_with_text(commencement_law_names, commencement_topic_keywords)
 
         try:
             available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]

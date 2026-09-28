@@ -203,6 +203,44 @@ def _law_articles(mst: str) -> list:
     return articles
 
 
+def _law_recent_buchik(mst: str, max_len: int = 1500) -> str:
+    """법령의 최근 부칙(시행일·유예기간·경과조치 등)을 가져온다.
+
+    law.go.kr은 부칙을 본문 조문과 별도 섹션(부칙단위/부칙내용)으로만 제공하고 조
+    단위로 쪼개지 않으며, _law_articles()는 조문만 훑기 때문에 부칙 내용은 원천적으로
+    프롬프트에 들어가지 않았다. 부칙에는 "이 법은 공사금액 50억원 미만 건설공사에는
+    공포 후 3년간 적용하지 않는다" 같은, 특정 요건이 지금 실제로 적용되는지 판단하는 데
+    결정적인 시행일·유예기간·경과조치가 담겨 있는데, 이 갭 때문에 AI가 이미 끝난
+    유예기간을 여전히 유효한 것처럼 오래된 지식으로 답하는 사고로 이어졌다(실사용 중
+    발견: 착공계 검토에서 중대재해처벌법의 "50억원 미만 유예"가 2024.1.27 이미
+    끝났는데도 여전히 적용 중인 기준처럼 답함).
+
+    법이 수십 차례 개정된 경우 부칙이 수십 개까지 쌓이므로(예: 건설산업기본법 61개),
+    전부 넣을 수 없어 가장 최근 개정의 부칙 몇 개만 가져온다. 오래된 경과조치는 이미
+    종료됐을 가능성이 높고, 현재 진행 중인 유예·경과조치는 최근 개정에 있을 가능성이
+    높다는 가정이다(완벽하지는 않지만, 본문 조문만 보고 시행일을 아예 놓치는 것보다는
+    낫다)."""
+    try:
+        url = f"https://www.law.go.kr/DRF/lawService.do?OC={MOLEG_API_KEY}&target=law&MST={mst}&type=XML"
+        root = _fetch_law_xml_with_retry(url, timeout=20)
+    except Exception:
+        return ""
+    blocks = [(b.findtext('부칙내용', '') or '').strip() for b in root.findall('.//부칙단위')]
+    blocks = [b for b in blocks if b]
+    if not blocks:
+        return ""
+    # XML 순서는 오래된 개정 -> 최근 개정 순이므로, 뒤에서부터(최근 것부터) 담는다.
+    picked, total = [], 0
+    for b in reversed(blocks):
+        if total + len(b) > max_len and picked:
+            continue
+        picked.append(b)
+        total += len(b)
+        if total >= max_len or len(picked) >= 3:
+            break
+    return "\n\n".join(picked)
+
+
 def _law_detail_text(mst: str, keywords: list, max_len: int = 6000) -> str:
     """법령 전체(수백 개 조문)를 프롬프트에 다 넣을 수 없으므로, 질의 핵심어가 조문
     제목/내용에 많이 등장하는 조문만 골라 원문 그대로 넘긴다(제목 일치에 가중치).
@@ -250,21 +288,38 @@ def _law_detail_text(mst: str, keywords: list, max_len: int = 6000) -> str:
         total += len(art)
         if total >= max_len:
             break
-    return "\n\n".join(articles[i][:2500] for i in sorted(picked))
+    body = "\n\n".join(articles[i][:2500] for i in sorted(picked))
+
+    buchik = _law_recent_buchik(mst)
+    if buchik:
+        body += (
+            "\n\n[부칙(최근 개정분) - 시행일·유예기간·경과조치. 조문 내용이 실제로 "
+            "'지금' 적용되는지는 여기 명시된 시행일/유예기간을 기준으로 반드시 확인할 것]\n"
+            + buchik
+        )
+    return body
 
 
 def search_laws_with_text(law_names: list, topic_keywords: list,
-                          per_law_len: int = 6000, max_laws: int = 3) -> str:
+                          per_law_len: int = 5000, per_name_max: int = 2) -> str:
     """정식 법령명(예: 공익사업을 위한 토지 등의 취득 및 보상에 관한 법률)으로 검색해,
     그 법령과 시행령/시행규칙 중 질의와 관련된 조문 원문을 가져온다.
 
     law.go.kr 법령 검색은 정식 법령명/약칭이 아니면 결과가 0건이다(실측: "영업손실보상"
-    0건, "토지보상법"은 성공). 그래서 일반 키워드가 아니라 법령명으로 검색해야 한다."""
-    sections, fetched = [], 0
+    0건, "토지보상법"은 성공). 그래서 일반 키워드가 아니라 법령명으로 검색해야 한다.
+
+    예전엔 "총 fetch 개수"를 law_names 전체에 걸쳐 하나의 전역 카운터(max_laws=3)로
+    제한했는데, 법령 하나가 보통 법률+시행령+시행규칙 3단계를 다 갖고 있어서 law_names의
+    첫 번째 법령이 그 예산을 혼자 다 써버리고 두 번째 법령은 한 건도 못 가져오는 사고로
+    이어졌다(실사용 중 발견: 착공계 검토에서 "안전관리계획서/품질관리계획서/유해위험방지
+    계획서/퇴직공제/기술지도계약" 등 서로 다른 법령 4~5개를 한 번에 물어보는데, 건설기술
+    진흥법(법+시행령+시행규칙)이 예산을 다 써서 중대재해처벌법이 아예 빠짐 -> "이미
+    끝난 유예기간을 여전히 적용 중"이라고 오판). 이제 법령마다 개별적으로
+    per_name_max(기본 2: 법률+시행령)만큼만 가져와서, 여러 법령을 요청하면 그 개수만큼
+    고르게 커버되도록 한다."""
+    sections = []
     seen = set()
     for name in law_names:
-        if fetched >= max_laws:
-            break
         try:
             root = _fetch_law_xml_with_retry(
                 f"https://www.law.go.kr/DRF/lawSearch.do?OC={MOLEG_API_KEY}&target=law&type=XML"
@@ -278,8 +333,9 @@ def search_laws_with_text(law_names: list, topic_keywords: list,
         if not hits:
             continue
         base = hits[0][0]
+        fetched_for_name = 0
         for nm, mst in hits:
-            if fetched >= max_laws:
+            if fetched_for_name >= per_name_max:
                 break
             if not mst or mst in seen or not nm.startswith(base):
                 continue
@@ -288,7 +344,7 @@ def search_laws_with_text(law_names: list, topic_keywords: list,
             link = f"https://www.law.go.kr/법령/{urllib.parse.quote(nm)}"
             if text:
                 sections.append(f"[법령 원문 발췌: {nm}] ({link})\n{text}")
-            fetched += 1
+            fetched_for_name += 1
     return "\n\n".join(sections)
 
 
