@@ -37,6 +37,13 @@ GEMINI_KEY = os.environ.get('GEMINI_API_KEY', '')
 
 _V = "RDNDMEEyNTktQjQ1QS0zQ0U2LTg0MUQtNjJFRkIxMDNEM0NC"
 VWORLD_KEY = os.environ.get('VWORLD_API_KEY', '') or base64.b64decode(_V).decode('utf-8')
+# VWorld API 키는 발급 시 등록한 도메인으로만 호출이 허용된다. 예전 코드는 모든 VWorld
+# 호출에 domain=http://127.0.0.1 을 하드코딩했는데, 실제 등록된 도메인은 배포 주소라서
+# ned/data(토지특성정보·지역지구)와 req/data(시군구/읍면동/리 목록) 호출이 전부
+# INCORRECT_KEY로 실패하고 있었다(실사용 중 발견: 지역지구가 항상 "API 에러"로만 나와
+# AI 분석이 실제 지역지구 없이 진행됨). req/search(주소 검색)만 도메인 검증이 느슨해
+# 우연히 통과했었다. 실제 VWorld에 등록된 도메인으로 직접 호출해 확인 후 수정.
+VWORLD_DOMAIN = os.environ.get('VWORLD_DOMAIN', 'port-0-law-assistant-mpgbhts4cec2050f.sel3.cloudtype.app')
 
 _L = "a3NoODQ4MQ==" # ksh8481
 LAW_KEY = os.environ.get('LAW_API_KEY', '') or base64.b64decode(_L).decode('utf-8')
@@ -146,7 +153,7 @@ def get_regions(layer):
         return jsonify({"success": False, "message": "Invalid layer"})
         
     v_layer, code_field, name_field = layer_map[layer]
-    url = f"https://api.vworld.kr/req/data?service=data&request=GetFeature&data={v_layer}&key={vworld_key}&domain=http://127.0.0.1&size=1000&geometry=false"
+    url = f"https://api.vworld.kr/req/data?service=data&request=GetFeature&data={v_layer}&key={vworld_key}&domain={VWORLD_DOMAIN}&size=1000&geometry=false"
     
     if parent_code:
         url += f"&attrFilter={code_field}:like:{parent_code}"
@@ -1284,7 +1291,7 @@ def verify_parcel():
                 "service": "search", "request": "search", "version": "2.0",
                 "size": "10", "page": "1", "query": full_address,
                 "type": "address", "category": "parcel", "format": "json",
-                "errorformat": "json", "key": VWORLD_KEY.strip(), "domain": "http://127.0.0.1"
+                "errorformat": "json", "key": VWORLD_KEY.strip(), "domain": VWORLD_DOMAIN
             }
             res_search = requests.get("https://api.vworld.kr/req/search", params=params, timeout=5).json()
             items = res_search.get('response', {}).get('result', {}).get('items', [])
@@ -1359,7 +1366,7 @@ def verify_parcel():
 
     # (1) 토지특성정보 조회
     try:
-        url_char = f"http://api.vworld.kr/ned/data/getLandCharacteristics?key={VWORLD_KEY.strip()}&domain=http://127.0.0.1&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
+        url_char = f"http://api.vworld.kr/ned/data/getLandCharacteristics?key={VWORLD_KEY.strip()}&domain={VWORLD_DOMAIN}&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
         res_char = requests.get(url_char, timeout=10).json()
         if 'landCharacteristicss' in res_char and 'field' in res_char['landCharacteristicss']:
             fields = res_char['landCharacteristicss']['field']
@@ -1374,7 +1381,7 @@ def verify_parcel():
 
     # (2) 토지이용계획(지역지구) 실데이터 조회
     try:
-        url_zoning = f"http://api.vworld.kr/ned/data/getLandUseAttr?key={VWORLD_KEY.strip()}&domain=http://127.0.0.1&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
+        url_zoning = f"http://api.vworld.kr/ned/data/getLandUseAttr?key={VWORLD_KEY.strip()}&domain={VWORLD_DOMAIN}&pnu={pnu}&format=json&numOfRows=50&pageNo=1"
         res_zoning = requests.get(url_zoning, timeout=10).json()
             
         if 'landUses' in res_zoning:
