@@ -31,6 +31,146 @@ _VALID_REGIONS = set(BASIC_REGIONS) | set(METROPOLITAN_REGIONS)
 _CASE_NO_PATTERN = re.compile(r'\d{2,4}[가-힣]\d{3,7}')
 
 
+# 법령명에 쓰이는 가운뎃점은 공식 표기가 'ㆍ'(U+318D)인데, LLM은 '·'(U+00B7) 등 비슷한 다른
+# 문자로 쓰는 일이 잦다. 같은 법이 서로 다른 이름으로 중복 선정되거나(실사용 중 확인:
+# '체육시설의 설치·이용에 관한 법률'과 '...설치ㆍ이용에 관한 법률'이 둘 다 나옴) 검색이
+# 어긋나지 않도록 공식 표기로 통일한다.
+_MIDDLE_DOT_VARIANTS = '·・･•∙⋅'
+
+
+def _clean_law_name(name: str) -> str:
+    """LLM이 뽑은 법령명 조각을 정리한다. '남해군: 지방자치법'처럼 라벨이 붙은 경우 라벨을
+    버리고, 따옴표/괄호를 벗기고, 가운뎃점 표기를 통일한다. 법령명처럼 안 보이면 빈 문자열."""
+    name = (name or '').strip().strip("'\"「」『』[]() ")
+    if ':' in name or '：' in name:
+        name = re.split(r'[:：]', name)[-1].strip().strip("'\"「」『』[]() ")
+    for ch in _MIDDLE_DOT_VARIANTS:
+        name = name.replace(ch, 'ㆍ')
+    # 법률명만 원한다(시행령/시행규칙/설명문 제외). 너무 짧거나 '법'/'법률'로 안 끝나면 버린다.
+    if len(name) < 3 or not (name.endswith('법') or name.endswith('법률')):
+        return ''
+    return name
+
+
+def _merge_unique(first: list, second: list) -> list:
+    """순서를 유지하며 중복(공백 차이 무시)을 제거해 두 목록을 합친다."""
+    seen, merged = set(), []
+    for name in list(first) + list(second):
+        name = _clean_law_name(name)
+        key = re.sub(r'\s+', '', name)
+        if key and key not in seen:
+            seen.add(key)
+            merged.append(name)
+    return merged
+
+
+_TRAILING_PARTICLES = '은는이가을를에의로와과도만'
+_QUERY_STOPWORDS = {'검토', '판단', '여부', '가능', '가능여부', '해줘', '알려줘', '어떻게', '관련', '대한', '대해', '경우'}
+
+
+def _query_terms(query: str, limit: int = 6) -> list:
+    """질문에 직접 쓰인 핵심 단어(3글자 이상 한글, 끝의 조사 한 글자 제거)를 뽑는다."""
+    terms = []
+    for tok in re.findall(r'[가-힣]{3,}', query[:600]):
+        if len(tok) >= 4 and tok[-1] in _TRAILING_PARTICLES:
+            tok = tok[:-1]
+        if tok in _QUERY_STOPWORDS or tok in terms:
+            continue
+        terms.append(tok)
+        if len(terms) >= limit:
+            break
+    return terms
+
+
+def _merge_keywords(first: list, second: list) -> list:
+    return list(dict.fromkeys([k for k in list(first) + list(second) if k]))
+
+
+def _term_evidence(law_text: str, terms: list) -> str:
+    """질문에 쓰인 용어가 가져온 법령 원문(발췌)의 어느 법령/조문에 실제로 있는지 기계적으로 확인해
+    증거 블록으로 만든다.
+
+    법령 원문이 컨텍스트에 분명히 들어 있는데도, AI가 학습 당시의 옛 용어를 우선해서 "그런 업종은
+    현행법에 없다"고 단정하는 일이 있다(실사용 중 발견: 관광진흥법 제3조 제1항 제6호가 현행
+    "테마파크업"이고 컨텍스트에 그 조문이 있었는데도 "테마파크업은 명시적인 업종이 아니며 유원시설업으로
+    분류될 수 있다"고 답함 - 유원시설업은 개명 전 용어). '이 용어는 이 법령 이 조문에 있다'는 사실을
+    LLM이 찾아내길 기대하지 않고, 문자열 검색으로 확인한 결과를 명시적으로 앞에 붙여 놓는다."""
+    sections = []
+    for sec in re.split(r'(?=\[법령 원문 발췌: )', law_text or ''):
+        m = re.match(r'\[법령 원문 발췌: ([^\]]+)\]', sec)
+        if m:
+            sections.append((m.group(1), sec))
+    if not sections:
+        return ""
+    lines = []
+    for term in terms:
+        found, absent = [], []
+        for name, sec in sections:
+            cnt = sec.count(term)
+            if not cnt:
+                absent.append(name)
+                continue
+            header, example = '', ''
+            for ln in sec.split('\n'):
+                hm = re.match(r'^(제\d+조(?:의\d+)?\([^)]*\))', ln)
+                if hm:
+                    header = hm.group(1)
+                if term in ln and not example:
+                    example = f"{header} … {ln.strip()[:90]}"
+            found.append(f"{name} {cnt}회 (예: {example})")
+        if found:
+            msg = f"- '{term}': " + "; ".join(found)
+            if absent:
+                msg += f" / 이 용어가 나오지 않는 법령: {', '.join(absent)}"
+            lines.append(msg)
+        elif term.endswith('업'):
+            lines.append(f"- '{term}': 제공된 법령 원문 발췌 어디에도 나오지 않음")
+    if not lines:
+        return ""
+    return ("[용어 소재 확인 - 질문에 쓰인 용어가 제공된 법령 원문에 실제로 있는지 기계적으로 검색한 결과입니다. "
+            "이 결과가 당신의 기억(옛 용어 등)과 다르면 반드시 이 결과를 따르십시오]\n" + "\n".join(lines))
+
+
+def _rename_notice(law_text: str) -> str:
+    """가져온 법령 원문에 새 용어가 실제로 있는 개명(예: 관광진흥법 유원시설업 -> 테마파크업)을 AI에게 미리
+    알린다. 원문이 컨텍스트에 있어도 AI가 학습 당시의 옛 용어를 우선하는 일이 반복돼서(같은 질문을 3번 돌려
+    2번이 옛 용어로 답함) 원천적으로 옛 용어를 쓰지 못하게 안내한다. 사후 교정은 citation_check가 한다."""
+    try:
+        from citation_check import RENAMED_TERMS
+    except Exception:
+        return ""
+    by_law = {}
+    for old, new, law_name in RENAMED_TERMS:
+        if f"[법령 원문 발췌: {law_name}" in (law_text or '') and new in law_text:
+            by_law.setdefault(law_name, []).append(f"'{old}' → '{new}'")
+    if not by_law:
+        return ""
+    lines = [f"- {law}: " + ", ".join(pairs) for law, pairs in by_law.items()]
+    return ("[용어 변경 안내 - 법 개정으로 바뀐 용어] 아래 왼쪽의 옛 용어는 현행 법령에 더 이상 없습니다. 답변에서 옛 용어를 "
+            "절대 쓰지 말고 오른쪽의 현행 용어를 쓰십시오.\n" + "\n".join(lines))
+
+
+def _extract_subject_laws(model, query: str) -> list:
+    """질문에 등장하는 업종/시설/제도 용어 각각을 정의·규율하는 법률의 정식 명칭을 뽑는다.
+    (사용자가 언급한 법률과 무관하게, 용어의 소관 법률을 묻는다.) 실패하면 빈 목록."""
+    try:
+        prompt = (
+            "다음 질문에 나오는 핵심 업종·시설·제도·용어 각각을 '정의하거나 규율하는' 대한민국 법률의 "
+            "정식 명칭을 쉼표로 구분해 최대 4개만 한 줄로 답해. 다른 설명은 절대 하지 마.\n"
+            "중요: 질문에서 사용자가 이미 언급한 법률이 그 용어를 규율하는 법률이라고 가정하지 말고, "
+            "용어마다 실제 소관 법률이 무엇인지 각각 판단해라(예: '테마파크업'은 체육시설법이 아니라 "
+            "관광진흥법 소관일 수 있다). 사용자가 언급한 법률도 실제로 관련 있으면 포함해도 된다. "
+            "시행령/시행규칙은 쓰지 말고 법률명만, 확실히 존재하는 정식 명칭만 쓰고 확신이 없으면 비워둬.\n"
+            "질문: " + query[:2000]
+        )
+        resp = model.generate_content(prompt, generation_config={"temperature": 0})
+        line = resp.text.strip().splitlines()[0].strip()
+        return [x.strip().strip("'\"") for x in line.split(',') if x.strip()][:4]
+    except Exception as e:
+        print(f"[mcp_agent_sync] subject-law extraction failed: {e}")
+        return []
+
+
 def _extract_keyword_and_jurisdiction(query: str) -> tuple:
     """(keyword, jurisdiction, ordinance_keyword, law_names, topic_keywords)를 돌려준다.
 
@@ -81,11 +221,20 @@ def _extract_keyword_and_jurisdiction(query: str) -> tuple:
             "'영업손실보상||영업손실|공익사업을 위한 토지 등의 취득 및 보상에 관한 법률|영업손실,휴업,폐업'\n"
             "텍스트: " + query[:8000]
         )
-        resp = model.generate_content(prompt)
+        # temperature=0: 같은 질의를 여러 번 돌려도 뽑히는 법령이 달라지는 걸 최소화한다
+        # (실사용 중 발견: 같은 질문을 3번 돌렸더니 관광진흥법이 1번만 뽑혔고, 안 뽑힌 호출에서는
+        # 그 법 원문이 컨텍스트에 아예 없어서 답변이 소관 법률 하나만 보고 결론을 확정함).
+        resp = model.generate_content(prompt, generation_config={"temperature": 0})
         line = resp.text.strip().splitlines()[0].strip()
         parts = line.split('|')
         keyword = parts[0].strip().replace("'", "").replace('"', "")[:15]
         law_names = [x.strip() for x in (parts[3] if len(parts) > 3 else "").split(',') if x.strip()][:4]
+        # 위 프롬프트는 "이 질의를 검토하려면 조문을 봐야 하는 법률"을 묻는데, 사용자가 이미 법률명을
+        # 언급했으면 그 법률 하나로 답을 끝내버리는 경향이 있다. 질문에 나온 업종/시설/제도 용어는
+        # 사용자가 언급한 법률과 다른 법률 소관일 수 있으므로(예: "체육시설법에 따른 수영장업만
+        # 명시되어 있는데 테마파크업 등록 가능여부" -> 테마파크업은 관광진흥법 소관), "용어별 소관
+        # 법률"만 따로 물어 합친다.
+        law_names = _merge_unique(law_names, _extract_subject_laws(model, query))[:5]
         topic_keywords = [x.strip() for x in (parts[4] if len(parts) > 4 else "").split(',') if x.strip()][:6]
         jurisdiction_raw = parts[1].strip().replace("'", "").replace('"', "")[:10] if len(parts) > 1 else ""
         ordinance_keyword = parts[2].strip().replace("'", "").replace('"', "")[:15] if len(parts) > 2 else keyword
@@ -133,8 +282,19 @@ def get_mcp_context_sync(query: str, uploaded_file=None) -> str:
     # 이름/링크만 줘서 AI가 조문 내용을 검토하지 못했음).
     if law_names:
         try:
-            law_text = search_laws_with_text(law_names, topic_keywords or [keyword])
+            # LLM이 뽑은 조문키워드는 옛 용어를 쓰는 일이 있다(실사용 중 발견: "테마파크업"을
+            # 물었는데 현행 관광진흥법에서 개명 전 용어인 "유원시설업"을 키워드로 뽑아, 정작
+            # "테마파크업"이 나오는 조문이 발췌에서 빠짐). 사용자가 질문에 직접 쓴 단어는 가장 믿을
+            # 만한 키워드이므로 같이 합친다. 법령에 없는 단어는 IDF가 0이라 점수에 영향이 없다.
+            law_keywords = _merge_keywords(topic_keywords or [keyword], _query_terms(query))
+            law_text = search_laws_with_text(law_names, law_keywords)
             if law_text:
+                evidence = _term_evidence(law_text, _query_terms(query))
+                if evidence:
+                    sections.append(evidence)
+                rename_notice = _rename_notice(law_text)
+                if rename_notice:
+                    sections.append(rename_notice)
                 sections.append(law_text)
         except Exception as e:
             sections.append(f"[법령 원문 조회 실패: {e}]")

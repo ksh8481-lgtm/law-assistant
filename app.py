@@ -20,6 +20,7 @@ except Exception as e:
     print(f"Failed to import kcsc_engine: {e}")
     kcsc_engine = None
 from law_linkify import linkify_law_citations, extract_law_names_from_context
+from citation_check import annotate_unverified_citations
 from doc_extract import extract_text_from_file
 
 app = Flask(__name__)
@@ -112,7 +113,13 @@ def gemini_file_part(gfile):
     return {"file_data": {"mime_type": gfile.mime_type, "file_uri": gfile.uri}}
 
 
-def generate_with_search_grounding(prompt, model_name):
+# 법령 검토 답변의 본 생성 온도. 기본값(1.0 근처)에서는 같은 질문·같은 컨텍스트로도 샘플마다 결과가 크게 흔들려,
+# 어떤 때는 제공된 법령 원문(예: 관광진흥법 제3조 제1항 제6호 "테마파크업")대로 답하고 어떤 때는
+# 학습 당시의 옛 용어("유원시설업")로 답하는 일이 실제로 발생했다(실사용 중 확인). 낮은 온도로 컨텍스트에 더 충실하게 한다.
+LEGAL_GEN_CONFIG = {"temperature": 0.2}
+
+
+def generate_with_search_grounding(prompt, model_name, temperature=0.2):
     """
     구글 실시간 검색(Google Search Grounding)을 사용해 generate_content를 실행한다.
 
@@ -135,7 +142,7 @@ def generate_with_search_grounding(prompt, model_name):
 
     client = google_genai_client.Client(api_key=GEMINI_KEY)
     grounding_tool = types.Tool(google_search=types.GoogleSearch())
-    config = types.GenerateContentConfig(tools=[grounding_tool])
+    config = types.GenerateContentConfig(tools=[grounding_tool], temperature=temperature)
 
     clean_model_name = model_name.replace('models/', '')
     return client.models.generate_content(model=clean_model_name, contents=prompt, config=config)
@@ -199,7 +206,7 @@ def verify_law_citations_via_search(ai_result: str, model_name: str = 'gemini-2.
 {ai_result}
 """
     try:
-        verify_resp = generate_with_search_grounding(verify_prompt, model_name)
+        verify_resp = generate_with_search_grounding(verify_prompt, model_name, temperature=0)
     except Exception as e:
         print(f"[법조항 검증] 패스 실패(원본 유지): {e}")
         return ai_result
@@ -1946,6 +1953,8 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
   {mode_instruction}
 5. 🚨 **[할루시네이션(환각) 원천 차단]**: 만약 사용자가 질의한 특정 법률의 원문이 [로컬 법령 데이터베이스]에 제공되지 않았다면, **절대로 조항 번호(예: 제X조)나 구체적 내용을 스스로 창작하거나 유추해서 적지 마십시오!** 이 경우 일반적인 법리와 절차만 설명하고, 반드시 "해당 법률의 원문 데이터가 로컬 DB에 없어 정확한 조항 번호는 법제처(law.go.kr)를 직접 참조하시기 바랍니다."라고 명시하십시오.
 6. 🚨 **[하위 항목 개수 조작 절대 금지]**: 어떤 조항이 [로컬 법령 데이터베이스]에 원문 그대로 제공되어 있다면, 그 조항의 호(1. 2. 3. ...)ㆍ목(가. 나. 다. ...) 구성을 **절대로 실제보다 더 많이 지어내지 마십시오.** 인용하기 전에 제공된 원문에서 그 조항에 실제로 몇 개의 호가 있는지 직접 세어보고, 그 범위를 벗어나는 호(예: 원문엔 제1호ㆍ제2호뿐인데 제3호 이상을 언급)를 절대 만들어내지 마십시오. 원문에 있는 조항은 반드시 원문의 문구를 그대로 옮기고, 원문에 없는 세부 항목이 필요하다고 판단되면 지어내는 대신 "구체적인 하위 항목은 원문을 직접 확인하십시오"라고 안내하십시오.
+7. 🚨 **[질문의 전제 법률을 소관 법률로 단정 금지]**: 사용자가 특정 법률을 언급했다고 해서 그 법률이 질문 대상을 규율하는 법률이라고 단정하지 마십시오. 질문에 나온 업종·시설·제도(예: "테마파크업", "수영장업")는 사용자가 언급한 법률과 전혀 다른 법률(예: 관광진흥법상 유원시설업)의 용어일 수 있습니다. 답하기 전에 "이 용어를 정의·규율하는 법률이 사용자가 언급한 법률과 같은가?"를 먼저 점검하고, 아래 [법제처 API 실시간 RAG 검색 결과]에 그 소관 법률이 없다면 "이 사안은 ○○법도 관련될 수 있으나 제공된 자료에 원문이 없어 확인이 필요합니다"라고 명시하십시오. 사용자가 언급한 법률 하나만으로 결론("가능/불가능")을 확정하지 마십시오.
+8. 🚨 **[제공된 원문이 기억보다 우선]**: 법령은 개정되며 용어도 바뀝니다(예: 관광진흥법의 "유원시설업"은 현행 "테마파크업"으로 개명됨). 아래 [법제처 API 실시간 RAG 검색 결과]의 법령 원문이나 [용어 소재 확인] 결과가 당신이 기억하는 용어·조문 내용과 다르면, 반드시 제공된 원문을 따르십시오. 제공된 원문에 어떤 업종·용어가 실제로 있는데도 "현행법에 명시적으로 규정되어 있지 않다"고 단정하거나 옛 용어로 바꿔 쓰는 것은 금지입니다. 업종·용어가 법에 "있다/없다"를 말하기 전에 제공된 원문에서 그 용어가 나오는 조문을 직접 찾아 그 조문 번호와 함께 인용하십시오.
 
 ### 1. 상황 요약 (Situation Summary)
 - 
@@ -1970,12 +1979,12 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
             try:
                 try:
                     model = genai.GenerativeModel(model_name=m)
-                    response = model.generate_content(contents_payload)
+                    response = model.generate_content(contents_payload, generation_config=LEGAL_GEN_CONFIG)
                     break
                 except Exception as tool_e:
                     print(f"Tool {m} fallback: {tool_e}")
                     model = genai.GenerativeModel(model_name=m)
-                    response = model.generate_content(contents_payload)
+                    response = model.generate_content(contents_payload, generation_config=LEGAL_GEN_CONFIG)
                     break
             except Exception as e:
                 last_err = e
@@ -1993,7 +2002,10 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
         file_name = uploaded_file.name if uploaded_file else ""
         JOBS[job_id] = {
             "status": "completed",
-            "result": linkify_law_citations(verified_result, extract_law_names_from_context(mcp_rag_context)),
+            # linkify 이후 최종 텍스트의 조문 링크를 법제처 실제 조문과 대조해, 원문과 안 맞는 인용에
+            # ⚠️ 경고를 붙인다(citation_check 참고). 구글 검색 기반 검증 패스가 놓친 가짜 조항을 잡는 2중 방어.
+            "result": annotate_unverified_citations(
+                linkify_law_citations(verified_result, extract_law_names_from_context(mcp_rag_context))),
             "file_name": file_name,
             "initial_context": full_query_for_rag
         }
@@ -2116,7 +2128,7 @@ def api_chat_other_review():
         for m in models_to_try:
             try:
                 model = genai.GenerativeModel(model_name=m)
-                response = model.generate_content(contents_payload)
+                response = model.generate_content(contents_payload, generation_config=LEGAL_GEN_CONFIG)
                 break
             except Exception as e:
                 last_err = e
@@ -2125,7 +2137,7 @@ def api_chat_other_review():
         if not response:
             raise Exception(f"채팅 응답 생성 실패: {last_err}")
             
-        return jsonify({"success": True, "result": linkify_law_citations(response.text)})
+        return jsonify({"success": True, "result": annotate_unverified_citations(linkify_law_citations(response.text))})
         
     except Exception as e:
         print(f"Chat Review API Error: {e}")
@@ -2440,7 +2452,7 @@ def run_design_review(job_id, project_name, project_domain, review_modes, additi
             try:
                 print(f"[Design Review] Trying model: {model_name}")
                 model = genai.GenerativeModel(model_name=model_name)
-                response = model.generate_content(content_payload)
+                response = model.generate_content(content_payload, generation_config=LEGAL_GEN_CONFIG)
                 ai_result = response.text
                 print(f"[Design Review] Success with model: {model_name}")
                 break
@@ -2459,7 +2471,7 @@ def run_design_review(job_id, project_name, project_domain, review_modes, additi
 
         JOBS[job_id] = {
             "status": "completed",
-            "result": linkify_law_citations(ai_result)
+            "result": annotate_unverified_citations(linkify_law_citations(ai_result))
         }
     except Exception as e:
         print(f"run_design_review error: {e}")
@@ -2804,7 +2816,7 @@ def run_commencement_review(job_id, project_name, contract_amount, total_cost, a
             try:
                 print(f"[Commencement Review] Trying model: {model_name}")
                 model = genai.GenerativeModel(model_name=model_name)
-                response = model.generate_content(content_payload)
+                response = model.generate_content(content_payload, generation_config=LEGAL_GEN_CONFIG)
                 ai_result = response.text
                 print(f"[Commencement Review] Success with model: {model_name}")
                 break
@@ -2817,7 +2829,7 @@ def run_commencement_review(job_id, project_name, contract_amount, total_cost, a
 
         JOBS[job_id] = {
             "status": "completed",
-            "result": linkify_law_citations(ai_result)
+            "result": annotate_unverified_citations(linkify_law_citations(ai_result))
         }
     except Exception as e:
         print(f"run_commencement_review error: {e}")
