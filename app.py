@@ -21,6 +21,8 @@ except Exception as e:
     kcsc_engine = None
 from law_linkify import linkify_law_citations, extract_law_names_from_context
 from citation_check import annotate_unverified_citations
+import pq_engine
+import pq_extract
 from doc_extract import extract_text_from_file
 
 app = Flask(__name__)
@@ -2879,6 +2881,156 @@ def api_commencement_review():
         return jsonify({"success": True, "jobId": job_id})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
+
+
+# ----------------------------------------------------------------------------
+# 사업수행능력평가(PQ) 점수 산정 (요청: "사업수행능력평가 점수 매기는걸 만들고싶어")
+# 점수는 pq_engine이 고시 [별표]대로 결정적으로 계산한다. AI(pq_extract)는 서류에서 입력값을
+# 뽑아 화면에 채워줄 뿐이고, 사람이 확인·수정한 값만 계산에 들어간다.
+# ----------------------------------------------------------------------------
+PQ_PLANNED = [
+    {"id": "env_assess", "short": "환경영향평가업자", "status": "planned",
+     "note": "환경영향평가업자의 사업수행능력 세부평가기준(기후에너지환경부 고시) - 구현 예정"},
+    {"id": "const_mgmt", "short": "건설사업관리 건설엔지니어링사업자", "status": "planned",
+     "note": "국토교통부 고시(건설엔지니어링사업자 사업수행능력 세부평가기준)·해양수산부 훈령 - 구현 예정"},
+    {"id": "gyeongnam", "short": "경상남도 건설엔지니어링사업자", "status": "planned",
+     "note": "경상남도 자체 기준(경남도청 고시공고) - 원문 확보 후 구현 예정"},
+]
+
+
+@app.route('/pq_score')
+def pq_score_page():
+    return render_template('pq_score.html')
+
+
+@app.route('/api/pq/specs', methods=['GET'])
+def api_pq_specs():
+    return jsonify({"success": True, "ready": pq_engine.list_specs(), "planned": PQ_PLANNED})
+
+
+@app.route('/api/pq/spec/<spec_id>', methods=['GET'])
+def api_pq_spec(spec_id):
+    try:
+        return jsonify({"success": True, "spec": pq_engine.load_spec(spec_id)})
+    except KeyError:
+        return jsonify({"success": False, "message": "존재하지 않는 평가기준입니다."}), 404
+
+
+@app.route('/api/pq/score', methods=['POST'])
+def api_pq_score():
+    try:
+        data = request.get_json(silent=True) or {}
+        bidders = data.get('bidders') or []
+        if not isinstance(bidders, list) or not bidders:
+            return jsonify({"success": False, "message": "입찰사를 1개 이상 입력해 주세요."}), 400
+        if len(bidders) > 40:
+            return jsonify({"success": False, "message": "입찰사는 최대 40개까지 한 번에 평가할 수 있습니다."}), 400
+        result = pq_engine.evaluate(data.get('spec_id', ''), data.get('project') or {}, bidders)
+        return jsonify({"success": True, "result": result})
+    except KeyError:
+        return jsonify({"success": False, "message": "존재하지 않는 평가기준입니다."}), 404
+    except Exception as e:
+        print(f"[PQ] score error: {type(e).__name__}: {e}")
+        return jsonify({"success": False, "message": f"점수 계산 중 오류: {e}"}), 500
+
+
+def run_pq_extract(job_id, spec_id, project_fields, announce_date, bidder_name, saved_files):
+    try:
+        import os
+        import google.generativeai as genai
+        genai.configure(api_key=GEMINI_KEY)
+        spec = pq_engine.load_spec(spec_id)
+
+        parts, texts = [], ""
+        for info in saved_files:
+            path, fname = info['path'], info['name']
+            if not os.path.exists(path):
+                continue
+            try:
+                parts.append(gemini_file_part(upload_file_for_gemini(path, display_name=fname)))
+            except Exception as e:
+                print(f"[PQ extract] 파일 업로드 실패 {fname}: {e}")
+            try:
+                texts += f"\n[파일: {fname}]\n" + (extract_text_from_file(path) or "")[:60000]
+            except Exception as e:
+                print(f"[PQ extract] 텍스트 추출 실패 {fname}: {e}")
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+
+        prompt = pq_extract.build_prompt(spec, project_fields, announce_date, bidder_name)
+        payload = parts + [prompt + "\n\n[서류에서 추출한 텍스트(참고)]\n" + texts[:120000]]
+        last_err, response = None, None
+        for model_name in ('models/gemini-2.5-pro', 'models/gemini-2.5-flash'):
+            try:
+                model = genai.GenerativeModel(model_name=model_name)
+                response = model.generate_content(
+                    payload, generation_config={"temperature": 0, "response_mime_type": "application/json"})
+                break
+            except Exception as e:
+                last_err = e
+                print(f"[PQ extract] {model_name} 실패: {e}")
+        if response is None:
+            raise Exception(f"AI 추출에 실패했습니다: {last_err}")
+
+        inputs, evidence, notes = pq_extract.parse_response(spec, project_fields, response.text)
+        JOBS[job_id] = {"status": "completed", "result": {"inputs": inputs, "evidence": evidence, "notes": notes}}
+    except Exception as e:
+        print(f"[PQ extract] error: {type(e).__name__}: {e}")
+        JOBS[job_id] = {"status": "error", "message": str(e)}
+
+
+@app.route('/api/pq/extract', methods=['POST'])
+def api_pq_extract():
+    try:
+        import tempfile
+        spec_id = request.form.get('spec_id', '')
+        try:
+            pq_engine.load_spec(spec_id)
+        except KeyError:
+            return jsonify({"success": False, "message": "존재하지 않는 평가기준입니다."}), 404
+        try:
+            project = json.loads(request.form.get('project', '{}'))
+        except Exception:
+            project = {}
+        saved = []
+        for file_obj in request.files.getlist('files'):
+            if file_obj and file_obj.filename:
+                ext = os.path.splitext(file_obj.filename)[1]
+                fd, temp_path = tempfile.mkstemp(suffix=ext)
+                os.close(fd)
+                file_obj.save(temp_path)
+                saved.append({'path': temp_path, 'name': file_obj.filename})
+        if not saved:
+            return jsonify({"success": False, "message": "추출할 서류 파일을 하나 이상 첨부해 주세요."}), 400
+
+        job_id = str(uuid.uuid4())
+        JOBS[job_id] = {"status": "processing"}
+        thread = threading.Thread(
+            target=run_pq_extract,
+            args=(job_id, spec_id, project.get('fields') or [], project.get('announce_date') or '',
+                  request.form.get('bidder_name', ''), saved))
+        thread.daemon = True
+        thread.start()
+        return jsonify({"success": True, "jobId": job_id})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route('/api/pq/extract_status/<job_id>', methods=['GET'])
+def api_pq_extract_status(job_id):
+    if job_id not in JOBS:
+        return jsonify({"status": "error", "message": "존재하지 않는 작업입니다."}), 404
+    info = JOBS[job_id]
+    if info.get("status") == "completed":
+        del JOBS[job_id]
+        return jsonify({"status": "completed", "result": info.get("result")})
+    if info.get("status") == "error":
+        del JOBS[job_id]
+        return jsonify({"status": "error", "message": info.get("message", "알 수 없는 오류")})
+    return jsonify({"status": "processing"})
+
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

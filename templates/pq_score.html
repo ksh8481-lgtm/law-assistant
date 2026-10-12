@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>사업수행능력평가 점수 산정</title>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #0d9488;
+            --primary-dark: #0f766e;
+            --primary-soft: #f0fdfa;
+            --text-main: #0f172a;
+            --text-muted: #475569;
+            --card-border: #cbd5e1;
+            --warn-bg: #fffbeb;
+            --warn-border: #fde68a;
+            --ai-bg: #fef9c3;
+            --ai-border: #facc15;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background: linear-gradient(135deg, #f0fdfa 0%, #f8fafc 50%, #f1f5f9 100%);
+            background-attachment: fixed; color: var(--text-main); min-height: 100vh;
+        }
+        .container { max-width: 1120px; margin: 0 auto; padding: 2rem 1.2rem 4rem; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.8rem; gap: 1rem; flex-wrap: wrap; }
+        header h1 { font-size: 2rem; font-weight: 800; color: var(--primary-dark); margin-bottom: 0.3rem; }
+        header p { color: var(--text-muted); }
+        .back-btn { text-decoration: none; color: #475569; background: white; padding: 0.65rem 1.1rem; border-radius: 999px;
+            font-weight: 600; border: 1px solid #cbd5e1; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .back-btn:hover { color: var(--primary-dark); border-color: var(--primary); }
+
+        .card { background: rgba(255,255,255,0.92); border: 1px solid var(--card-border); border-radius: 18px;
+            padding: 1.6rem 1.8rem; margin-bottom: 1.4rem; box-shadow: 0 8px 20px rgba(0,0,0,0.04); }
+        .card > h2 { font-size: 1.15rem; font-weight: 700; margin-bottom: 1rem; padding-bottom: 0.7rem; border-bottom: 2px solid #f1f5f9;
+            display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
+        .step { display: inline-flex; width: 1.7rem; height: 1.7rem; border-radius: 50%; background: var(--primary); color: #fff;
+            align-items: center; justify-content: center; font-size: 0.9rem; margin-right: 0.5rem; flex: none; }
+
+        .spec-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 0.8rem; }
+        .spec-card { border: 2px solid #e2e8f0; border-radius: 14px; padding: 0.9rem 1rem; background: #fff; cursor: pointer; }
+        .spec-card.active { border-color: var(--primary); background: var(--primary-soft); }
+        .spec-card.planned { opacity: 0.55; cursor: not-allowed; }
+        .spec-card b { display: block; margin-bottom: 0.25rem; }
+        .spec-card small { color: #64748b; }
+        .badge { display: inline-block; font-size: 0.7rem; padding: 0.1rem 0.5rem; border-radius: 999px; background: #e2e8f0; color: #475569; margin-left: 0.3rem; font-weight: 600; }
+
+        .notice { background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 12px; padding: 0.9rem 1.2rem; font-size: 0.88rem;
+            color: #78350f; line-height: 1.7; margin-top: 0.9rem; }
+        .notice ul { margin-left: 1.1rem; }
+
+        .grid { display: grid; gap: 0.9rem 1.1rem; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+        .field label { display: block; font-weight: 600; font-size: 0.85rem; color: #334155; margin-bottom: 0.3rem; line-height: 1.35; }
+        .field .unit { font-weight: 500; color: #64748b; font-size: 0.8rem; }
+        .field .help { font-size: 0.75rem; color: #94a3b8; margin-top: 0.25rem; line-height: 1.4; }
+        input[type=text], input[type=number], input[type=date], select {
+            width: 100%; padding: 0.55rem 0.7rem; border: 1px solid #cbd5e1; border-radius: 9px; font-size: 0.95rem;
+            font-family: inherit; background: white; }
+        input:focus, select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(13,148,136,0.15); }
+        .field.ai input, .field.ai select { background: var(--ai-bg); border-color: var(--ai-border); }
+        .ai-tag { display: inline-block; font-size: 0.68rem; font-weight: 700; background: #facc15; color: #713f12; border-radius: 6px;
+            padding: 0.02rem 0.35rem; margin-left: 0.35rem; cursor: help; }
+        .ai-tag.ok { background: #bbf7d0; color: #14532d; }
+        .check { display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.85rem; line-height: 1.4; }
+        .check input { margin-top: 0.2rem; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+        th, td { border: 1px solid #e2e8f0; padding: 0.45rem 0.6rem; text-align: left; vertical-align: middle; }
+        th { background: #f1f5f9; font-weight: 700; }
+        td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+        .tbl-wrap { overflow-x: auto; }
+        td input, td select { padding: 0.35rem 0.5rem; font-size: 0.88rem; }
+
+        .btn { border: none; border-radius: 10px; padding: 0.6rem 1.1rem; font-weight: 700; font-size: 0.92rem; cursor: pointer;
+            font-family: inherit; }
+        .btn-primary { background: var(--primary); color: #fff; }
+        .btn-primary:hover { background: var(--primary-dark); }
+        .btn-primary:disabled { background: #94a3b8; cursor: not-allowed; }
+        .btn-ghost { background: #fff; color: #334155; border: 1px solid #cbd5e1; }
+        .btn-ghost:hover { border-color: var(--primary); color: var(--primary-dark); }
+        .btn-danger { background: #fff; color: #b91c1c; border: 1px solid #fecaca; }
+        .btn-sm { padding: 0.3rem 0.65rem; font-size: 0.8rem; border-radius: 8px; }
+
+        .tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; align-items: center; }
+        .tab { padding: 0.45rem 0.9rem; border-radius: 999px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer; font-weight: 600; font-size: 0.88rem; }
+        .tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+        .sub { border: 1px solid #e2e8f0; border-radius: 14px; padding: 1rem 1.1rem; margin-bottom: 1rem; background: #fff; }
+        .sub > h3 { font-size: 0.98rem; margin-bottom: 0.8rem; color: var(--primary-dark); }
+        .sub details > summary { cursor: pointer; font-weight: 700; color: var(--primary-dark); }
+
+        .extract-box { background: #fefce8; border: 1px dashed var(--ai-border); border-radius: 12px; padding: 0.9rem 1.1rem; margin-bottom: 1rem; }
+        .extract-box .row { display: flex; gap: 0.7rem; flex-wrap: wrap; align-items: center; margin-top: 0.5rem; }
+        .status { font-size: 0.85rem; color: #475569; }
+        .evidence { font-size: 0.8rem; color: #475569; margin-top: 0.6rem; line-height: 1.5; }
+        .evidence li { margin-left: 1rem; }
+
+        .warn-list { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 12px; padding: 0.8rem 1.1rem 0.8rem 2rem;
+            font-size: 0.86rem; line-height: 1.6; margin-bottom: 1rem; }
+        .rank1 { background: #ecfdf5; }
+        .score-big { font-weight: 800; font-size: 1.05rem; color: var(--primary-dark); }
+        .basis { font-size: 0.78rem; color: #475569; line-height: 1.5; margin-top: 0.3rem; }
+        .muted { color: #94a3b8; }
+        .err { color: #b91c1c; font-weight: 600; }
+        @media print { .no-print { display: none !important; } body { background: #fff; } .card { box-shadow: none; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <div>
+            <h1>🏅 사업수행능력평가 점수 산정</h1>
+            <p>고시 [별표]의 배점·구간표를 그대로 적용해 입찰사별 점수를 계산합니다. 점수는 AI가 아니라 고시 공식으로 계산됩니다.</p>
+        </div>
+        <a class="back-btn no-print" href="/">← 홈으로</a>
+    </header>
+
+    <div class="card">
+        <h2><span><span class="step">1</span>평가기준 선택</span></h2>
+        <div id="specCards" class="spec-cards"></div>
+        <div id="specNotice"></div>
+    </div>
+
+    <div id="workspace" style="display:none;">
+        <div class="card">
+            <h2><span><span class="step">2</span>사업 정보 및 분야별 책임기술인 구성</span></h2>
+            <div id="projectForm" class="grid"></div>
+            <div style="margin-top:1.1rem;">
+                <b style="font-size:0.92rem;">분야별 책임·참여기술인 구성 (업무기여도 합계 100%)</b>
+                <div class="tbl-wrap" style="margin-top:0.5rem;">
+                    <table id="fieldsTable">
+                        <thead><tr><th>분야명</th><th style="width:130px;">업무기여도(%)</th><th style="width:120px;">구분</th><th style="width:60px;"></th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <div style="margin-top:0.5rem; display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap;">
+                    <button class="btn btn-ghost btn-sm" id="addFieldBtn">+ 분야 추가</button>
+                    <span id="fieldsSum" class="status"></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2><span><span class="step">3</span>배점 조정 <small class="muted" style="font-weight:500;">(선택 · 고시 제4조: 평가요소별 ±20%)</small></span>
+                <button class="btn btn-ghost btn-sm no-print" id="toggleAdjustBtn">펼치기</button></h2>
+            <div id="adjustBox" style="display:none;">
+                <div class="tbl-wrap"><table id="adjustTable">
+                    <thead><tr><th>평가요소</th><th class="num" style="width:90px;">고시 배점</th><th class="num" style="width:130px;">조정 배점</th><th style="width:170px;">허용 범위</th></tr></thead>
+                    <tbody></tbody></table></div>
+                <div style="margin-top:0.6rem; display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap;">
+                    <button class="btn btn-ghost btn-sm" id="resetAdjustBtn">고시 기본 배점으로 되돌리기</button>
+                    <span id="adjustSum" class="status"></span>
+                </div>
+                <p class="status" style="margin-top:0.5rem;">조정 시에는 조정 내용과 사유를 명확히 해야 하며, 특정 항목을 배제하거나 특정 기준을 추가해서는 안 됩니다(고시 제4조제3항).</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2><span><span class="step">4</span>입찰사별 평가 자료 입력</span>
+                <button class="btn btn-ghost btn-sm no-print" id="clearDraftBtn">입력 초기화</button></h2>
+            <div class="tabs" id="bidderTabs"></div>
+            <div id="bidderPanel"></div>
+        </div>
+
+        <div class="card">
+            <h2><span><span class="step">5</span>점수 산정 결과</span></h2>
+            <div class="no-print" style="margin-bottom:1rem;"><button class="btn btn-primary" id="scoreBtn">점수 계산하기</button>
+                <span id="scoreStatus" class="status" style="margin-left:0.8rem;"></span></div>
+            <div id="results"></div>
+        </div>
+    </div>
+</div>
+<script src="{{ url_for('static', filename='pq_score.js') }}"></script>
+</body>
+</html>
