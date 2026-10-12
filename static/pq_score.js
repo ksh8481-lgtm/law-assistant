@@ -41,7 +41,7 @@
     function isBlank(v) { return v === undefined || v === null || v === ''; }
 
     function newBidder(i) {
-        return { name: '입찰사 ' + (i + 1), firm: {}, persons: { lead: {}, field_lead: {}, field_member: {} }, ai: {}, notes: [], evidence: {},
+        return { name: '입찰사 ' + (i + 1), firm: {}, persons: personSkeleton(), ai: {}, notes: [], evidence: {},
             jv: false, members: [] };
     }
     function newMember(i) {
@@ -249,6 +249,22 @@
     }
 
     // ------------------------------------------------------------ 2. 사업 정보
+    function personRoles() { return spec.form.person_order || Object.keys(spec.form.persons); }
+    function personSkeleton() {
+        var o = {};
+        personRoles().forEach(function (r) { o[r] = {}; });
+        return o;
+    }
+    // 분야 구성 표 정의(명세에 없으면 방재 기준처럼 '분야 + 업무기여도 + 필수/추가' 한 개)
+    function fieldTableDefs() {
+        return spec.form.field_tables || [{
+            key: 'fields', title: '분야별 책임·참여기술인 구성 (업무기여도 합계 100%)', name_label: '분야명', pct_label: '업무기여도(%)',
+            kind: true, add_label: '+ 분야 추가', normalize_note: '100%가 아니면 비율대로 환산해 계산합니다'
+        }];
+    }
+    function scopeRows(scope) {
+        return (S.project[scope] || []).filter(function (r) { return (r.name || '').trim(); });
+    }
     function projectFieldDefs() {
         return spec.form.project.map(function (f) {
             if (f.key === 'work_type') {
@@ -262,7 +278,10 @@
     function renderProject() {
         var box = $('projectForm');
         clear(box);
+        var triggers = {};
+        spec.form.project.forEach(function (f) { if (f.needs) triggers[f.needs] = true; });
         projectFieldDefs().forEach(function (f) {
+            if (f.needs && !S.project.values[f.needs]) return;
             var w = fieldWidget(f, S.project.values, {});
             if (f.key === 'work_type') {
                 var sel = w.querySelector('select');
@@ -272,63 +291,98 @@
                 var sel2 = w.querySelector('select');
                 sel2.addEventListener('change', function () { renderBidders(); });
             }
+            if (triggers[f.key]) {
+                // 다른 항목이 이 체크 여부에 따라 보이거나 숨겨진다
+                w.querySelector('input').addEventListener('change', function () { renderProject(); renderBidders(); });
+            }
             box.appendChild(w);
         });
-        renderFieldsTable();
+        renderFieldTables();
     }
     function applyTemplate(name) {
         var tpl = (spec.templates || {})[name];
         if (!tpl) return;
         S.project.fields = tpl.map(function (r) { return { name: r[0], pct: r[1], kind: r[2] || '필수' }; });
-        renderFieldsTable();
+        renderFieldTables();
         renderBidders();
         touch();
     }
-    function renameField(oldName, newName) {
+    // 분야 이름을 바꾸면 그 분야로 입력해 둔 기술인 값(과 전차용역의 금회 역할)도 따라가게 한다
+    function renameField(scope, oldName, newName) {
         if (!oldName || !newName || oldName === newName) return;
         S.bidders.forEach(function (b) {
-            ['field_lead', 'field_member'].forEach(function (role) {
+            personRoles().forEach(function (role) {
+                if (spec.form.persons[role].scope !== scope || !b.persons[role]) return;
                 if (b.persons[role][oldName] !== undefined && b.persons[role][newName] === undefined) {
                     b.persons[role][newName] = b.persons[role][oldName];
                     delete b.persons[role][oldName];
                 }
             });
-            (b.firm.prev_items || []).forEach(function (r) { if (r.cur_role === oldName) r.cur_role = newName; });
+            if (scope === 'fields') {
+                (b.firm.prev_items || []).forEach(function (r) { if (r.cur_role === oldName) r.cur_role = newName; });
+            }
         });
     }
-    function renderFieldsTable() {
-        var tb = $('fieldsTable').querySelector('tbody');
-        clear(tb);
-        S.project.fields.forEach(function (r, i) {
-            var nameInp = el('input', { type: 'text', value: r.name || '' });
-            var oldName = r.name;
-            nameInp.addEventListener('change', function () {
-                var nn = nameInp.value.trim();
-                renameField(oldName, nn);
-                r.name = nn; oldName = nn;
-                renderBidders(); touch();
-            });
-            var pctInp = el('input', { type: 'number', step: 'any', min: '0', value: isBlank(r.pct) ? '' : r.pct });
-            pctInp.addEventListener('input', function () { r.pct = pctInp.value === '' ? null : Number(pctInp.value); updateFieldsSum(); touch(); });
-            var kindSel = el('select');
-            ['필수', '추가'].forEach(function (k) { kindSel.appendChild(el('option', { value: k, text: k })); });
-            kindSel.value = r.kind || '필수';
-            kindSel.addEventListener('change', function () { r.kind = kindSel.value; touch(); });
-            var del = el('button', { class: 'btn btn-danger btn-sm', type: 'button', text: '삭제', onclick: function () {
-                S.project.fields.splice(i, 1); renderFieldsTable(); renderBidders(); touch();
-            } });
-            tb.appendChild(el('tr', {}, [el('td', {}, [nameInp]), el('td', {}, [pctInp]), el('td', {}, [kindSel]), el('td', {}, [del])]));
+    function renderFieldTables() {
+        var box = $('fieldTables');
+        clear(box);
+        fieldTableDefs().forEach(function (def) {
+            if (!S.project[def.key]) S.project[def.key] = [];
+            var rowsData = S.project[def.key];
+            var sumNote = el('span', { class: 'status' });
+            function updateSum() {
+                var sum = rowsData.reduce(function (a, r) { return a + (Number(r.pct) || 0); }, 0);
+                var off = rowsData.length && Math.abs(sum - 100) > 0.01;
+                sumNote.textContent = (def.pct_label || '비율').replace(/\(.*\)/, '') + ' 합계 ' + fmt(sum) + '%' + (off ? ' (' + (def.normalize_note || '100%가 아니면 비율대로 환산해 계산합니다') + ')' : '');
+                sumNote.style.color = off ? '#b91c1c' : '';
+            }
+            var tb = el('tbody');
+            function draw() {
+                clear(tb);
+                rowsData.forEach(function (r, i) {
+                    var nameInp = el('input', { type: 'text', value: r.name || '' });
+                    var oldName = r.name;
+                    nameInp.addEventListener('change', function () {
+                        var nn = nameInp.value.trim();
+                        renameField(def.key, oldName, nn);
+                        r.name = nn; oldName = nn;
+                        renderBidders(); touch();
+                    });
+                    var pctInp = el('input', { type: 'number', step: 'any', min: '0', value: isBlank(r.pct) ? '' : r.pct });
+                    pctInp.addEventListener('input', function () { r.pct = pctInp.value === '' ? null : Number(pctInp.value); updateSum(); touch(); });
+                    var tds = [el('td', {}, [nameInp]), el('td', {}, [pctInp])];
+                    if (def.kind) {
+                        var kindSel = el('select');
+                        ['필수', '추가'].forEach(function (k) { kindSel.appendChild(el('option', { value: k, text: k })); });
+                        kindSel.value = r.kind || '필수';
+                        kindSel.addEventListener('change', function () { r.kind = kindSel.value; touch(); });
+                        tds.push(el('td', {}, [kindSel]));
+                    }
+                    tds.push(el('td', {}, [el('button', { class: 'btn btn-danger btn-sm', type: 'button', text: '삭제', onclick: function () {
+                        rowsData.splice(i, 1); renderFieldTables(); renderBidders(); touch();
+                    } })]));
+                    tb.appendChild(el('tr', {}, tds));
+                });
+                if (!rowsData.length) {
+                    tb.appendChild(el('tr', {}, [el('td', { colspan: def.kind ? '4' : '3', class: 'muted', text: '[' + (def.add_label || '+ 분야 추가').replace(/^\+\s*/, '') + '] 버튼으로 구성하세요.' })]));
+                }
+            }
+            draw();
+            updateSum();
+            var head = [el('th', { text: def.name_label || '분야명' }), el('th', { style: 'width:150px;', text: def.pct_label || '비율(%)' })];
+            if (def.kind) head.push(el('th', { style: 'width:110px;', text: '구분' }));
+            head.push(el('th', { style: 'width:60px;' }));
+            box.appendChild(el('div', { style: 'margin-top:1.1rem;' }, [
+                el('b', { style: 'font-size:0.92rem;', text: def.title }),
+                el('div', { class: 'tbl-wrap', style: 'margin-top:0.5rem;' }, [el('table', {}, [el('thead', {}, [el('tr', {}, head)]), tb])]),
+                el('div', { style: 'margin-top:0.5rem; display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap;' }, [
+                    el('button', { class: 'btn btn-ghost btn-sm', type: 'button', text: def.add_label || '+ 분야 추가', onclick: function () {
+                        rowsData.push({ name: '', pct: null, kind: '필수' }); draw(); touch();
+                    } }),
+                    sumNote
+                ])
+            ]));
         });
-        if (!S.project.fields.length) {
-            tb.appendChild(el('tr', {}, [el('td', { colspan: '4', class: 'muted', text: '업무분야를 선택하거나 [+ 분야 추가]로 직접 구성하세요.' })]));
-        }
-        updateFieldsSum();
-    }
-    function updateFieldsSum() {
-        var sum = S.project.fields.reduce(function (a, r) { return a + (Number(r.pct) || 0); }, 0);
-        var n = $('fieldsSum');
-        n.textContent = '업무기여도 합계 ' + fmt(sum) + '%' + (Math.abs(sum - 100) > 0.01 ? ' (100%가 아니면 비율대로 환산해 계산합니다)' : '');
-        n.style.color = Math.abs(sum - 100) > 0.01 ? '#b91c1c' : '';
     }
 
     // ------------------------------------------------------------ 3. 배점 조정
@@ -337,6 +391,7 @@
         clear(tb);
         var pctAdj = spec.adjust_pct || 20;
         spec.items.forEach(function (it) {
+            if (it.dynamic) return;
             var lo = it.max * (1 - pctAdj / 100), hi = it.max * (1 + pctAdj / 100);
             var cur = S.project.adjust[it.id];
             var inp = el('input', { type: 'number', step: '0.1', value: isBlank(cur) ? it.max : cur });
@@ -353,6 +408,7 @@
     }
     function updateAdjustSum() {
         var sum = spec.items.reduce(function (a, it) {
+            if (it.dynamic) return a;
             var v = S.project.adjust[it.id];
             return a + (isBlank(v) ? it.max : Number(v));
         }, 0);
@@ -438,13 +494,19 @@
         });
 
         // 기술인
-        var fields = S.project.fields.filter(function (r) { return (r.name || '').trim(); });
-        panel.appendChild(personCard('lead', b, null));
-        if (!fields.length) {
-            panel.appendChild(el('div', { class: 'notice', text: '위 2단계에서 분야별 책임기술인 구성을 먼저 입력하면 분야별 기술인 입력란이 나타납니다.' }));
+        personRoles().forEach(function (r) { if (!b.persons[r]) b.persons[r] = {}; });
+        var scoped = personRoles().filter(function (r) { return spec.form.persons[r].scope; });
+        if (scoped.length && !scopeRows(spec.form.persons[scoped[0]].scope).length) {
+            panel.appendChild(el('div', { class: 'notice', text: '위 2단계에서 분야별 기술인 구성을 먼저 입력하면 분야별 기술인 입력란이 나타납니다.' }));
         }
-        fields.forEach(function (r) { panel.appendChild(personCard('field_lead', b, r.name.trim())); });
-        fields.forEach(function (r) { panel.appendChild(personCard('field_member', b, r.name.trim())); });
+        personRoles().forEach(function (role) {
+            var d = spec.form.persons[role];
+            if (d.scope) {
+                scopeRows(d.scope).forEach(function (r) { panel.appendChild(personCard(role, b, r.name.trim())); });
+            } else {
+                panel.appendChild(personCard(role, b, null));
+            }
+        });
     }
     // 대행자(회사) 단위 입력: holder는 AI 표시를 담는 객체(입찰사 또는 구성원), firmStore는 값 저장소
     function renderFirmInputs(container, holder, firmStore) {
@@ -513,27 +575,25 @@
 
     function personCard(role, b, fieldName) {
         var def = spec.form.persons[role];
-        var store;
-        var pathBase;
-        if (role === 'lead') {
-            store = b.persons.lead;
-            pathBase = 'persons.lead.';
-        } else {
+        var store, pathBase;
+        if (!b.persons[role]) b.persons[role] = {};
+        if (def.scope) {
             if (!b.persons[role][fieldName]) b.persons[role][fieldName] = {};
             store = b.persons[role][fieldName];
             pathBase = 'persons.' + role + '.' + fieldName + '.';
+        } else {
+            store = b.persons[role];
+            pathBase = 'persons.' + role + '.';
         }
         var mode = relMode();
         var g = el('div', { class: 'grid' });
         def.fields.forEach(function (f) {
-            if (role === 'lead') {
-                if (mode === 'relative' && (f.key === 'tech_grade' || f.key === 'mgmt_grade')) return;
-                if (mode === 'direct' && (f.key === 'tech_raw' || f.key === 'mgmt_raw')) return;
-            }
+            if (f.mode && f.mode !== mode) return;                         // 등급 직접 입력 / 상대평가 점수 입력 중 하나만 보여준다
+            if (f.needs && !S.project.values[f.needs]) return;             // 면접을 실시하지 않으면 면접 항목은 숨긴다
             g.appendChild(fieldWidget(f, store, { aiPath: pathBase + f.key, bidder: b }));
         });
         var title = def.label + (fieldName ? ' - ' + fieldName : '');
-        return el('div', { class: 'sub' }, [el('details', { open: role === 'lead' ? true : null }, [el('summary', { text: title }), el('div', { style: 'margin-top:0.8rem;' }, [g])])]);
+        return el('div', { class: 'sub' }, [el('details', { open: role === personRoles()[0] ? true : null }, [el('summary', { text: title }), el('div', { style: 'margin-top:0.8rem;' }, [g])])]);
     }
 
     function roleOptions() {
@@ -656,7 +716,9 @@
         var fd = new FormData();
         fd.append('spec_id', spec.id);
         fd.append('bidder_name', holder.name || '');
-        fd.append('project', JSON.stringify({ fields: S.project.fields, announce_date: S.project.values.announce_date || '' }));
+        var pj = { announce_date: S.project.values.announce_date || '' };
+        fieldTableDefs().forEach(function (d) { pj[d.key] = S.project[d.key] || []; });
+        fd.append('project', JSON.stringify(pj));
         for (var i = 0; i < files.length; i++) fd.append('files', files[i]);
         btn.disabled = true;
         status.textContent = '서류를 올리는 중...';
@@ -722,16 +784,20 @@
         if (mode === 'persons' && ignoredFirm) notes.push('대행자(회사) 항목은 구성원별 입력란의 AI 추출로 채워 주세요(이 상자에서는 제외했습니다).');
         if (mode !== 'firm') {
             var persons = inputs.persons || {};
-            var lead = persons.lead || {};
-            Object.keys(lead).forEach(function (k) { put(b.persons.lead, k, lead[k], 'persons.lead.' + k); });
-            ['field_lead', 'field_member'].forEach(function (role) {
+            personRoles().forEach(function (role) {
+                var d = spec.form.persons[role];
                 var m = persons[role] || {};
-                Object.keys(m).forEach(function (fname) {
-                    if (!b.persons[role][fname]) b.persons[role][fname] = {};
-                    Object.keys(m[fname]).forEach(function (k) {
-                        put(b.persons[role][fname], k, m[fname][k], 'persons.' + role + '.' + fname + '.' + k);
+                if (!b.persons[role]) b.persons[role] = {};
+                if (d.scope) {
+                    Object.keys(m).forEach(function (fname) {
+                        if (!b.persons[role][fname]) b.persons[role][fname] = {};
+                        Object.keys(m[fname]).forEach(function (k) {
+                            put(b.persons[role][fname], k, m[fname][k], 'persons.' + role + '.' + fname + '.' + k);
+                        });
                     });
-                });
+                } else {
+                    Object.keys(m).forEach(function (k) { put(b.persons[role], k, m[k], 'persons.' + role + '.' + k); });
+                }
             });
         }
         holder.notes = notes;
@@ -751,15 +817,17 @@
     }
     function buildPayload() {
         var pv = S.project.values;
-        var project = {
-            title: pv.title || '',
-            announce_date: pv.announce_date || '',
-            work_type: pv.work_type || '',
-            apply_transfer_penalty: !!pv.apply_transfer_penalty,
-            rel_mode: pv.rel_mode || '',
-            fields: S.project.fields.map(function (r) { return { name: (r.name || '').trim(), pct: r.pct, kind: r.kind || '필수' }; }),
-            adjust: S.project.adjust
-        };
+        var project = {};
+        spec.form.project.forEach(function (f) {
+            var v = pv[f.key];
+            if (f.needs && !pv[f.needs]) return;
+            if (f.type === 'checkbox') project[f.key] = isBlank(v) ? f.default === true : !!v;
+            else if (!isBlank(v)) project[f.key] = v;
+        });
+        fieldTableDefs().forEach(function (d) {
+            project[d.key] = (S.project[d.key] || []).map(function (r) { return { name: (r.name || '').trim(), pct: r.pct, kind: r.kind || '필수' }; });
+        });
+        project.adjust = S.project.adjust;
         // kind: 'single' 단독 입찰 / 'team' 공동수급체의 팀 단위 행만 / 'member' 구성원 1개사
         function cleanFirm(store, kind) {
             var firm = kind === 'team' ? {} : cleanStore(store);
@@ -773,11 +841,15 @@
         }
         var bidders = S.bidders.map(function (b, i) {
             var firm = b.jv ? cleanFirm(b.firm, 'team') : cleanFirm(b.firm, 'single');
-            var persons = { lead: cleanStore(b.persons.lead), field_lead: {}, field_member: {} };
-            ['field_lead', 'field_member'].forEach(function (role) {
-                S.project.fields.forEach(function (r) {
-                    var n = (r.name || '').trim();
-                    if (n && b.persons[role][n]) persons[role][n] = cleanStore(b.persons[role][n]);
+            var persons = {};
+            personRoles().forEach(function (role) {
+                var d = spec.form.persons[role];
+                var src = b.persons[role] || {};
+                if (!d.scope) { persons[role] = cleanStore(src); return; }
+                persons[role] = {};
+                scopeRows(d.scope).forEach(function (r) {
+                    var n = r.name.trim();
+                    if (src[n]) persons[role][n] = cleanStore(src[n]);
                 });
             });
             var out = { name: b.name || ('입찰사 ' + (i + 1)), firm: firm, persons: persons };
@@ -827,14 +899,14 @@
         var table = el('table');
         var htr = el('tr', {}, [el('th', { class: 'num', text: '순위' }), el('th', { text: '입찰사' })]);
         groups.forEach(function (g) { htr.appendChild(el('th', { class: 'num', text: g.name + ' (' + fmt(gMax[g.id]) + ')' })); });
-        htr.appendChild(el('th', { class: 'num', text: '가점' }));
-        htr.appendChild(el('th', { class: 'num', text: '합계 (' + fmt(res.total_max) + ' + 가점)' }));
+        htr.appendChild(el('th', { class: 'num', text: '가·감점' }));
+        htr.appendChild(el('th', { class: 'num', text: '합계 (' + fmt(res.total_max) + ' ± 가감점)' }));
         table.appendChild(el('thead', {}, [htr]));
         var tb = el('tbody');
-        var order = res.results.map(function (r, i) { return i; }).sort(function (a, b) { return res.results[a].rank - res.results[b].rank || a - b; });
+        var order = res.results.map(function (r, i) { return i; }).sort(function (a, b) { var ra = res.results[a].rank === null ? 1e9 : res.results[a].rank, rb = res.results[b].rank === null ? 1e9 : res.results[b].rank; return ra - rb || a - b; });
         order.forEach(function (i) {
             var r = res.results[i];
-            var tr = el('tr', { class: r.rank === 1 ? 'rank1' : null }, [el('td', { class: 'num', text: String(r.rank) }), el('td', { text: r.name })]);
+            var tr = el('tr', { class: r.rank === 1 ? 'rank1' : null }, [el('td', { class: 'num', text: r.rank === null ? '실격' : String(r.rank) }), el('td', { text: r.name + (r.members ? ' (공동수급체)' : '') })]);
             groups.forEach(function (g) { tr.appendChild(el('td', { class: 'num', text: fmt(r.group_scores[g.id]) })); });
             tr.appendChild(el('td', { class: 'num', text: fmt(r.bonus.score) }));
             tr.appendChild(el('td', { class: 'num' }, [el('span', { class: 'score-big', text: fmt(r.total) })]));
@@ -852,11 +924,14 @@
         order.forEach(function (i) {
             var r = res.results[i];
             var det = el('details', { class: 'sub', open: res.results.length === 1 ? true : null });
-            det.appendChild(el('summary', { text: r.rank + '위 · ' + r.name + (r.members ? ' (공동수급체)' : '') + ' · ' + fmt(r.total) + '점 (평가요소별 근거 보기)' }));
+            det.appendChild(el('summary', { text: (r.rank === null ? '실격' : r.rank + '위') + ' · ' + r.name + (r.members ? ' (공동수급체)' : '') + ' · ' + fmt(r.total) + '점 (평가요소별 근거 보기)' }));
+            if (r.disqualified) {
+                det.appendChild(el('div', { class: 'warn-list', style: 'margin:0.6rem 0 0; padding-left:1.4rem;' }, [document.createTextNode('실격 사유: ' + (r.dq_reasons || []).join(', ') + ' (순위에서 제외)')]));
+            }
             if (r.members) {
                 det.appendChild(el('div', { class: 'basis', style: 'margin-top:0.5rem;', text: '공동수급체 구성: ' + r.members.map(function (m) {
-                    return m.name + ' ' + fmt(m.share) + '% (대행자 항목·가점 단독 평가 ' + fmt(m.firm_total) + '점)';
-                }).join(' / ') + ' → 대행자 항목·가점은 구성원별 점수 × 지분율 합산, 참여기술인·업무중복도는 팀 단위' }));
+                    return m.name + ' ' + fmt(m.share) + '%' + (m.firm_total !== undefined ? ' (대행자 항목·가점 단독 평가 ' + fmt(m.firm_total) + '점)' : '');
+                }).join(' / ') + ' → 사업체 단위 항목은 구성원별로 평가해 지분율을 곱해 합산, 참여기술인 항목은 공동수급체 전체 기준' }));
             }
             var t = el('table', { style: 'margin-top:0.7rem;' });
             t.appendChild(el('thead', {}, [el('tr', {}, [el('th', { text: '평가요소' }), el('th', { class: 'num', style: 'width:70px;', text: '배점' }), el('th', { class: 'num', style: 'width:80px;', text: '득점률' }), el('th', { class: 'num', style: 'width:70px;', text: '득점' }), el('th', { text: '산정 근거' })])]));
@@ -895,7 +970,7 @@
         var rows = [];
         rows.push(['순위', '입찰사'].concat(res.groups.map(function (g) { return g.name; })).concat(['가점', '합계']));
         res.results.forEach(function (r) {
-            rows.push([r.rank, r.name].concat(res.groups.map(function (g) { return r.group_scores[g.id]; })).concat([r.bonus.score, r.total]));
+            rows.push([r.rank === null ? '실격' : r.rank, r.name].concat(res.groups.map(function (g) { return r.group_scores[g.id]; })).concat([r.bonus.score, r.total]));
         });
         rows.push([]);
         rows.push(['입찰사', '평가요소', '배점', '득점률(%)', '득점', '산정 근거']);
@@ -919,10 +994,6 @@
     }
 
     document.addEventListener('DOMContentLoaded', function () {
-        $('addFieldBtn').addEventListener('click', function () {
-            S.project.fields.push({ name: '', pct: null, kind: '필수' });
-            renderFieldsTable(); touch();
-        });
         $('toggleAdjustBtn').addEventListener('click', function () {
             var b = $('adjustBox');
             var open = b.style.display === 'none';

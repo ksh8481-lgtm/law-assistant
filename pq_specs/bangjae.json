@@ -184,6 +184,7 @@
         {"key": "volume_pct", "label": "사업량 적용률(%)", "type": "number", "min": 0}
       ]}
     ],
+    "person_order": ["lead", "field_lead", "field_member"],
     "persons": {
       "lead": {"label": "사업책임기술인", "fields": [
         {"key": "name", "label": "성명", "type": "text"},
@@ -197,12 +198,12 @@
         {"key": "transfer", "label": "최근 설계용역업체 간 이적기간", "type": "select", "options": ["해당 없음", "3개월 미만", "3개월 이상 6개월 미만", "6개월 이상"]},
         {"key": "overlap", "label": "업무중복도(수행 중 용역 중복기간 합계 / 당해 수행기간 × 100)", "type": "number", "unit": "%", "min": 0},
         {"key": "overlap_error", "label": "중복도 평가자료 오류·누락 확인됨(0점 처리, 제6조제5항)", "type": "checkbox"},
-        {"key": "tech_grade", "label": "기술능력 등급(등급 직접 입력 방식)", "type": "select", "options": ["수", "우", "미", "양", "가", "미제출"]},
-        {"key": "tech_raw", "label": "기술능력 평가위원 점수(상대평가 방식)", "type": "number", "min": 0},
-        {"key": "mgmt_grade", "label": "업무관리능력 등급(등급 직접 입력 방식)", "type": "select", "options": ["수", "우", "미", "양", "가", "미제출"]},
-        {"key": "mgmt_raw", "label": "업무관리능력 평가위원 점수(상대평가 방식)", "type": "number", "min": 0}
+        {"key": "tech_grade", "mode": "direct", "label": "기술능력 등급(등급 직접 입력 방식)", "type": "select", "options": ["수", "우", "미", "양", "가", "미제출"]},
+        {"key": "tech_raw", "mode": "relative", "label": "기술능력 평가위원 점수(상대평가 방식)", "type": "number", "min": 0},
+        {"key": "mgmt_grade", "mode": "direct", "label": "업무관리능력 등급(등급 직접 입력 방식)", "type": "select", "options": ["수", "우", "미", "양", "가", "미제출"]},
+        {"key": "mgmt_raw", "mode": "relative", "label": "업무관리능력 평가위원 점수(상대평가 방식)", "type": "number", "min": 0}
       ]},
-      "field_lead": {"label": "분야별책임기술인", "fields": [
+      "field_lead": {"label": "분야별책임기술인", "scope": "fields", "fields": [
         {"key": "name", "label": "성명", "type": "text"},
         {"key": "eligible", "label": "방재전문인력 인증서 및 보수교육 이수", "type": "checkbox", "default": true},
         {"key": "grade", "label": "자격 및 등급", "type": "select", "options": ["기술사", "특급", "고급", "중급", "초급"]},
@@ -213,7 +214,7 @@
         {"key": "overlap", "label": "업무중복도", "type": "number", "unit": "%", "min": 0},
         {"key": "overlap_error", "label": "중복도 평가자료 오류·누락 확인됨(0점 처리)", "type": "checkbox"}
       ]},
-      "field_member": {"label": "분야별참여기술인", "fields": [
+      "field_member": {"label": "분야별참여기술인", "scope": "fields", "fields": [
         {"key": "name", "label": "성명", "type": "text"},
         {"key": "eligible", "label": "방재전문인력 인증서 및 보수교육 이수", "type": "checkbox", "default": true},
         {"key": "grade", "label": "자격 및 등급", "type": "select", "options": ["기술사", "특급", "고급", "중급", "초급"]},

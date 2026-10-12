@@ -1,0 +1,271 @@
+{
+  "id": "gyeongnam_cm",
+  "engine": "cm",
+  "name": "경상남도 건설사업관리사업자 사업수행능력 평가",
+  "short": "경상남도 건설사업관리",
+  "source": {
+    "title": "경상남도 건설엔지니어링사업자 사업수행능력 세부평가기준 [별표 2] 건설사업관리사업자 사업수행능력 세부평가항목 및 배점",
+    "issuer": "경상남도 공고 제2026-1486호(2026. 9. 28. 일부개정)",
+    "law_id": "",
+    "effective": "2026-09-28",
+    "link": "https://www.gyeongnam.go.kr/index.gyeong?menuCd=DOM_000000135003009001&mode=view&sno=55506&gosiGbn=A"
+  },
+  "notice": [
+    "점수는 경상남도 기준 [별표 2]의 배점·구간표를 코드가 공식대로 계산합니다(AI가 점수를 만들지 않습니다).",
+    "해당공사규모(총공사비)·주된 공종·발주 단계를 먼저 입력해야 합니다. 토목+건축+기타 복합공사(주공종 50% 이하) 및 폐기물 외 기타공사는 발주청이 별도 세부기준을 만들어 건설기술심의위원회 심의를 받아야 하므로 이 도구로 계산할 수 없습니다.",
+    "면접(발표)을 실시하면 책임·분야별 기술인 해당분야 경력 배점이 면접 배점만큼 줄어듭니다(예: 책임 면접 4점 → 경력 11점). 사업비 구간은 건설사업관리 사업비 기준으로 판단했습니다.",
+    "시공단계를 포함하지 않는 경우 기술지원기술인·교체빈도 배점은 제외되며, 그 배점을 다른 평가항목에 ±20% 범위에서 나누려면 '배점 조정'에서 직접 입력해야 합니다.",
+    "평가대상 책임기술인·분야별 기술인·기술지원기술인의 분야와 점수배분율은 발주청이 정해 입찰공고 시 제시해야 합니다. 배분율을 비워 두면 균등 배분합니다.",
+    "공동도급은 구성원별로 평가합니다. 유사과업 수행실적은 구성원 실적금액에 지분율을 곱해 합산한 금액으로 구간을 찾고, 신용도·기술개발 및 투자실적·교체빈도·신규고용 가점은 구성원별 점수에 지분율을 곱해 합산합니다. 참여기술인(가)은 공동수급체 전체 기준으로 한 번만 평가하며, 구성원별 참여기술인 배치 규정(지분율대로 참여 등)은 이 도구가 검증하지 않습니다.",
+    "실격 사유(경력·배치기준 부적합, 안전관리담당자 교육훈련 미이수, 업무중첩도 위반 등)는 평가자가 확인해 체크하면 '실격'으로 표시하고 순위에서 제외합니다. 입력값의 진위는 건설기술용역실적관리시스템 등 공식 자료로 검증해야 합니다."
+  ],
+  "rounding_digits": 2,
+  "adjust_pct": 20,
+  "groups": [
+    {"id": "A", "name": "가. 참여기술인"},
+    {"id": "B", "name": "나. 유사과업 수행실적"},
+    {"id": "C", "name": "다. 신용도"},
+    {"id": "D", "name": "라. 기술개발 및 투자실적"},
+    {"id": "E", "name": "마. 교체빈도"}
+  ],
+  "items": [
+    {"id": "lead.career", "name": "책임건설사업관리기술인 - 해당분야 경력", "max": 15, "group": "A"},
+    {"id": "lead.perf", "name": "책임건설사업관리기술인 - 직무분야 실적", "max": 9, "group": "A"},
+    {"id": "lead.edu", "name": "책임건설사업관리기술인 - 교육훈련", "max": 1, "group": "A"},
+    {"id": "fm.career", "name": "분야별 건설사업관리기술인 - 해당분야 경력", "max": 15, "group": "A"},
+    {"id": "fm.perf", "name": "분야별 건설사업관리기술인 - 직무분야 실적", "max": 9, "group": "A"},
+    {"id": "fm.edu", "name": "분야별 건설사업관리기술인 - 교육훈련", "max": 1, "group": "A"},
+    {"id": "sup.grade", "name": "기술지원기술인 - 등급", "max": 3, "group": "A"},
+    {"id": "sup.career", "name": "기술지원기술인 - 해당분야 경력", "max": 6, "group": "A"},
+    {"id": "sup.edu", "name": "기술지원기술인 - 교육훈련", "max": 1, "group": "A"},
+    {"id": "itv.lead", "name": "면접(발표) - 책임건설사업관리기술인", "max": 0, "group": "A", "dynamic": true},
+    {"id": "itv.fm", "name": "면접(발표) - 분야별 건설사업관리기술인", "max": 0, "group": "A", "dynamic": true},
+    {"id": "sim.perf", "name": "유사 건설엔지니어링 수행실적(사업체)", "max": 8, "group": "B"},
+    {"id": "sim.result", "name": "건설사업관리 수행성과", "max": 2, "group": "B"},
+    {"id": "credit.stop", "name": "영업(업무)정지", "max": 7, "group": "C"},
+    {"id": "credit.penalty", "name": "벌점", "max": 5, "group": "C"},
+    {"id": "credit.finance", "name": "재정상태 건실도(신용평가등급)", "max": 3, "group": "C"},
+    {"id": "tech.devuse", "name": "개발·활용 실적", "max": 3, "group": "D"},
+    {"id": "tech.invest", "name": "투자실적", "max": 7, "group": "D"},
+    {"id": "swap.firm", "name": "교체빈도 - 건설사업관리사업자", "max": 3, "group": "E"},
+    {"id": "swap.tech", "name": "교체빈도 - 참여기술인", "max": 2, "group": "E"}
+  ],
+  "scoring": {
+    "pct_label": ["수", "우", "미", "양", "가"],
+    "relative_grade_pct": {"수": 100, "우": 90, "미": 80, "양": 70, "가": 60},
+    "relative_distribution": {
+      "2": [1,1,0,0,0], "3": [1,1,1,0,0], "4": [1,2,1,0,0], "5": [1,2,1,1,0], "6": [1,2,1,1,1],
+      "7": [1,2,2,1,1], "8": [1,2,3,1,1], "9": [1,2,3,2,1], "10": [1,2,4,2,1], "11": [1,2,5,2,1],
+      "12": [1,3,5,2,1], "13": [1,3,5,3,1], "14": [1,3,6,3,1], "15": [2,3,6,3,1], "16": [2,3,6,3,2],
+      "17": [2,3,7,3,2], "18": [2,4,7,3,2], "19": [2,4,7,4,2], "20": [2,4,8,4,2], "21": [2,4,9,4,2],
+      "22": [2,5,9,4,2], "23": [2,5,9,5,2], "24": [2,5,10,5,2], "25": [3,5,10,5,2], "26": [3,5,10,5,3],
+      "27": [3,5,11,5,3], "28": [3,6,11,5,3], "29": [3,6,11,6,3], "30": [3,6,12,6,3], "31": [3,6,13,6,3],
+      "32": [3,7,13,6,3], "33": [3,7,13,7,3], "34": [3,7,14,7,3], "35": [4,7,14,7,3], "36": [4,7,14,7,4],
+      "37": [4,7,15,7,4], "38": [4,8,15,7,4], "39": [4,8,15,8,4], "40": [4,8,16,8,4]
+    },
+    "interview_points": {
+      "lead": [[30, 4], [20, 3], [-1000000000, 2]],
+      "fm": [[30, 2], [20, 1.5], [-1000000000, 1]]
+    },
+    "career_total": 15,
+    "grid_pct": [100, 90, 80, 70, 60],
+    "lead_career": {"unit": "년", "cost_min": [1000, 500, 300, 0], "rows": [[15,13,11,9],[13,11,9,7],[11,9,7,5],[9,7,5,3]]},
+    "lead_perf": {"unit": "년", "by_grade": {"특급": [15,13,11,9], "고급": [12,10,8,6]}},
+    "fm_career": {"unit": "개월", "cost_min": [300, 100, 0], "rows": [[60,52,44,36],[48,42,36,24],[36,30,24,18]]},
+    "fm_perf": {"unit": "년", "by_grade": {"특급": [12,10,8,6], "고급": [10,8,6,4], "중급": [8,6,4,2]}},
+    "sup_career": {"unit": "년", "cost_min": [1000, 500, 300, 0], "rows": [[15,13,11,9],[13,11,9,7],[11,9,7,5],[9,7,5,3]]},
+    "sup_grade": {"big_cost": 300, "big_ok": ["특급"], "small_ok": ["특급", "고급"]},
+    "edu": {
+      "lead": {"training": {"2주 이상": 0.5, "1주 이상 2주 미만": 0.3}, "qual": {"기술사·건축사": 0.5, "기사": 0.3, "산업기사": 0.1}},
+      "fm": {"training": {"2주 이상": 1.0, "1주 이상 2주 미만": 0.5}, "qual": {}},
+      "sup": {"training": {"2주 이상": 0.5, "1주 이상 2주 미만": 0.3}, "qual": {"기술사·건축사": 0.5, "기사": 0.3, "산업기사": 0.1}}
+    },
+    "sim_civil": {"unit": "억원", "cost_min": [3000,2000,1000,500,300,100,0],
+      "rows": [[120,100,90,80],[100,90,80,70],[80,70,60,50],[60,50,40,30],[40,35,30,25],[30,25,20,15],[20,15,10,5]]},
+    "sim_building": {"unit": "억원", "cost_min": [1000,500,300,100,0],
+      "rows": [[50,45,40,35],[40,35,30,25],[30,25,20,15],[20,15,10,5],[10,8,6,4]]},
+    "sim_phase_factor": {"design": 0.7, "supervision": 0.7, "both_later": 0.7},
+    "sim_result": {"tiers": [[95,100],[92,90],[89,80],[86,70],[-1000000000,60]], "default_options": ["1.8", "1.6"]},
+    "stop": {"per_month": 0.2},
+    "credit": {
+      "bond_order": ["AAA","AA+","AA0","AA-","A+","A0","A-","BBB+","BBB0","BBB-","BB+","BB0","BB-","B+","B0","B-","CCC+ 이하"],
+      "paper_to_bond": {"A1":"AA0","A2+":"A+","A20":"A0","A2-":"A-","A3+":"BBB+","A30":"BBB0","A3-":"BBB-","B+":"BB0","B0":"BB-","B-":"B0","C 이하":"CCC+ 이하"},
+      "points": {"ge_BBB-": 3.0, "lt_BBB-_ge_B-": 2.8, "le_CCC+": 2.1, "none": 0.0}
+    },
+    "dev": {"new_tech_point": 2.0},
+    "use": {
+      "base_points": {"건설신기술": 0.5, "특허": 0.3},
+      "count_weight": [[5,1.0],[4,0.9],[3,0.8],[2,0.7],[1,0.6],[0.3,0.5]],
+      "amount_weight": [[20,1.0],[18,0.9],[16,0.8],[14,0.7],[12,0.6],[10,0.5]],
+      "patent_age": [[5,100],[10,80],[20,60]],
+      "patent_cap": 1.0
+    },
+    "invest": {"base": 7, "points": [[1.5,7],[1.25,6.8],[1.0,6.6],[0.75,6.4],[0.5,6.2],[-1000000000,6.0]]},
+    "swap_firm": {"base": 3, "points": [[5,3],[10,2.5],[15,2],[20,1],[1000000000,0]], "support_per": 5},
+    "swap_tech": {"base": 2, "per_resident": 0.25, "per_support": 0.1},
+    "bonus_hire": {"tiers": [[3,0.3],[2,0.2],[1,0.1],[0,0]]},
+    "bonus_save": {
+      "per_person": 0.1,
+      "amount_weight": [[10,1.0],[5,0.8],[1,0.5]],
+      "rate_weight": [[1.0,1.0],[0.5,0.8],[0.1,0.5]]
+    },
+    "corrupt": {"rate_hi": 3, "rate_mid": 1, "amt_hi": 10, "amt_mid": 3, "points": [5, 3, 1]},
+    "net_cap": 5
+  },
+  "form": {
+    "project": [
+      {"key": "title", "label": "사업명", "type": "text"},
+      {"key": "announce_date", "label": "입찰공고일", "type": "date", "help": "실적·경력 기간(최근 1년·3년·5년)은 입찰공고일 기준입니다. AI 추출 시 기간 판단에 쓰입니다."},
+      {"key": "total_cost", "label": "해당공사규모(총공사비)", "type": "number", "unit": "억원", "min": 0, "help": "경력·실적 구간을 정하는 기준입니다(필수)."},
+      {"key": "main_work", "label": "주된 공종", "type": "select", "options": ["토목·폐기물처리시설", "건축"], "help": "유사과업 수행실적 구간표가 달라집니다(필수)."},
+      {"key": "phase", "label": "건설사업관리 발주 단계", "type": "select", "options": ["설계 및 시공단계", "설계단계", "시공단계"], "help": "유사과업 수행실적 환산식이 달라집니다(필수)."},
+      {"key": "include_construction", "label": "시공단계의 건설사업관리 포함(체크 해제 시 기술지원기술인·교체빈도 배점 제외)", "type": "checkbox", "default": true},
+      {"key": "interview", "label": "면접(발표) 실시", "type": "checkbox", "default": false},
+      {"key": "fee", "needs": "interview", "label": "건설사업관리 사업비(면접 배점 구간 판단)", "type": "number", "unit": "억원", "min": 0, "help": "면접 실시 시 필요: 20억 미만 / 20억 이상 30억 미만 / 30억 이상."},
+      {"key": "no_result_score", "label": "해당 발주청 수행성과가 없는 사업체의 수행성과 점수", "type": "select", "options": ["1.8", "1.6"], "help": "발주청이 입찰공고 시 정한 값(고시는 1.8 또는 1.6점 부여 가능)."},
+      {"key": "rel_mode", "needs": "interview", "label": "면접 평가 방식", "type": "select", "options": ["등급 직접 입력", "평가위원 점수 입력 후 상대평가 자동 배분"], "help": "면접을 실시할 때만 쓰입니다. 상대평가는 수·우·미·양·가 분포를 붙임 1 표대로 입찰사 수에 맞춰 배분합니다."}
+    ],
+    "extract_rules": [
+      "건설사업관리 실적은 '설계 및 시공단계를 포함한 건설사업관리', '설계단계 건설사업관리', '설계건설엔지니어링(타당성조사·기본계획·기본설계·실시설계)', '시공단계 건설사업관리', '건축법·주택법 감리 및 건설기술 진흥법 시행령 제45조제1항제3호 건설사업관리'로 구분해 각각 적는다. 구분이 서류에 없으면 null로 두고 evidence에 사유를 적는다. 공동도급 서류라면 해당 사업체(구성원)의 몫 금액만 적는다.",
+      "경력은 항목에 표시된 단위를 따른다(책임·기술지원기술인은 '년', 분야별 기술인 해당분야 경력은 '개월'). 서류의 '해당분야 이외 업무 60% 인정' 환산값이 따로 적혀 있으면 그 값을, 없으면 null로 둔다.",
+      "교육훈련·기술자격은 선택지에 정확히 맞는 것만 쓴다. 실격·부패행위·면접 점수 같은 평가자 판단 항목은 아예 추출 대상이 아니다."
+    ],
+    "field_tables": [
+      {"key": "fields", "title": "분야별 건설사업관리기술인 구성 (평가대상 분야와 점수배분율)", "name_label": "분야(직무)", "pct_label": "점수배분율(%)", "kind": false, "add_label": "+ 분야 추가", "normalize_note": "합계가 100%가 아니면 비율대로 환산하며, 비워 두면 균등 배분합니다."},
+      {"key": "support_fields", "title": "기술지원기술인 구성 (평가대상 분야와 점수배분율)", "name_label": "분야", "pct_label": "점수배분율(%)", "kind": false, "add_label": "+ 기술지원기술인 추가", "normalize_note": "합계가 100%가 아니면 비율대로 환산하며, 비워 두면 균등 배분합니다."}
+    ],
+    "firm": [
+      {
+        "title": "나. 유사 건설엔지니어링 수행실적 (공고일 기준 최근 3년, 구성원별 입력 시 해당 사업체 금액)",
+        "fields": [
+          {"key": "cm_both", "label": "설계 및 시공단계를 포함한 건설사업관리 실적", "type": "number", "unit": "억원", "min": 0},
+          {"key": "cm_design", "label": "설계단계 건설사업관리 실적", "type": "number", "unit": "억원", "min": 0},
+          {"key": "cm_design_eng", "label": "설계건설엔지니어링 실적 (타당성조사·기본계획·기본설계·실시설계, 70% 인정)", "type": "number", "unit": "억원", "min": 0},
+          {"key": "cm_const", "label": "시공단계 건설사업관리 실적", "type": "number", "unit": "억원", "min": 0},
+          {"key": "cm_super", "label": "건축법·주택법 감리 및 시행령 제45조제1항제3호 건설사업관리 실적 (70% 인정)", "type": "number", "unit": "억원", "min": 0},
+          {"key": "perf_avg", "label": "건설사업관리 수행성과 (최근 5년 건설사업관리평가 평균점수)", "type": "number", "unit": "점", "min": 0, "help": "해당 발주청 수행성과가 없으면 비워 두세요(사업 정보의 기본 점수 적용)."}
+        ]
+      },
+      {
+        "title": "다. 신용도",
+        "fields": [
+          {"key": "suspend_months", "label": "사업자(대표자 포함) 영업정지(과징금 포함) 최근 1년 합산기간", "type": "number", "unit": "개월", "min": 0, "help": "1월 미만은 1월로 계산, 1월마다 0.2점 감점"},
+          {"key": "tech_suspend_months", "label": "참여기술인 기술자격정지·업무정지 최근 1년 합산기간", "type": "number", "unit": "개월", "min": 0},
+          {"key": "bad_deduct_firm", "label": "사업자 벌점에 따른 감점(건설기술진흥법 시행령 [별표 8] 기준으로 직접 산정)", "type": "number", "unit": "점", "min": 0},
+          {"key": "bad_deduct_tech", "label": "참여기술인 벌점에 따른 감점(같은 기준으로 직접 산정)", "type": "number", "unit": "점", "min": 0},
+          {"key": "credit_type", "label": "신용평가등급 종류", "type": "select", "options": ["회사채", "기업어음", "기업신용", "미제출"]},
+          {"key": "credit_rating", "label": "신용평가등급", "type": "select", "options": ["AAA","AA+","AA0","AA-","A+","A0","A-","BBB+","BBB0","BBB-","BB+","BB0","BB-","B+","B0","B-","CCC+ 이하","A1","A2+","A20","A2-","A3+","A30","A3-","C 이하"], "help": "기업어음 등급은 A1~A3-, C 이하를 선택하세요(붙임 2의 회사채 등급 대응표로 환산)."}
+        ]
+      },
+      {
+        "title": "라. 기술개발 및 투자실적",
+        "fields": [
+          {"key": "invest_amount", "label": "최근 3년 건설기술개발 투자액 합계", "type": "number", "unit": "억원", "min": 0},
+          {"key": "sales_amount", "label": "최근 3년 건설부문 총매출액 합계", "type": "number", "unit": "억원", "min": 0}
+        ]
+      },
+      {
+        "title": "마. 교체빈도 (최근 1년, 시공단계 건설사업관리 기준)",
+        "fields": [
+          {"key": "swap_cnt", "label": "소속 건설기술인 교체건수 합계", "type": "number", "unit": "건", "min": 0},
+          {"key": "swap_support_cnt", "label": "그 중 기술지원기술인 교체건수 (5건마다 1건으로 계산)", "type": "number", "unit": "건", "min": 0, "help": "위 '교체건수 합계'에 기술지원 교체건수를 포함하지 말고 따로 입력하세요."},
+          {"key": "deployed_cnt", "label": "시공단계에 배치된 전체 소속 건설기술인 수 합계", "type": "number", "unit": "명", "min": 0},
+          {"key": "swap_resident", "label": "참여기술인(상주) 교체 횟수 합계 (1회당 0.25점 감점)", "type": "number", "unit": "회", "min": 0},
+          {"key": "swap_support", "label": "참여기술인(기술지원) 교체 횟수 합계 (1회당 0.1점 감점)", "type": "number", "unit": "회", "min": 0}
+        ]
+      },
+      {
+        "title": "가점 - 건설기술인 신규 고용",
+        "fields": [
+          {"key": "new_hire_rate", "label": "건설기술인 신규 고용률(최근 1년 신규 고용인원 / 최근 1년 월평균 고용인원)", "type": "number", "unit": "%", "min": 0},
+          {"key": "reg_over_6m", "no_ai": true, "label": "건설엔지니어링사업자 등록일로부터 6개월 경과(가점 적용 요건)", "type": "checkbox", "default": true}
+        ]
+      }
+    ],
+    "firm_rows": [
+      {
+        "key": "dev_items",
+        "title": "라. 개발실적 (건설신기술, 사업자 명의·보호기간 내)",
+        "help": "건설신기술 1건당 1행. 공동개발이면 기술개발자 수를 입력하세요(기준점수 2.0점 × 1/n).",
+        "columns": [
+          {"key": "applicants", "label": "기술개발자 수", "type": "number", "min": 1}
+        ]
+      },
+      {
+        "key": "use_items",
+        "title": "라. 활용실적 (건설신기술·특허)",
+        "help": "기술 1건당 1행. 건수·금액 중 한 가지 이상 충족하면 인정하며 유리한 구간을 적용합니다. 동일 내용으로 신기술과 특허를 모두 받은 경우 같은 '동일내용 묶음'을 쓰면 점수가 높은 1건만 인정합니다. 특허 활용 합계는 최대 1점입니다.",
+        "columns": [
+          {"key": "type", "label": "종류", "type": "select", "options": ["건설신기술", "특허"]},
+          {"key": "use_count", "label": "활용 건수", "type": "number", "min": 0},
+          {"key": "use_amount", "label": "활용 금액(억원)", "type": "number", "min": 0},
+          {"key": "share_pct", "label": "공동이행 참여지분율(%, 단독이면 비움)", "type": "number", "min": 0},
+          {"key": "age_years", "label": "특허 출원 후 경과(년)", "type": "number", "min": 0},
+          {"key": "dup_group", "label": "동일내용 묶음", "type": "text"}
+        ]
+      }
+    ],
+    "jv": {
+      "label": "공동수급체(공동도급)",
+      "help": "공동도급이면 구성원별로 유사과업 수행실적·신용도·기술개발 및 투자실적·교체빈도·신규고용 가점을 평가합니다. 유사과업 수행실적은 구성원 실적에 지분율을 곱해 합산한 금액으로, 나머지는 구성원별 점수에 지분율을 곱해 합산합니다. 참여기술인은 공동수급체 전체 기준으로 한 번만 입력합니다.",
+      "team_rows": []
+    },
+    "person_order": ["lead", "field", "support", "team"],
+    "persons": {
+      "lead": {
+        "label": "책임건설사업관리기술인",
+        "fields": [
+          {"key": "name", "label": "성명", "type": "text"},
+          {"key": "grade", "label": "등급(직무분야 실적 구간표는 특급·고급만 해당)", "type": "select", "options": ["특급", "고급"]},
+          {"key": "career", "label": "해당분야 경력(경력증명서 기준, 해당분야 이외 업무는 60%만 반영해 환산한 값)", "type": "number", "unit": "년", "min": 0},
+          {"key": "perf", "label": "직무분야 실적(참여기간 등을 고려한 실적 연수)", "type": "number", "unit": "년", "min": 0},
+          {"key": "edu_training", "label": "최근 3년 건설기술인 교육훈련", "type": "select", "options": ["2주 이상", "1주 이상 2주 미만", "해당 없음"]},
+          {"key": "qualification", "label": "기술자격(최상위 1종목)", "type": "select", "options": ["기술사·건축사", "기사", "산업기사", "해당 없음"]}
+        ]
+      },
+      "field": {
+        "label": "분야별 건설사업관리기술인",
+        "scope": "fields",
+        "fields": [
+          {"key": "name", "label": "성명", "type": "text"},
+          {"key": "grade", "label": "등급(특급·고급·중급)", "type": "select", "options": ["특급", "고급", "중급"]},
+          {"key": "career", "label": "해당분야 경력(환산 후)", "type": "number", "unit": "개월", "min": 0},
+          {"key": "perf", "label": "직무분야 실적", "type": "number", "unit": "년", "min": 0},
+          {"key": "edu_training", "label": "최근 3년 건설기술인 교육훈련", "type": "select", "options": ["2주 이상", "1주 이상 2주 미만", "해당 없음"]}
+        ]
+      },
+      "support": {
+        "label": "기술지원기술인",
+        "scope": "support_fields",
+        "fields": [
+          {"key": "name", "label": "성명", "type": "text"},
+          {"key": "grade", "label": "등급", "type": "select", "options": ["특급", "고급", "중급", "초급"]},
+          {"key": "career", "label": "해당분야 경력(환산 후)", "type": "number", "unit": "년", "min": 0},
+          {"key": "edu_training", "label": "최근 3년 건설기술인 교육훈련", "type": "select", "options": ["2주 이상", "1주 이상 2주 미만", "해당 없음"]},
+          {"key": "qualification", "label": "기술자격(최상위 1종목)", "type": "select", "options": ["기술사·건축사", "기사", "산업기사", "해당 없음"]}
+        ]
+      },
+      "team": {
+        "label": "면접·가점·감점·실격 확인 (사업체 전체)",
+        "fields": [
+          {"key": "itv_lead_grade", "mode": "direct", "needs": "interview", "no_ai": true, "label": "면접 - 책임기술인 등급(등급 직접 입력 방식)", "type": "select", "options": ["수", "우", "미", "양", "가", "미제출"]},
+          {"key": "itv_lead_raw", "mode": "relative", "needs": "interview", "no_ai": true, "label": "면접 - 책임기술인 평가위원 평균점수(상대평가 방식)", "type": "number", "min": 0},
+          {"key": "itv_fm_grade", "mode": "direct", "needs": "interview", "no_ai": true, "label": "면접 - 분야별 기술인 등급(등급 직접 입력 방식)", "type": "select", "options": ["수", "우", "미", "양", "가", "미제출"]},
+          {"key": "itv_fm_raw", "mode": "relative", "needs": "interview", "no_ai": true, "label": "면접 - 분야별 기술인 평가위원 평균점수(상대평가 방식)", "type": "number", "min": 0},
+          {"key": "save_res_amt", "label": "공사비 절감 - 상주기술인 1인 절감금액(절감기여율 반영, 합산)", "type": "number", "unit": "억원", "min": 0},
+          {"key": "save_res_rate", "label": "공사비 절감 - 상주기술인 1인 절감비율(절감금액/총공사비)", "type": "number", "unit": "%", "min": 0},
+          {"key": "save_sup_amt", "label": "공사비 절감 - 기술지원기술인 1인 절감금액", "type": "number", "unit": "억원", "min": 0},
+          {"key": "save_sup_rate", "label": "공사비 절감 - 기술지원기술인 1인 절감비율", "type": "number", "unit": "%", "min": 0},
+          {"key": "corrupt", "no_ai": true, "label": "감점 - 최근 2년 내 해당 발주청 부패행위 처벌·처분 있음", "type": "checkbox"},
+          {"key": "corrupt_amt", "no_ai": true, "label": "부패행위 피해금액", "type": "number", "unit": "억원", "min": 0},
+          {"key": "corrupt_rate", "no_ai": true, "label": "부패행위 피해금액/계약금액", "type": "number", "unit": "%", "min": 0},
+          {"key": "dq_lead_qual", "no_ai": true, "label": "실격: 책임건설사업관리기술인 경력·배치기준 부적합", "type": "checkbox"},
+          {"key": "dq_safety", "no_ai": true, "label": "실격: 시공단계 안전관리담당자 교육훈련 미이수자 참여", "type": "checkbox"},
+          {"key": "dq_overlap", "no_ai": true, "label": "실격: 업무중첩도 기준 위반(별표 Ⅰ.9)", "type": "checkbox"},
+          {"key": "dq_replaced", "no_ai": true, "label": "실격: 요양 사유 교체 후 3개월 내 참여(별표 Ⅰ.10)", "type": "checkbox"},
+          {"key": "dq_other", "no_ai": true, "label": "실격: 그 밖의 사유(발주청 확인)", "type": "checkbox"}
+        ]
+      }
+    }
+  }
+}

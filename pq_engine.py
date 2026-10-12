@@ -655,7 +655,7 @@ def _evaluate_jv_bangjae(spec, sc, maxes, fields, use_transfer, b, idx, tech_aut
                                   {'name': mname, 'firm': m.get('firm') or {}, 'persons': {}},
                                   idx, None, None, rel_mode, digits, part='firm')
         for t in r.pop('_warn'):
-            warns.add(f'[구성원 {mname}] {t}')
+            warns.add(f'[{"" if mname.startswith("구성원") else "구성원 "}{mname}] {t}')
         member_res.append((mname, s / total_share, r))
 
     firm_items = []
@@ -697,7 +697,12 @@ def _evaluate_jv_bangjae(spec, sc, maxes, fields, use_transfer, b, idx, tech_aut
     }
 
 
-ENGINES = {'bangjae': evaluate_bangjae}
+def _evaluate_cm(spec, project, bidders):
+    import pq_cm  # 순환 import를 피하려고 호출 시점에 불러온다
+    return pq_cm.evaluate(spec, project, bidders)
+
+
+ENGINES = {'bangjae': evaluate_bangjae, 'cm': _evaluate_cm}
 
 
 def evaluate(spec_id: str, project: dict, bidders: list) -> dict:

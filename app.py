@@ -2891,10 +2891,12 @@ def api_commencement_review():
 PQ_PLANNED = [
     {"id": "env_assess", "short": "환경영향평가업자", "status": "planned",
      "note": "환경영향평가업자의 사업수행능력 세부평가기준(기후에너지환경부 고시) - 구현 예정"},
-    {"id": "const_mgmt", "short": "건설사업관리 건설엔지니어링사업자", "status": "planned",
-     "note": "국토교통부 고시(건설엔지니어링사업자 사업수행능력 세부평가기준)·해양수산부 훈령 - 구현 예정"},
-    {"id": "gyeongnam", "short": "경상남도 건설엔지니어링사업자", "status": "planned",
-     "note": "경상남도 자체 기준(경남도청 고시공고) - 원문 확보 후 구현 예정"},
+    {"id": "const_mgmt", "short": "건설사업관리 건설엔지니어링사업자(국토교통부 고시)", "status": "planned",
+     "note": "국토교통부 고시(건설엔지니어링사업자 사업수행능력 세부평가기준) - 구현 예정"},
+    {"id": "gyeongnam_design", "short": "경상남도 설계 등 건설엔지니어링사업자", "status": "planned",
+     "note": "경상남도 세부평가기준 [별표 1] - 구현 예정"},
+    {"id": "gyeongnam_safety", "short": "경상남도 정밀안전점검·진단사업자", "status": "planned",
+     "note": "경상남도 세부평가기준 [별표 3] - 구현 예정"},
 ]
 
 
@@ -2934,7 +2936,7 @@ def api_pq_score():
         return jsonify({"success": False, "message": f"점수 계산 중 오류: {e}"}), 500
 
 
-def run_pq_extract(job_id, spec_id, project_fields, announce_date, bidder_name, saved_files):
+def run_pq_extract(job_id, spec_id, project, bidder_name, saved_files):
     try:
         import os
         import google.generativeai as genai
@@ -2959,7 +2961,7 @@ def run_pq_extract(job_id, spec_id, project_fields, announce_date, bidder_name, 
             except Exception:
                 pass
 
-        prompt = pq_extract.build_prompt(spec, project_fields, announce_date, bidder_name)
+        prompt = pq_extract.build_prompt(spec, project, bidder_name)
         payload = parts + [prompt + "\n\n[서류에서 추출한 텍스트(참고)]\n" + texts[:120000]]
         last_err, response = None, None
         for model_name in ('models/gemini-2.5-pro', 'models/gemini-2.5-flash'):
@@ -2974,7 +2976,7 @@ def run_pq_extract(job_id, spec_id, project_fields, announce_date, bidder_name, 
         if response is None:
             raise Exception(f"AI 추출에 실패했습니다: {last_err}")
 
-        inputs, evidence, notes = pq_extract.parse_response(spec, project_fields, response.text)
+        inputs, evidence, notes = pq_extract.parse_response(spec, project, response.text)
         JOBS[job_id] = {"status": "completed", "result": {"inputs": inputs, "evidence": evidence, "notes": notes}}
     except Exception as e:
         print(f"[PQ extract] error: {type(e).__name__}: {e}")
@@ -3009,7 +3011,7 @@ def api_pq_extract():
         JOBS[job_id] = {"status": "processing"}
         thread = threading.Thread(
             target=run_pq_extract,
-            args=(job_id, spec_id, project.get('fields') or [], project.get('announce_date') or '',
+            args=(job_id, spec_id, project if isinstance(project, dict) else {},
                   request.form.get('bidder_name', ''), saved))
         thread.daemon = True
         thread.start()

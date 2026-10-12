@@ -8,9 +8,14 @@
 - 서류에 명시된 값만 옮기게 하고, 없거나 불확실하면 null로 두게 한다(추측·계산 금지, 서류에 합계가 있으면 그 합계 사용).
 - 값마다 서류 속 근거 문구(evidence)를 함께 받아 화면에 보여준다.
 - 서버가 명세(spec)의 필드 정의대로 결과를 걸러낸다(없는 필드 버림, 숫자·선택지 검증).
+- 실격·감점처럼 평가자가 판단해야 하는 항목(필드의 no_ai 표시)은 AI에게 묻지도, 받지도 않는다.
 """
 import json
 import re
+
+DEFAULT_RULES = [
+    '대행업무(방재관리대책 대행업무) 실적과 유사용역 실적은 구분해서 각각 적는다. 구분이 서류에 없으면 대행업무 칸이 아니라 null로 두고 evidence에 사유를 적는다.',
+]
 
 
 def _field_line(f):
@@ -23,38 +28,64 @@ def _field_line(f):
     return f"- {f['key']}: {f['label']} ({kind}{'·' + unit if unit else ''}){extra}"
 
 
-def build_prompt(spec, project_fields, announce_date, bidder_name):
+def _ai_fields(fields):
+    return [f for f in fields if not f.get('no_ai')]
+
+
+def _scope_names(project, scope):
+    return [(r.get('name') or '').strip() for r in (project.get(scope) or []) if (r.get('name') or '').strip()]
+
+
+def build_prompt(spec, project, bidder_name):
     """입찰사 1개 사의 서류에서 값을 뽑는 프롬프트."""
     form = spec['form']
-    lines = []
-    lines.append('[대행자(회사) 항목 - firm]')
+    lines = ['[대행자(회사) 항목 - firm]']
     for sec in form['firm']:
+        fs = _ai_fields(sec['fields'])
+        if not fs:
+            continue
         lines.append(f"# {sec['title']}")
-        lines += [_field_line(f) for f in sec['fields']]
+        lines += [_field_line(f) for f in fs]
     for rows in form.get('firm_rows', []):
-        lines.append(f"# {rows['title']}  (배열 firm.{rows['key']}, 항목 1건당 1행)")
-        lines += ['  - ' + _field_line(c)[2:] for c in rows['columns']]
+        lines.append(f"# {rows['title']}  (배열 firm_rows.{rows['key']}, 항목 1건당 1행)")
+        lines += ['  - ' + _field_line(c)[2:] for c in _ai_fields(rows['columns'])]
     lines.append('')
     lines.append('[기술인 항목 - persons]')
-    for role, label in (('lead', '사업책임기술인(1명)'), ('field_lead', '분야별책임기술인(분야마다 1명)'),
-                        ('field_member', '분야별참여기술인(분야마다 1명)')):
-        lines.append(f"# persons.{role} - {label}")
-        lines += [_field_line(f) for f in form['persons'][role]['fields']]
-    names = [(r.get('name') or '').strip() for r in project_fields if (r.get('name') or '').strip()]
+    scope_notes = []
+    for role, d in form['persons'].items():
+        fs = _ai_fields(d['fields'])
+        if not fs:
+            continue
+        scope = d.get('scope')
+        if scope:
+            names = _scope_names(project, scope)
+            lines.append(f"# persons.{role} - {d['label']} (분야마다 1명, 키는 분야명)")
+            scope_notes.append(f"persons.{role}의 키는 반드시 다음 분야명 그대로: {', '.join(names) if names else '(없음)'}")
+        else:
+            lines.append(f"# persons.{role} - {d['label']}")
+        lines += [_field_line(f) for f in fs]
+
+    rules = spec['form'].get('extract_rules') or DEFAULT_RULES
+    rule_text = '\n'.join(f'{i}. {r}' for i, r in enumerate(
+        ['서류에 명시된 값만 쓴다. 서류에 없거나 불확실하면 null. 절대 추측하지 말고, 평균·보정·임의 환산을 하지 마라.',
+         '서류에 합계(건수·금액·경력 합계)가 이미 적혀 있으면 그 값을 쓴다. 개별 실적 목록만 있고 합계가 없을 때만 직접 세되, 입찰공고일 기준 기간 안에 준공된 것만 센다. 그 경우 evidence에 "목록에서 직접 집계"라고 적어라.']
+        + list(rules)
+        + ['금액·경력·비율은 각 항목에 표시된 단위(억원·년·개월·건·%)로 적는다(개월은 년으로 바꾸지 말고 항목의 단위를 따른다).',
+           '선택지가 있는 필드는 선택지 중 하나와 정확히 같은 값만 쓴다. 맞는 게 없으면 null.',
+           '확인할 수 없는 기술인·분야는 객체를 비워두거나 생략한다(지어내지 마라).',
+           '모든 값에는 evidence(서류에서 베낀 30자 이내 문구 + 위치)를 키 경로로 붙인다. evidence 없는 값은 쓰지 마라.'], start=1))
+    persons_example = ',\n'.join(
+        f'    "{role}": ' + ('{"분야명": {"필드키": 값, ...}}' if d.get('scope') else '{"필드키": 값, ...}')
+        for role, d in form['persons'].items() if _ai_fields(d['fields']))
+    rows_example = ', '.join('"%s": [{...}]' % r['key'] for r in form.get('firm_rows', []))
     return f"""너는 공공 용역 사업수행능력평가(PQ) 서류에서 값을 옮겨 적는 보조자다. 점수는 계산하지 마라. 서류에 적힌 값만 옮겨라.
 
 [평가 대상] 입찰사: {bidder_name or '(이름 미상)'} / 평가 기준: {spec['name']}
-[입찰공고일] {announce_date or '(미입력)'}  ← 기간(최근 5년·10년·1년·3년)은 이 날짜 기준이다.
-[분야별 구성(분야명)] {', '.join(names) if names else '(없음)'}  ← persons.field_lead / persons.field_member 의 키는 반드시 이 분야명 그대로 써라.
+[입찰공고일] {project.get('announce_date') or '(미입력)'}  ← 기간(최근 1년·3년·5년·10년)은 이 날짜 기준이다.
+[분야 구성] {' / '.join(scope_notes) if scope_notes else '(없음)'}
 
 [엄격한 규칙]
-1. 서류에 명시된 값만 쓴다. 서류에 없거나 불확실하면 null. 절대 추측하지 말고, 평균·보정·임의 환산을 하지 마라.
-2. 서류에 합계(건수·금액·경력 합계)가 이미 적혀 있으면 그 값을 쓴다. 개별 실적 목록만 있고 합계가 없을 때만 직접 세되, 입찰공고일 기준 기간 안에 준공된 것만 센다. 그 경우 evidence에 "목록에서 직접 집계"라고 적어라.
-3. 대행업무(방재관리대책 대행업무) 실적과 유사용역 실적은 구분해서 각각 적는다. 구분이 서류에 없으면 대행업무 칸이 아니라 null로 두고 evidence에 사유를 적는다.
-4. 금액은 억원 단위 숫자로, 경력은 년 단위 숫자(개월은 12로 나눈 소수), 비율은 % 숫자로 적는다.
-5. 선택지가 있는 필드는 선택지 중 하나와 정확히 같은 값만 쓴다. 맞는 게 없으면 null.
-6. 확인할 수 없는 기술인·분야는 객체를 비워두거나 생략한다(지어내지 마라).
-7. 모든 값에는 evidence(서류에서 베낀 30자 이내 문구 + 위치)를 키 경로로 붙인다. evidence 없는 값은 쓰지 마라.
+{rule_text}
 
 [추출할 항목]
 {chr(10).join(lines)}
@@ -62,13 +93,11 @@ def build_prompt(spec, project_fields, announce_date, bidder_name):
 [출력 형식 - 오직 JSON 한 개만, 설명 금지]
 {{
   "firm": {{"필드키": 값, ...}},
-  "firm_rows": {{"dev_items": [{{...}}], "use_items": [{{...}}], "prev_items": [{{...}}]}},
+  "firm_rows": {{{rows_example}}},
   "persons": {{
-    "lead": {{"필드키": 값, ...}},
-    "field_lead": {{"분야명": {{"필드키": 값, ...}}}},
-    "field_member": {{"분야명": {{"필드키": 값, ...}}}}
+{persons_example}
   }},
-  "evidence": {{"firm.perf5_d_cnt": "근거 문구(위치)", "persons.lead.career": "근거 문구(위치)", "persons.field_lead.수자원개발.grade": "..."}}
+  "evidence": {{"firm.필드키": "근거 문구(위치)", "persons.역할.필드키": "근거 문구(위치)", "persons.역할.분야명.필드키": "..."}}
 }}
 """
 
@@ -101,7 +130,7 @@ def _clean_obj(fields, raw):
     out = {}
     if not isinstance(raw, dict):
         return out
-    by_key = {f['key']: f for f in fields}
+    by_key = {f['key']: f for f in _ai_fields(fields)}
     for k, v in raw.items():
         f = by_key.get(k)
         if not f:
@@ -112,7 +141,7 @@ def _clean_obj(fields, raw):
     return out
 
 
-def parse_response(spec, project_fields, text):
+def parse_response(spec, project, text):
     """AI 응답 문자열 -> (입찰사 입력값 dict, evidence dict, 안내 목록). 스키마에 맞게 걸러낸다."""
     notes = []
     m = re.search(r'\{.*\}', text or '', re.S)
@@ -133,18 +162,22 @@ def parse_response(spec, project_fields, text):
                 cleaned.append(c)
         firm[rows['key']] = cleaned
 
-    names = [(r.get('name') or '').strip() for r in project_fields if (r.get('name') or '').strip()]
     persons_raw = raw.get('persons') or {}
-    persons = {'lead': _clean_obj(form['persons']['lead']['fields'], persons_raw.get('lead')),
-               'field_lead': {}, 'field_member': {}}
-    for role in ('field_lead', 'field_member'):
-        for fname, obj in (persons_raw.get(role) or {}).items():
-            if fname in names:
-                c = _clean_obj(form['persons'][role]['fields'], obj)
-                if c:
-                    persons[role][fname] = c
-            else:
-                notes.append(f"서류에서 찾은 분야 '{fname}'은(는) 평가 대상 분야 구성에 없어 제외했습니다.")
+    persons = {}
+    for role, d in form['persons'].items():
+        scope = d.get('scope')
+        if scope:
+            names = _scope_names(project, scope)
+            persons[role] = {}
+            for fname, obj in (persons_raw.get(role) or {}).items():
+                if fname in names:
+                    c = _clean_obj(d['fields'], obj)
+                    if c:
+                        persons[role][fname] = c
+                else:
+                    notes.append(f"서류에서 찾은 분야 '{fname}'은(는) 평가 대상 분야 구성에 없어 제외했습니다.")
+        else:
+            persons[role] = _clean_obj(d['fields'], persons_raw.get(role))
 
     evidence = {}
     for k, v in (raw.get('evidence') or {}).items():
