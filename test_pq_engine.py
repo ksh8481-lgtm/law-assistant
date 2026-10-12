@@ -195,6 +195,52 @@ def test_ranking():
     check('B사 2위', out['results'][0]['rank'], 2)
 
 
+def _jv_bidder(members):
+    firm_a = {k: v for k, v in BIDDER_A['firm'].items() if k != 'prev_items'}
+    team_firm = {'prev_items': BIDDER_A['firm']['prev_items']}
+    mem = []
+    for name, share, kind in members:
+        mem.append({'name': name, 'share': share, 'firm': firm_a if kind == 'A' else {}})
+    return {'name': 'JV', 'firm': team_firm, 'persons': BIDDER_A['persons'], 'members': mem}
+
+
+def test_jv_single_member_equals_single():
+    """구성원 1개사(지분 100%)는 단독 입찰과 같은 결과여야 한다."""
+    out = E.evaluate('bangjae', PROJECT, [_jv_bidder([('가', 100, 'A')])])
+    r = out['results'][0]
+    check('JV 1개사 합계 = 단독 합계', r['total'], 91.07)
+    for iid in ('firm.perf_cnt', 'credit.penalty', 'tech.invest', 'lead.grade', 'prev.service', 'ovl.fl'):
+        check(f'JV 1개사 항목 {iid}', by_id(r, iid)['score'], by_id(E.evaluate('bangjae', PROJECT, [BIDDER_A])['results'][0], iid)['score'])
+
+
+def test_jv_share_weighted():
+    """A사 실적(지분 60%) + 빈 서류 구성원(지분 40%): 대행자 항목만 지분율 가중, 기술인 항목은 팀 단위 그대로."""
+    out = E.evaluate('bangjae', PROJECT, [_jv_bidder([('가', 60, 'A'), ('나', 40, 'B')])])
+    r = out['results'][0]
+    check('JV 나. 대행자 수행실적', r['group_scores']['B'], 8.10)
+    check('JV 다. 신용도(구성원별 점수×지분: 4.30×0.6+5×0.4 + 3×0.6)', r['group_scores']['C'], 6.38)
+    check('JV 라. 기술개발', r['group_scores']['D'], 6.03)
+    check('JV 가. 참여기술인(팀 단위, 지분 무관)', r['group_scores']['A'], 50.07)
+    check('JV 마. 업무중복도(팀 단위)', r['group_scores']['E'], 9.95)
+    check('JV 가점(0.2×0.6)', r['bonus']['score'], 0.12)
+    check('JV 합계', r['total'], 80.65)
+    check('JV 구성원 수', len(r['members']), 2)
+    assert any('[구성원 나]' in w for w in out['warnings']), out['warnings']
+    print('OK   JV 구성원 서류 미입력 경고에 구성원 이름 표시')
+
+
+def test_jv_share_validation():
+    out = E.evaluate('bangjae', PROJECT, [_jv_bidder([('가', 50, 'A'), ('나', 30, 'A')])])
+    assert any('지분율 합계가 80' in w for w in out['warnings']), out['warnings']
+    check('JV 지분 합 80% → 비율 환산(둘 다 A이므로 단독과 동일)', out['results'][0]['total'], 91.07)
+    try:
+        E.evaluate('bangjae', PROJECT, [_jv_bidder([('가', None, 'A')])])
+    except ValueError:
+        print('OK   JV 지분율 없으면 오류')
+    else:
+        failures.append('JV 지분율 없음이 오류가 되지 않음')
+
+
 if __name__ == '__main__':
     tests = [v for k, v in sorted(globals().items()) if k.startswith('test_') and callable(v)]
     for t in tests:

@@ -213,9 +213,10 @@ def evaluate_bangjae(spec: dict, project: dict, bidders: list) -> dict:
 
     results = []
     for bi, b in enumerate(bidders):
-        results.append(_evaluate_one_bangjae(spec, sc, maxes, fields, use_transfer, b, bi,
-                                             (tech_grades or {}).get(str(bi)), (mgmt_grades or {}).get(str(bi)),
-                                             rel_mode, digits))
+        fn = _evaluate_jv_bangjae if b.get('members') else _evaluate_one_bangjae
+        results.append(fn(spec, sc, maxes, fields, use_transfer, b, bi,
+                          (tech_grades or {}).get(str(bi)), (mgmt_grades or {}).get(str(bi)),
+                          rel_mode, digits))
 
     # 순위
     order = sorted(range(len(results)), key=lambda i: -results[i]['total'])
@@ -249,8 +250,15 @@ def _item_name(spec, iid):
     return iid
 
 
-def _evaluate_one_bangjae(spec, sc, maxes, fields, use_transfer, b, idx, tech_grade_auto, mgmt_grade_auto, rel_mode, digits):
-    w = Warn()
+PERSON_GROUPS = ('A', 'E')       # 참여기술인·업무중복도: 팀(공동수급체 전체) 단위
+FIRM_GROUPS = ('B', 'C', 'D')    # 대행자 실적·신용도·기술개발: 구성원별 평가 후 지분율 합산
+
+
+def _evaluate_one_bangjae(spec, sc, maxes, fields, use_transfer, b, idx, tech_grade_auto, mgmt_grade_auto, rel_mode, digits,
+                          part='all'):
+    """part: 'all'(단독) / 'persons'(참여기술인·업무중복도만) / 'firm'(대행자 항목·가점만, 공동수급체 구성원 1개사용)."""
+    real_w = Warn()
+    w = Warn() if part == 'firm' else real_w
     name = (b.get('name') or '').strip() or f'입찰사 {idx + 1}'
     firm = b.get('firm') or {}
     persons = b.get('persons') or {}
@@ -433,6 +441,7 @@ def _evaluate_one_bangjae(spec, sc, maxes, fields, use_transfer, b, idx, tech_gr
         score=scaled, note='사업책임·분야별책임 각 0.5점 상한을 적용한 해석입니다. 별첨 6의 산식(배점×분야별×기술인×발주형태×사업량 적용률)을 그대로 사용했습니다.')
 
     # ---- 나. 대행자 수행실적(최근 5년) ---------------------------------------------
+    w = Warn() if part == 'persons' else real_w
     d, s_ = num(firm.get('perf5_d_cnt')), num(firm.get('perf5_s_cnt'))
     if d is None and s_ is None:
         w.add('대행자 수행실적(건수) 미입력 → 0점 처리')
@@ -548,6 +557,8 @@ def _evaluate_one_bangjae(spec, sc, maxes, fields, use_transfer, b, idx, tech_gr
                               f"= {rnd(pts_sum * wmax / 100.0, 3)}점 (배점 {_fmt(maxes['tech.use'])}점 상한)", score=s)
 
     # ---- 마. 업무중복도 ---------------------------------------------------------------
+    w = Warn() if part == 'firm' else real_w
+
     def overlap_pct_for(p, tiers_cfg):
         if p.get('overlap_error'):
             return 0.0, '중복도 평가자료 오류·누락 확인 → 0점(제6조제5항)', True
@@ -585,7 +596,9 @@ def _evaluate_one_bangjae(spec, sc, maxes, fields, use_transfer, b, idx, tech_gr
     hire = num(firm.get('new_hire_rate'))
     bonus = 0.0
     bonus_basis = '신규 고용율 미입력 → 가점 없음'
-    if hire is not None:
+    if part == 'persons':
+        bonus_basis = ''
+    elif hire is not None:
         for bound, pts in spec['bonus']['tiers']:
             if hire >= bound:
                 bonus = pts
@@ -593,6 +606,10 @@ def _evaluate_one_bangjae(spec, sc, maxes, fields, use_transfer, b, idx, tech_gr
         bonus_basis = f'신규 고용율 {_fmt(hire)}% → 가점 {bonus}점'
 
     digits = spec.get('rounding_digits', 2)
+    if part == 'persons':
+        items = [it for it in items if it['group'] in PERSON_GROUPS]
+    elif part == 'firm':
+        items = [it for it in items if it['group'] in FIRM_GROUPS]
     group_scores = {}
     for it in items:
         group_scores[it['group']] = rnd(group_scores.get(it['group'], 0.0) + it['score'], digits)
@@ -604,7 +621,79 @@ def _evaluate_one_bangjae(spec, sc, maxes, fields, use_transfer, b, idx, tech_gr
         'base_total': base_total,
         'bonus': {'score': rnd(bonus, digits), 'basis': bonus_basis, 'name': spec['bonus']['name']},
         'total': rnd(base_total + bonus, digits),
-        '_warn': w.items,
+        '_warn': real_w.items,
+    }
+
+
+def _evaluate_jv_bangjae(spec, sc, maxes, fields, use_transfer, b, idx, tech_auto, mgmt_auto, rel_mode, digits):
+    """공동이행방식 공동수급체: 참여기술인·업무중복도는 팀 단위 1회, 대행자 항목(나·다·라)과 가점은
+    구성원별로 평가한 점수에 참여지분율을 곱해 합산한다([부표] Ⅱ.3, 별표 각 항목의 공동이행방식 규정)."""
+    name = (b.get('name') or '').strip() or f'입찰사 {idx + 1}'
+    members = [m for m in (b.get('members') or []) if isinstance(m, dict)]
+    warns = Warn()
+    shares = [num(m.get('share')) for m in members]
+    if any(s is None or s <= 0 for s in shares):
+        warns.add('공동수급체 구성원의 참여지분율이 비었거나 0 이하입니다. 지분율을 입력해 주세요(없는 구성원은 제외하고 계산했습니다).')
+    keep = [(m, s) for m, s in zip(members, shares) if s is not None and s > 0]
+    if not keep:
+        raise ValueError(f"'{name}': 공동수급체 구성원의 참여지분율을 입력해 주세요.")
+    total_share = sum(s for _m, s in keep)
+    if abs(total_share - 100) > 0.01:
+        warns.add(f'공동수급체 지분율 합계가 {_fmt(total_share)}%입니다(100%여야 합니다). 비율대로 환산해 계산했습니다.')
+
+    team = _evaluate_one_bangjae(spec, sc, maxes, fields, use_transfer,
+                                 {'name': name, 'firm': {'prev_items': (b.get('firm') or {}).get('prev_items') or []},
+                                  'persons': b.get('persons') or {}},
+                                 idx, tech_auto, mgmt_auto, rel_mode, digits, part='persons')
+    for t in team.pop('_warn'):
+        warns.add(t)
+
+    member_res = []
+    for mi, (m, s) in enumerate(keep):
+        mname = (m.get('name') or '').strip() or f'구성원 {mi + 1}'
+        r = _evaluate_one_bangjae(spec, sc, maxes, fields, use_transfer,
+                                  {'name': mname, 'firm': m.get('firm') or {}, 'persons': {}},
+                                  idx, None, None, rel_mode, digits, part='firm')
+        for t in r.pop('_warn'):
+            warns.add(f'[구성원 {mname}] {t}')
+        member_res.append((mname, s / total_share, r))
+
+    firm_items = []
+    firm_ids = [it['id'] for it in spec['items'] if it['group'] in FIRM_GROUPS]
+    for iid in firm_ids:
+        score = 0.0
+        parts = []
+        first = None
+        for mname, sh, r in member_res:
+            it = next(x for x in r['items'] if x['id'] == iid)
+            first = first or it
+            score += it['score'] * sh
+            parts.append(f"[{mname} 지분 {rnd(sh * 100, 1)}%: {it['basis']} = {_fmt(it['score'])}점 × {rnd(sh, 4)}]")
+        firm_items.append({
+            'id': iid, 'name': first['name'], 'group': first['group'], 'max': first['max'],
+            'pct': round(score / first['max'] * 100, 4) if first['max'] else 0.0,
+            'score': rnd(score, digits), 'basis': ' + '.join(parts),
+            'note': '공동이행방식: 구성원별 평가점수 × 참여지분율 합산(구성원별 점수는 소수 둘째자리까지 산정 후 곱함).',
+        })
+    bonus_score = sum(r['bonus']['score'] * sh for _n, sh, r in member_res)
+    bonus_basis = ' + '.join(f"[{n} 지분 {rnd(sh * 100, 1)}%: {r['bonus']['basis']} × {rnd(sh, 4)}]" for n, sh, r in member_res)
+
+    order = {it['id']: i for i, it in enumerate(spec['items'])}
+    items = sorted(team['items'] + firm_items, key=lambda it: order[it['id']])
+    group_scores = {}
+    for it in items:
+        group_scores[it['group']] = rnd(group_scores.get(it['group'], 0.0) + it['score'], digits)
+    base_total = rnd(sum(it['score'] for it in items), digits)
+    return {
+        'name': name,
+        'items': items,
+        'group_scores': group_scores,
+        'base_total': base_total,
+        'bonus': {'score': rnd(bonus_score, digits), 'basis': bonus_basis, 'name': spec['bonus']['name']},
+        'total': rnd(base_total + bonus_score, digits),
+        'members': [{'name': n, 'share': rnd(sh * 100, 2), 'firm_total': rnd(r['base_total'] + r['bonus']['score'], digits)}
+                    for n, sh, r in member_res],
+        '_warn': warns.items,
     }
 
 

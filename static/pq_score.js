@@ -41,7 +41,41 @@
     function isBlank(v) { return v === undefined || v === null || v === ''; }
 
     function newBidder(i) {
-        return { name: '입찰사 ' + (i + 1), firm: {}, persons: { lead: {}, field_lead: {}, field_member: {} }, ai: {}, notes: [], evidence: {} };
+        return { name: '입찰사 ' + (i + 1), firm: {}, persons: { lead: {}, field_lead: {}, field_member: {} }, ai: {}, notes: [], evidence: {},
+            jv: false, members: [] };
+    }
+    function newMember(i) {
+        return { name: '구성원 ' + (i + 1), share: null, firm: {}, ai: {}, notes: [], evidence: {} };
+    }
+    function teamRowKeys() {
+        return ((spec.form.jv || {}).team_rows) || [];
+    }
+    // 입찰사 한 곳의 [대행자 입력]을 담는 곳을 옮길 때 팀 단위 행(전차용역)은 그대로 둔다
+    function splitFirm(firm) {
+        var team = {}, rest = {};
+        Object.keys(firm || {}).forEach(function (k) {
+            (teamRowKeys().indexOf(k) >= 0 ? team : rest)[k] = firm[k];
+        });
+        return { team: team, rest: rest };
+    }
+    function setJv(b, on) {
+        if (on === !!b.jv) return;
+        var sp = splitFirm(b.firm);
+        if (on) {
+            var m1 = newMember(0);
+            m1.firm = sp.rest;
+            Object.keys(b.ai).forEach(function (k) {
+                if (k.indexOf('firm.') === 0) { m1.ai[k] = b.ai[k]; delete b.ai[k]; }
+            });
+            b.members = [m1, newMember(1)];
+            b.firm = sp.team;
+        } else {
+            var first = (b.members && b.members[0]) || newMember(0);
+            b.firm = Object.assign({}, sp.team, first.firm);
+            Object.assign(b.ai, first.ai || {});
+            b.members = [];
+        }
+        b.jv = on;
     }
     function newState() {
         return {
@@ -374,19 +408,34 @@
             el('div', {}, [delBtn])
         ]));
 
-        panel.appendChild(buildExtractBox(b));
-
-        // 대행자 항목
-        spec.form.firm.forEach(function (sec) {
-            var g = el('div', { class: 'grid' });
-            sec.fields.forEach(function (f) {
-                g.appendChild(fieldWidget(f, b.firm, { aiPath: 'firm.' + f.key, bidder: b }));
+        if (spec.form.jv) {
+            var jvCb = el('input', { type: 'checkbox' });
+            jvCb.checked = !!b.jv;
+            jvCb.addEventListener('change', function () {
+                if (!jvCb.checked && b.members.length > 1 && !confirm('공동수급체를 해제하면 첫 번째 구성원의 입력만 남고 나머지 구성원 입력은 삭제됩니다. 계속할까요?')) {
+                    jvCb.checked = true; return;
+                }
+                setJv(b, jvCb.checked);
+                renderBidderPanel(); touch();
             });
-            panel.appendChild(sectionCard(sec.title, [g]));
-        });
+            panel.appendChild(el('div', { class: 'notice', style: 'margin:0 0 1rem;' }, [
+                el('label', { class: 'check' }, [jvCb, el('span', { text: spec.form.jv.label + '로 입찰' })]),
+                el('div', { class: 'status', style: 'margin-top:0.4rem;', text: spec.form.jv.help })
+            ]));
+        }
 
-        // 행 입력 표
-        (spec.form.firm_rows || []).forEach(function (def) { panel.appendChild(buildRowsTable(def, b)); });
+        panel.appendChild(buildExtractBox(b, b.jv ? 'persons' : 'all', b.firm));
+
+        if (b.jv) {
+            renderMembers(panel, b);
+        } else {
+            renderFirmInputs(panel, b, b.firm);
+        }
+
+        // 팀 단위 행(참여기술인의 전차용역 실적)
+        (spec.form.firm_rows || []).forEach(function (def) {
+            if (teamRowKeys().indexOf(def.key) >= 0) panel.appendChild(buildRowsTable(def, b.firm));
+        });
 
         // 기술인
         var fields = S.project.fields.filter(function (r) { return (r.name || '').trim(); });
@@ -396,6 +445,66 @@
         }
         fields.forEach(function (r) { panel.appendChild(personCard('field_lead', b, r.name.trim())); });
         fields.forEach(function (r) { panel.appendChild(personCard('field_member', b, r.name.trim())); });
+    }
+    // 대행자(회사) 단위 입력: holder는 AI 표시를 담는 객체(입찰사 또는 구성원), firmStore는 값 저장소
+    function renderFirmInputs(container, holder, firmStore) {
+        spec.form.firm.forEach(function (sec) {
+            var g = el('div', { class: 'grid' });
+            sec.fields.forEach(function (f) {
+                g.appendChild(fieldWidget(f, firmStore, { aiPath: 'firm.' + f.key, bidder: holder }));
+            });
+            container.appendChild(sectionCard(sec.title, [g]));
+        });
+        (spec.form.firm_rows || []).forEach(function (def) {
+            if (teamRowKeys().indexOf(def.key) < 0) container.appendChild(buildRowsTable(def, firmStore));
+        });
+    }
+
+    function renderMembers(panel, b) {
+        var sumNote = el('span', { class: 'status' });
+        function updateSum() {
+            var s = b.members.reduce(function (a, m) { return a + (Number(m.share) || 0); }, 0);
+            sumNote.textContent = '지분율 합계 ' + fmt(s) + '%' + (Math.abs(s - 100) > 0.01 ? ' (100%가 아니면 비율대로 환산해 계산합니다)' : '');
+            sumNote.style.color = Math.abs(s - 100) > 0.01 ? '#b91c1c' : '';
+        }
+        panel.appendChild(el('div', { class: 'sub' }, [
+            el('h3', { text: '공동수급체 구성원 (대행자 항목은 구성원별 입력)' }),
+            el('div', { class: 'status', style: 'margin-bottom:0.6rem;', text: '구성원마다 대행자 실적·신용도·기술개발 및 투자실적·신규 고용율을 입력합니다. 구성원별 점수에 지분율을 곱해 합산합니다.' }),
+            el('div', { style: 'display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap;' }, [
+                el('button', { type: 'button', class: 'btn btn-ghost btn-sm', text: '+ 구성원 추가', onclick: function () {
+                    if (b.members.length >= 10) { alert('구성원은 최대 10개사까지 입력할 수 있습니다.'); return; }
+                    b.members.push(newMember(b.members.length));
+                    renderBidderPanel(); touch();
+                } }),
+                sumNote
+            ])
+        ]));
+        updateSum();
+        b.members.forEach(function (m, mi) {
+            var nameInp = el('input', { type: 'text', value: m.name || '' });
+            nameInp.addEventListener('input', function () { m.name = nameInp.value; touch(); });
+            var shareInp = el('input', { type: 'number', step: 'any', min: '0', max: '100', value: isBlank(m.share) ? '' : m.share });
+            shareInp.addEventListener('input', function () { m.share = shareInp.value === '' ? null : Number(shareInp.value); updateSum(); touch(); });
+            var del = el('button', { type: 'button', class: 'btn btn-danger btn-sm', text: '구성원 삭제', onclick: function () {
+                if (b.members.length <= 1) { alert('구성원은 최소 1개사가 필요합니다. 공동수급체가 아니면 위의 체크를 해제하세요.'); return; }
+                if (!confirm("'" + (m.name || '구성원') + "' 입력 내용을 삭제할까요?")) return;
+                b.members.splice(mi, 1);
+                renderBidderPanel(); touch();
+            } });
+            var det = el('details', { class: 'sub', open: true }, [
+                el('summary', { text: '구성원 ' + (mi + 1) + (m.name ? ' · ' + m.name : '') })
+            ]);
+            var inner = el('div', { style: 'margin-top:0.8rem;' });
+            inner.appendChild(el('div', { class: 'grid', style: 'margin-bottom:0.8rem; align-items:end;' }, [
+                el('div', { class: 'field' }, [el('label', { text: '구성원(회사) 이름' }), nameInp]),
+                el('div', { class: 'field' }, [el('label', { text: '참여지분율 (%)' }), shareInp]),
+                el('div', {}, [del])
+            ]));
+            inner.appendChild(buildExtractBox(m, 'firm', m.firm));
+            renderFirmInputs(inner, m, m.firm);
+            det.appendChild(inner);
+            panel.appendChild(det);
+        });
     }
     function renderTabsOnly() {
         var tabs = $('bidderTabs').querySelectorAll('.tab');
@@ -432,9 +541,9 @@
         S.project.fields.forEach(function (r) { if ((r.name || '').trim()) opts.push({ v: r.name.trim(), t: '분야별책임: ' + r.name.trim() }); });
         return opts;
     }
-    function buildRowsTable(def, b) {
-        if (!Array.isArray(b.firm[def.key])) b.firm[def.key] = [];
-        var rows = b.firm[def.key];
+    function buildRowsTable(def, firmStore) {
+        if (!Array.isArray(firmStore[def.key])) firmStore[def.key] = [];
+        var rows = firmStore[def.key];
         var box = el('div', { class: 'sub' }, [el('h3', { text: def.title })]);
         if (def.help) box.appendChild(el('div', { class: 'status', style: 'margin-bottom:0.6rem;', text: def.help }));
         var wrap = el('div', { class: 'tbl-wrap' });
@@ -503,22 +612,25 @@
     }
 
     // ------------------------------------------------------------ AI 추출
-    function buildExtractBox(b) {
+    function buildExtractBox(holder, mode, firmStore) {
         var box = el('div', { class: 'extract-box no-print' });
-        box.appendChild(el('b', { text: '🤖 AI로 서류에서 입력값 채우기 (선택)' }));
-        box.appendChild(el('div', { class: 'status', style: 'margin-top:0.3rem;', text: '이 입찰사의 자기평가서·실적증명서·경력증명서 등을 올리면 AI가 값을 옮겨 적습니다. 서류에 없는 값은 비워 두며, 노란색 칸은 [AI] 표시에 마우스를 올려 근거를 확인한 뒤 맞으면 그대로 두고 틀리면 고치세요. 점수는 AI가 아니라 고시 공식으로 계산됩니다. 개인정보가 있는 서류는 마스킹해서 올리는 것을 권장합니다.' }));
+        var scopeText = mode === 'firm' ? '이 구성원(회사)의 실적증명서·신용평가서·기술개발 관련 서류 등을 올리면 대행자 항목만 채웁니다.'
+            : mode === 'persons' ? '참여기술인의 경력증명서·실적증명서·업무중복도 자료 등을 올리면 기술인 항목과 전차용역 실적만 채웁니다(대행자 항목은 구성원별 입력란에서).'
+            : '이 입찰사의 자기평가서·실적증명서·경력증명서 등을 올리면 AI가 값을 옮겨 적습니다.';
+        box.appendChild(el('b', { text: '🤖 AI로 서류에서 입력값 채우기 (선택)' + (mode === 'firm' ? ' - 구성원용' : mode === 'persons' ? ' - 기술인용' : '') }));
+        box.appendChild(el('div', { class: 'status', style: 'margin-top:0.3rem;', text: scopeText + ' 서류에 없는 값은 비워 두며, 노란색 칸은 [AI] 표시에 마우스를 올려 근거를 확인한 뒤 맞으면 그대로 두고 틀리면 고치세요. 점수는 AI가 아니라 고시 공식으로 계산됩니다. 개인정보가 있는 서류는 마스킹해서 올리는 것을 권장합니다.' }));
         var file = el('input', { type: 'file', multiple: true, accept: '.pdf,.hwp,.hwpx,.docx,.doc,.xlsx,.xls,.txt,.png,.jpg,.jpeg' });
         var over = el('input', { type: 'checkbox' });
         var status = el('span', { class: 'status' });
         var btn = el('button', { type: 'button', class: 'btn btn-primary btn-sm', text: 'AI 추출 실행' });
         btn.addEventListener('click', function () {
             if (!file.files.length) { status.textContent = '파일을 먼저 선택하세요.'; return; }
-            runExtract(b, file.files, over.checked, btn, status, box);
+            runExtract(holder, mode, firmStore, file.files, over.checked, btn, status);
         });
         box.appendChild(el('div', { class: 'row' }, [file, el('label', { class: 'check' }, [over, el('span', { text: '이미 입력한 값도 덮어쓰기' })]), btn, status]));
         var res = el('div', { class: 'evidence', 'data-extract-result': '1' });
         box.appendChild(res);
-        renderExtractNotes(b, res);
+        renderExtractNotes(holder, res);
         return box;
     }
     function renderExtractNotes(b, res) {
@@ -539,10 +651,11 @@
             res.appendChild(det);
         }
     }
-    function runExtract(b, files, overwrite, btn, status, box) {
+    function runExtract(holder, mode, firmStore, files, overwrite, btn, status) {
+        var b = S.bidders[S.active];
         var fd = new FormData();
         fd.append('spec_id', spec.id);
-        fd.append('bidder_name', b.name || '');
+        fd.append('bidder_name', holder.name || '');
         fd.append('project', JSON.stringify({ fields: S.project.fields, announce_date: S.project.values.announce_date || '' }));
         for (var i = 0; i < files.length; i++) fd.append('files', files[i]);
         btn.disabled = true;
@@ -552,7 +665,7 @@
             status.textContent = 'AI가 서류를 읽는 중입니다(1~3분 걸릴 수 있어요)...';
             return pollExtract(d.jobId, status);
         }).then(function (result) {
-            var cnt = applyExtract(b, result, overwrite);
+            var cnt = applyExtract(holder, b, firmStore, mode, result, overwrite);
             status.textContent = 'AI가 ' + cnt.filled + '개 값을 채웠습니다' + (cnt.skipped ? ' (이미 입력된 ' + cnt.skipped + '개는 그대로 둠)' : '') + '. 노란 칸을 확인하세요.';
             renderBidderPanel();
             touch();
@@ -575,44 +688,54 @@
             })();
         });
     }
-    function applyExtract(b, result, overwrite) {
+    // holder: AI 표시·근거를 담는 객체(입찰사 또는 구성원), b: 입찰사, firmStore: 대행자 값 저장소
+    // mode: 'all' 전부 / 'firm' 대행자 항목만(구성원용) / 'persons' 기술인과 팀 단위 행만(공동수급체 입찰사용)
+    function applyExtract(holder, b, firmStore, mode, result, overwrite) {
         var inputs = result.inputs || {};
         var ev = result.evidence || {};
         var cnt = { filled: 0, skipped: 0 };
+        var notes = (result.notes || []).slice();
         function put(store, key, val, path) {
             if (val === undefined || val === null) return;
             if (!isBlank(store[key]) && !overwrite) { cnt.skipped++; return; }
             store[key] = val;
-            b.ai[path] = { evidence: ev[path] || '', confirmed: false };
+            holder.ai[path] = { evidence: ev[path] || '', confirmed: false };
             cnt.filled++;
         }
+        var team = teamRowKeys();
         var firm = inputs.firm || {};
+        var ignoredFirm = 0;
         Object.keys(firm).forEach(function (k) {
+            var isTeam = team.indexOf(k) >= 0;
+            if ((mode === 'firm' && isTeam) || (mode === 'persons' && !isTeam)) { ignoredFirm++; return; }
             if (Array.isArray(firm[k])) {
                 if (!firm[k].length) return;
-                var cur = Array.isArray(b.firm[k]) ? b.firm[k] : [];
+                var cur = Array.isArray(firmStore[k]) ? firmStore[k] : [];
                 var hasInput = cur.some(function (r) { return Object.keys(r).filter(function (x) { return x !== '_ai'; }).length; });
                 if (hasInput && !overwrite) { cnt.skipped += firm[k].length; return; }
-                b.firm[k] = firm[k].map(function (r) { r._ai = true; return r; });
+                firmStore[k] = firm[k].map(function (r) { r._ai = true; return r; });
                 cnt.filled += firm[k].length;
             } else {
-                put(b.firm, k, firm[k], 'firm.' + k);
+                put(firmStore, k, firm[k], 'firm.' + k);
             }
         });
-        var persons = inputs.persons || {};
-        var lead = persons.lead || {};
-        Object.keys(lead).forEach(function (k) { put(b.persons.lead, k, lead[k], 'persons.lead.' + k); });
-        ['field_lead', 'field_member'].forEach(function (role) {
-            var m = persons[role] || {};
-            Object.keys(m).forEach(function (fname) {
-                if (!b.persons[role][fname]) b.persons[role][fname] = {};
-                Object.keys(m[fname]).forEach(function (k) {
-                    put(b.persons[role][fname], k, m[fname][k], 'persons.' + role + '.' + fname + '.' + k);
+        if (mode === 'persons' && ignoredFirm) notes.push('대행자(회사) 항목은 구성원별 입력란의 AI 추출로 채워 주세요(이 상자에서는 제외했습니다).');
+        if (mode !== 'firm') {
+            var persons = inputs.persons || {};
+            var lead = persons.lead || {};
+            Object.keys(lead).forEach(function (k) { put(b.persons.lead, k, lead[k], 'persons.lead.' + k); });
+            ['field_lead', 'field_member'].forEach(function (role) {
+                var m = persons[role] || {};
+                Object.keys(m).forEach(function (fname) {
+                    if (!b.persons[role][fname]) b.persons[role][fname] = {};
+                    Object.keys(m[fname]).forEach(function (k) {
+                        put(b.persons[role][fname], k, m[fname][k], 'persons.' + role + '.' + fname + '.' + k);
+                    });
                 });
             });
-        });
-        b.notes = result.notes || [];
-        b.evidence = ev;
+        }
+        holder.notes = notes;
+        holder.evidence = ev;
         return cnt;
     }
 
@@ -637,11 +760,19 @@
             fields: S.project.fields.map(function (r) { return { name: (r.name || '').trim(), pct: r.pct, kind: r.kind || '필수' }; }),
             adjust: S.project.adjust
         };
-        var bidders = S.bidders.map(function (b, i) {
-            var firm = cleanStore(b.firm);
+        // kind: 'single' 단독 입찰 / 'team' 공동수급체의 팀 단위 행만 / 'member' 구성원 1개사
+        function cleanFirm(store, kind) {
+            var firm = kind === 'team' ? {} : cleanStore(store);
             (spec.form.firm_rows || []).forEach(function (def) {
-                firm[def.key] = (b.firm[def.key] || []).map(cleanStore).filter(function (r) { return Object.keys(r).length; });
+                var isTeam = teamRowKeys().indexOf(def.key) >= 0;
+                if ((kind === 'team' && !isTeam) || (kind === 'member' && isTeam)) return;
+                firm[def.key] = (store[def.key] || []).map(cleanStore).filter(function (r) { return Object.keys(r).length; });
             });
+            if (kind === 'member') teamRowKeys().forEach(function (k) { delete firm[k]; });
+            return firm;
+        }
+        var bidders = S.bidders.map(function (b, i) {
+            var firm = b.jv ? cleanFirm(b.firm, 'team') : cleanFirm(b.firm, 'single');
             var persons = { lead: cleanStore(b.persons.lead), field_lead: {}, field_member: {} };
             ['field_lead', 'field_member'].forEach(function (role) {
                 S.project.fields.forEach(function (r) {
@@ -649,7 +780,13 @@
                     if (n && b.persons[role][n]) persons[role][n] = cleanStore(b.persons[role][n]);
                 });
             });
-            return { name: b.name || ('입찰사 ' + (i + 1)), firm: firm, persons: persons };
+            var out = { name: b.name || ('입찰사 ' + (i + 1)), firm: firm, persons: persons };
+            if (b.jv) {
+                out.members = (b.members || []).map(function (m, mi) {
+                    return { name: m.name || ('구성원 ' + (mi + 1)), share: m.share, firm: cleanFirm(m.firm, 'member') };
+                });
+            }
+            return out;
         });
         return { spec_id: spec.id, project: project, bidders: bidders };
     }
@@ -715,7 +852,12 @@
         order.forEach(function (i) {
             var r = res.results[i];
             var det = el('details', { class: 'sub', open: res.results.length === 1 ? true : null });
-            det.appendChild(el('summary', { text: r.rank + '위 · ' + r.name + ' · ' + fmt(r.total) + '점 (평가요소별 근거 보기)' }));
+            det.appendChild(el('summary', { text: r.rank + '위 · ' + r.name + (r.members ? ' (공동수급체)' : '') + ' · ' + fmt(r.total) + '점 (평가요소별 근거 보기)' }));
+            if (r.members) {
+                det.appendChild(el('div', { class: 'basis', style: 'margin-top:0.5rem;', text: '공동수급체 구성: ' + r.members.map(function (m) {
+                    return m.name + ' ' + fmt(m.share) + '% (대행자 항목·가점 단독 평가 ' + fmt(m.firm_total) + '점)';
+                }).join(' / ') + ' → 대행자 항목·가점은 구성원별 점수 × 지분율 합산, 참여기술인·업무중복도는 팀 단위' }));
+            }
             var t = el('table', { style: 'margin-top:0.7rem;' });
             t.appendChild(el('thead', {}, [el('tr', {}, [el('th', { text: '평가요소' }), el('th', { class: 'num', style: 'width:70px;', text: '배점' }), el('th', { class: 'num', style: 'width:80px;', text: '득점률' }), el('th', { class: 'num', style: 'width:70px;', text: '득점' }), el('th', { text: '산정 근거' })])]));
             var tbody = el('tbody');
