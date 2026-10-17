@@ -2891,8 +2891,8 @@ def api_commencement_review():
 PQ_PLANNED = [
     {"id": "env_assess", "short": "환경영향평가업자", "status": "planned",
      "note": "환경영향평가업자의 사업수행능력 세부평가기준(기후에너지환경부 고시) - 구현 예정"},
-    {"id": "const_mgmt", "short": "건설사업관리 건설엔지니어링사업자(국토교통부 고시)", "status": "planned",
-     "note": "국토교통부 고시(건설엔지니어링사업자 사업수행능력 세부평가기준) - 구현 예정"},
+    {"id": "const_mgmt", "short": "건설엔지니어링사업자 - 국토교통부 고시", "status": "planned",
+     "note": "국토교통부 고시는 평가항목·배점만 정하고 경력·실적 구간표는 발주청이 정하게 되어 있어 구간표 직접 입력 기능이 필요 - 검토 중"},
     {"id": "gyeongnam_design", "short": "경상남도 설계 등 건설엔지니어링사업자", "status": "planned",
      "note": "경상남도 세부평가기준 [별표 1] - 구현 예정"},
     {"id": "gyeongnam_safety", "short": "경상남도 정밀안전점검·진단사업자", "status": "planned",

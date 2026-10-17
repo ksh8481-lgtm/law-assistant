@@ -50,6 +50,23 @@ def _grid(value, thresholds, pcts):
     return pcts[-1], len(thresholds)
 
 
+def _norm_row(row, default_pct):
+    """구간표 행 -> (기준값 목록, 비율 목록). 행이 리스트면 기본 비율(100·90·80·70·60%)을 쓰고,
+    {'th': [...], 'pct': [...]}이면 그 비율을 쓴다(마지막 칸이 없거나 하한이 있는 표 대응)."""
+    if isinstance(row, dict):
+        th = row['th']
+        return th, row.get('pct') or default_pct[:len(th) + 1]
+    return row, default_pct
+
+
+def _cost_grid(cfg, cost, value, default_pct):
+    """공사규모별 구간표에서 value의 (비율, 설명문)."""
+    bi = _band_idx(cost, cfg['cost_min'])
+    th, pcts = _norm_row(cfg['rows'][bi], default_pct)
+    pct, j = _grid(value, th, pcts)
+    return pct, f"공사규모 {_band_text(bi, cfg['cost_min'])}: {_grid_text(value, cfg['unit'], th, j)}", th
+
+
 def _grid_text(value, unit, thresholds, j):
     if j == 0:
         rng = f'{_fmt(thresholds[0])}{unit} 이상'
@@ -90,7 +107,7 @@ def _context(spec, project, warn):
     if cost is None or cost <= 0:
         raise ValueError('사업 정보에 해당공사규모(총공사비, 억원)를 입력해 주세요.')
     mw = MAIN_WORK.get(pj.get('main_work'))
-    if mw is None:
+    if mw is None and 'sim_civil' in sc:
         raise ValueError('사업 정보에서 주된 공종(토목·폐기물처리시설 / 건축)을 선택해 주세요.')
     phase = PHASE.get(pj.get('phase'))
     if phase is None:
@@ -178,6 +195,32 @@ def _edu_pts(cfg, p):
     return tr, q
 
 
+def _perf_pct(cfg, p, sc, cost, label):
+    """직무분야 실적 비율(0~100) 또는 (None, 사유). cfg 형식 두 가지:
+    - by_grade: 등급별 기준값 표(경남): {'by_grade': {등급: [기준값...]}, 'unit': '년'}
+    - parts: 항목별 점수가 다른 여러 표의 합(해양수산부): [{'key', 'label', 'points', 'cost_min', 'rows', 'unit'}...]"""
+    if 'by_grade' in cfg:
+        g, v = p.get('grade'), num(p.get('perf'))
+        if g not in cfg['by_grade']:
+            return None, f'{label} 직무분야 실적: 등급 {g or "미입력"}은(는) 구간표({"·".join(cfg["by_grade"])})에 없음'
+        if v is None:
+            return None, f'{label} 직무분야 실적 미입력'
+        th = cfg['by_grade'][g]
+        pct, j = _grid(v, th, sc['grid_pct'])
+        return pct, f"{label} 직무분야 실적 / {g}기술인: {_grid_text(v, cfg['unit'], th, j)} → {pct}%"
+    total_pts = sum(part['points'] for part in cfg['parts'])
+    got, texts = 0.0, []
+    for part in cfg['parts']:
+        v = num(p.get(part['key']))
+        if v is None:
+            return None, f"{label} 직무분야 실적({part['label']}) 미입력"
+        pct, text, _th = _cost_grid(part, cost, v, sc['grid_pct'])
+        got += part['points'] * pct / 100.0
+        texts.append(f"[{part['label']}({_fmt(part['points'])}점) {text} → {pct}%]")
+    pct_total = got / total_pts * 100.0
+    return pct_total, f"{label} 직무분야 실적 " + ' + '.join(texts) + f" = {rnd(got, 3)}/{_fmt(total_pts)}점"
+
+
 def _team(spec, ctx, persons, itv_auto, warn):
     sc = spec['scoring']
     maxes = ctx['maxes']
@@ -209,21 +252,19 @@ def _team(spec, ctx, persons, itv_auto, warn):
             zero('lead.career', f'{label} 경력 미입력')
         else:
             cfg = sc['lead_career']
-            bi = _band_idx(cost, cfg['cost_min'])
-            pct, j = _grid(v, cfg['rows'][bi], sc['grid_pct'])
-            add('lead.career', pct, f"{label} 해당분야 경력 / 공사규모 {_band_text(bi, cfg['cost_min'])}: {_grid_text(v, cfg['unit'], cfg['rows'][bi], j)} → {pct}%")
-        g, v = lead.get('grade'), num(lead.get('perf'))
-        cfg = sc['lead_perf']
-        if g not in cfg['by_grade']:
-            warn.add(f'{label} 등급이 없거나 직무분야 실적 구간표(특급·고급)에 없는 등급이라 실적 0점 처리')
-            zero('lead.perf', f'{label} 직무분야 실적: 등급 {g or "미입력"} → 0점(구간표는 특급·고급만)')
-        elif v is None:
-            warn.add(f'{label} 직무분야 실적 미입력 → 0점 처리')
-            zero('lead.perf', f'{label} 직무분야 실적 미입력')
+            cmin = cfg.get('min')
+            if cmin is not None and v < cmin:
+                warn.add(f'{label} 경력 {_fmt(v)}{cfg["unit"]}이(가) 최소 경력 {_fmt(cmin)}{cfg["unit"]}에 미달해 경력 0점 처리')
+                zero('lead.career', f'{label} 해당분야 경력 {_fmt(v)}{cfg["unit"]} < 최소 {_fmt(cmin)}{cfg["unit"]} → 0점')
+            else:
+                pct, text, _th = _cost_grid(cfg, cost, v, sc['grid_pct'])
+                add('lead.career', pct, f"{label} 해당분야 경력 / {text} → {pct}%")
+        pct, text = _perf_pct(sc['lead_perf'], lead, sc, cost, label)
+        if pct is None:
+            warn.add(f'{text} → 0점 처리')
+            zero('lead.perf', text)
         else:
-            th = cfg['by_grade'][g]
-            pct, j = _grid(v, th, sc['grid_pct'])
-            add('lead.perf', pct, f"{label} 직무분야 실적 / {g}기술인: {_grid_text(v, cfg['unit'], th, j)} → {pct}%")
+            add('lead.perf', pct, text)
         tr, q = _edu_pts(sc['edu']['lead'], lead)
         pts = min(tr + q, 1.0)
         add('lead.edu', pts / 1.0 * 100, f'{label} 교육훈련 {lead.get("edu_training") or "-"}({tr}점) + 기술자격 {lead.get("qualification") or "-"}({q}점) = {_fmt(pts)}점(최대 1점)')
@@ -252,20 +293,19 @@ def _team(spec, ctx, persons, itv_auto, warn):
         if not p or v is None:
             return None, '경력 미입력'
         cfg = sc['fm_career']
-        bi = _band_idx(cost, cfg['cost_min'])
-        pct, j = _grid(v, cfg['rows'][bi], sc['grid_pct'])
-        return pct / 100.0, f"{name} {_grid_text(v, cfg['unit'], cfg['rows'][bi], j)}(공사규모 {_band_text(bi, cfg['cost_min'])}) → {pct}%"
+        cmin = cfg.get('min')
+        if cmin is not None and v < cmin:
+            return 0.0, f'{name} 경력 {_fmt(v)}{cfg["unit"]} < 최소 {_fmt(cmin)}{cfg["unit"]} → 0%'
+        pct, text, _th = _cost_grid(cfg, cost, v, sc['grid_pct'])
+        return pct / 100.0, f"{name} {text} → {pct}%"
 
     def fm_perf(p, name):
-        g, v = p.get('grade'), num(p.get('perf'))
-        cfg = sc['fm_perf']
-        if not p or g not in cfg['by_grade']:
-            return None, f'등급 {g or "미입력"}(구간표는 특급·고급·중급)'
-        if v is None:
-            return None, '직무분야 실적 미입력'
-        th = cfg['by_grade'][g]
-        pct, j = _grid(v, th, sc['grid_pct'])
-        return pct / 100.0, f"{name} {g} {_grid_text(v, cfg['unit'], th, j)} → {pct}%"
+        if not p:
+            return None, '입력 없음'
+        pct, text = _perf_pct(sc['fm_perf'], p, sc, cost, name)
+        if pct is None:
+            return None, text
+        return pct / 100.0, text
 
     def fm_edu(p, name):
         tr, q = _edu_pts(sc['edu']['fm'], p)
@@ -276,18 +316,18 @@ def _team(spec, ctx, persons, itv_auto, warn):
         if not p or not g:
             return None, '등급 미입력'
         cfg = sc['sup_grade']
-        ok = cfg['big_ok'] if cost >= cfg['big_cost'] else cfg['small_ok']
-        size = f"총공사비 {_fmt(cfg['big_cost'])}억 {'이상' if cost >= cfg['big_cost'] else '미만'}"
-        return (1.0 if g in ok else 0.0), f"{name} {g}기술인({size}, 만점 인정 등급: {'·'.join(ok)}) → {'100' if g in ok else '0'}%"
+        big = cost >= cfg['big_cost']
+        table = cfg['big'] if big else cfg['small']
+        size = f"총공사비 {_fmt(cfg['big_cost'])}억 {'이상' if big else '미만'}"
+        pts = table.get(g, 0.0)
+        return pts / cfg['base'], f"{name} {g}기술인({size}) → {_fmt(pts)}점(원 배점 {_fmt(cfg['base'])}점 기준)"
 
     def sup_career(p, name):
         v = num(p.get('career'))
         if not p or v is None:
             return None, '경력 미입력'
-        cfg = sc['sup_career']
-        bi = _band_idx(cost, cfg['cost_min'])
-        pct, j = _grid(v, cfg['rows'][bi], sc['grid_pct'])
-        return pct / 100.0, f"{name} {_grid_text(v, cfg['unit'], cfg['rows'][bi], j)}(공사규모 {_band_text(bi, cfg['cost_min'])}) → {pct}%"
+        pct, text, _th = _cost_grid(sc['sup_career'], cost, v, sc['grid_pct'])
+        return pct / 100.0, f"{name} {text} → {pct}%"
 
     def sup_edu(p, name):
         tr, q = _edu_pts(sc['edu']['sup'], p)
@@ -346,7 +386,16 @@ def _team(spec, ctx, persons, itv_auto, warn):
 
 
 # ---------------------------------------------------------------- 사업체 단위: 유사과업·신용도·기술개발·교체빈도
-def _sim_eff(ctx, firm):
+def _sim_table(spec, ctx):
+    sc = spec['scoring']
+    if 'sim' in sc:
+        return sc['sim'], ''
+    if ctx['main_work'] == 'civil':
+        return sc['sim_civil'], '토목·폐기물처리시설 '
+    return sc['sim_building'], '건축 '
+
+
+def _sim_eff(spec, ctx, firm):
     a, b, c, d, e = (num(firm.get(k)) for k in ('cm_both', 'cm_design', 'cm_design_eng', 'cm_const', 'cm_super'))
     if all(x is None for x in (a, b, c, d, e)):
         return None, '유사 건설엔지니어링 수행실적 미입력'
@@ -361,16 +410,25 @@ def _sim_eff(ctx, firm):
     else:
         v = a + (d + e * 0.7) * 1.0
         t = f'설계·시공 포함 {_fmt(a)} + (시공단계 {_fmt(d)} + 감리·시행령 제45조제1항제3호 {_fmt(e)}×0.7)×1.0'
+    # 유사 건설엔지니어링 이외 해당 직무분야 실적은 60%만 반영하되, 그 구간표 가장 낮은 칸의 하한까지만 인정(해양수산부 별표 2 Ⅱ.4.사)
+    factor = spec['scoring'].get('other_job_factor')
+    other = num(firm.get('cm_other'))
+    if factor and other:
+        cfg, _kind = _sim_table(spec, ctx)
+        bi = _band_idx(ctx['cost'], cfg['cost_min'])
+        th, _p = _norm_row(cfg['rows'][bi], spec['scoring']['grid_pct'])
+        cap = th[-1]
+        add_v = min(other * factor, cap)
+        t += f' + 유사 이외 직무분야 {_fmt(other)}억×{factor}=({_fmt(rnd(other * factor, 3))}, 하한 {_fmt(cap)}억까지 인정) {_fmt(rnd(add_v, 3))}'
+        v += add_v
     return v, f'{t} = {_fmt(rnd(v, 3))}억원'
 
 
 def _sim_score(spec, ctx, eff, eff_note):
     sc = spec['scoring']
-    cfg = sc['sim_civil'] if ctx['main_work'] == 'civil' else sc['sim_building']
-    bi = _band_idx(ctx['cost'], cfg['cost_min'])
-    pct, j = _grid(eff, cfg['rows'][bi], sc['grid_pct'])
-    kind = '토목·폐기물처리시설' if ctx['main_work'] == 'civil' else '건축'
-    return pct, f"{eff_note} / {kind} 공사규모 {_band_text(bi, cfg['cost_min'])}: {_grid_text(rnd(eff, 3), cfg['unit'], cfg['rows'][bi], j)} → {pct}%"
+    cfg, kind = _sim_table(spec, ctx)
+    pct, text, _th = _cost_grid(cfg, ctx['cost'], rnd(eff, 3), sc['grid_pct'])
+    return pct, f"{eff_note} / {kind}{text} → {pct}%"
 
 
 def _member(spec, ctx, firm, warn):
@@ -387,10 +445,20 @@ def _member(spec, ctx, firm, warn):
         out[iid] = {'pct': (s / mx * 100.0 if mx else 0.0) if pct is None else pct, 'score': s, 'basis': basis, 'note': note}
 
     # 나. 수행성과
+    sr = sc['sim_result']
     avg = num(firm.get('perf_avg'))
+    out['_perf_avg'] = avg
+    if avg is None and sr.get('no_record_avg') is not None:
+        avg = float(sr['no_record_avg'])
+        out['_perf_avg'] = avg
+        noted = f'수행성과 평가실적 없음 → 중간점수 {_fmt(avg)}점 적용'
+    else:
+        noted = ''
     if avg is not None:
-        pct, bound = tier_ge(avg, sc['sim_result']['tiers'])
-        put('sim.result', pct, f'건설사업관리 수행성과 평균 {_fmt(avg)}점 → {_fmt(bound) if bound > -1e8 else "86점 미만"}{"점 이상" if bound > -1e8 else ""} → {pct}%')
+        pct, bound = tier_ge(avg, sr['tiers'])
+        lowest = sr['tiers'][-2][0]
+        put('sim.result', pct, (noted + ' / ' if noted else '') + f'건설사업관리 수행성과 평균 {_fmt(avg)}점 → '
+            + (f'{_fmt(bound)}점 이상' if bound > -1e8 else f'{_fmt(lowest)}점 미만') + f' → {pct}%')
     elif ctx['no_result'] is not None:
         pct = ctx['no_result'] / 2.0 * 100.0
         put('sim.result', pct, f'해당 발주청 수행성과 없음 → 발주청이 정한 기본 {_fmt(ctx["no_result"])}점 부여', '고시: 수행성과가 없는 사업체는 1.8 또는 1.6점을 부여할 수 있음(입찰공고 시 제시).')
@@ -398,16 +466,29 @@ def _member(spec, ctx, firm, warn):
         warn.add('건설사업관리 수행성과가 비어 있고 기본 점수도 정해지지 않아 0점 처리')
         put('sim.result', 0.0, '수행성과 미입력 → 0점', score=0.0)
 
-    eff, eff_note = _sim_eff(ctx, firm)
+    eff, eff_note = _sim_eff(spec, ctx, firm)
 
     # 다. 신용도
     mf = math.ceil(num(firm.get('suspend_months')) or 0)
     mt = math.ceil(num(firm.get('tech_suspend_months')) or 0)
     s = max(0.0, maxes['credit.stop'] - sc['stop']['per_month'] * (mf + mt))
     put('credit.stop', None, f"{_fmt(maxes['credit.stop'])}점 - 사업자 영업정지 {mf}개월×0.2 - 참여기술인 자격·업무정지 {mt}개월×0.2 = {_fmt(rnd(s, 3))}점(1개월 미만은 1개월, 0점 미만은 0점)", score=s)
-    bf, bt = num(firm.get('bad_deduct_firm')) or 0.0, num(firm.get('bad_deduct_tech')) or 0.0
-    s = max(0.0, maxes['credit.penalty'] - bf - bt)
-    put('credit.penalty', None, f"{_fmt(maxes['credit.penalty'])}점 - 사업자 벌점 감점 {_fmt(bf)}점 - 참여기술인 벌점 감점 {_fmt(bt)}점 = {_fmt(rnd(s, 3))}점(0점 미만은 0점)", score=s)
+    if 'penalty_table' in sc:
+        def table_deduct(v):
+            if v is None:
+                return 0.0, '없음'
+            for bound, ded in sc['penalty_table']:
+                if v >= bound:
+                    return ded, f'평균벌점 {_fmt(v)}점 → {_fmt(ded)}점 감점'
+            return 0.0, f'평균벌점 {_fmt(v)}점 → 감점 없음'
+        bf, tf = table_deduct(num(firm.get('bad_avg_firm')))
+        bt, tt = table_deduct(num(firm.get('bad_avg_tech')))
+        s = max(0.0, maxes['credit.penalty'] - bf - bt)
+        put('credit.penalty', None, f"{_fmt(maxes['credit.penalty'])}점 - 사업자({tf}) - 참여기술인({tt}) = {_fmt(rnd(s, 3))}점(건설기술 진흥법 시행령 [별표 8] 벌점 감점표, 0점 미만은 0점)", score=s)
+    else:
+        bf, bt = num(firm.get('bad_deduct_firm')) or 0.0, num(firm.get('bad_deduct_tech')) or 0.0
+        s = max(0.0, maxes['credit.penalty'] - bf - bt)
+        put('credit.penalty', None, f"{_fmt(maxes['credit.penalty'])}점 - 사업자 벌점 감점 {_fmt(bf)}점 - 참여기술인 벌점 감점 {_fmt(bt)}점 = {_fmt(rnd(s, 3))}점(0점 미만은 0점)", score=s)
 
     cr = sc['credit']
     ctype, crate = firm.get('credit_type'), firm.get('credit_rating')
@@ -462,7 +543,7 @@ def _member(spec, ctx, firm, warn):
         text = f"{t} {use['base_points'][t]}점 × 가중치 {w}(건수 {_fmt(cnt)}건·금액 {_fmt(amt)}억 중 유리한 구간) × {_fmt(cnt)}건{age_txt} = {rnd(pts, 3)}"
         if grp not in best or pts > best[grp][0]:
             best[grp] = (pts, t, text)
-    new_tech_use = sum(p for p, t, _x in best.values() if t == '건설신기술')
+    new_tech_use = sum(p for p, t, _x in best.values() if t != '특허')
     patent_use = sum(p for p, t, _x in best.values() if t == '특허')
     patent_use_cap = min(patent_use, use['patent_cap'])
     total = dev_sum + new_tech_use + patent_use_cap
@@ -542,6 +623,8 @@ def _evaluate_bidder(spec, ctx, b, idx, itv_auto):
             pct, text = _sim_score(spec, ctx, eff, eff_note)
             items.append(_row(spec, ctx, 'sim.perf', pct, text))
         for iid, c in calc.items():
+            if iid.startswith('_'):
+                continue
             items.append(_row(spec, ctx, iid, c['pct'], c['basis'], c['note'], score=c['score']))
         hire_total, hire_basis = hire[0], hire[1]
     else:
@@ -573,7 +656,19 @@ def _evaluate_bidder(spec, ctx, b, idx, itv_auto):
             pct, text = _sim_score(spec, ctx, total_eff, note)
             items.append(_row(spec, ctx, 'sim.perf', pct, text, '공동도급 예시: (A사 200억×0.6)+(B사 100억×0.4)=160억원에 구간을 적용(고시 Ⅱ.4 예시).'))
         # 그 밖의 사업체 단위 항목: 구성원별 점수 × 지분율
-        iids = [it['id'] for it in spec['items'] if it['group'] in MEMBER_GROUPS and it['id'] != 'sim.perf' and ctx['maxes'].get(it['id'], 0) > 0]
+        jv_avg = bool(sc['sim_result'].get('jv_avg'))
+        skip = {'sim.perf'} | ({'sim.result'} if jv_avg else set())
+        if jv_avg and ctx['maxes'].get('sim.result', 0) > 0:
+            # 수행성과: 구성원별 평균점수에 지분율을 곱해 합산한 점수로 구간 적용(해양수산부 별표 2 Ⅱ.4.아)
+            tot_avg, ptxt = 0.0, []
+            for n, sh, calc, _e, _en, _h in mres:
+                a = calc.get('_perf_avg')
+                tot_avg += sh * a
+                ptxt.append(f"[{n} 지분 {rnd(sh * 100, 1)}%: {_fmt(a)}점]")
+            pct, bound = tier_ge(tot_avg, sc['sim_result']['tiers'])
+            items.append(_row(spec, ctx, 'sim.result', pct, ' + '.join(ptxt) + f' = {rnd(tot_avg, 3)}점 → {pct}%',
+                              '공동이행: 구성원별 평균점수 × 지분율 합산(평가실적이 없는 구성원은 중간점수 적용).'))
+        iids = [it['id'] for it in spec['items'] if it['group'] in MEMBER_GROUPS and it['id'] not in skip and ctx['maxes'].get(it['id'], 0) > 0]
         for iid in iids:
             score, parts = 0.0, []
             for n, sh, calc, _e, _en, _h in mres:
