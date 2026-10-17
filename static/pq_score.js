@@ -80,6 +80,7 @@
     function newState() {
         return {
             project: { values: {}, fields: [], adjust: {} },
+            tables: {},
             bidders: [newBidder(0)],
             active: 0,
             resultShown: null
@@ -100,6 +101,7 @@
             if (!raw) return null;
             var d = JSON.parse(raw);
             if (!d || !d.bidders || !d.bidders.length) return null;
+            if (!d.tables) d.tables = {};
             return d;
         } catch (e) { return null; }
     }
@@ -417,6 +419,108 @@
         var n = $('adjustSum');
         n.textContent = '배점 합계 ' + fmt(sum) + '점' + (Math.abs(sum - 100) > 0.01 ? ' (고시 합계는 100점)' : '');
         n.style.color = Math.abs(sum - 100) > 0.01 ? '#b91c1c' : '';
+    }
+
+    // ------------------------------------------------------------ 3-2. 구간표 설정(발주청이 정하는 표)
+    function pathValue(path) {
+        var o = spec;
+        for (var i = 0; i < path.length; i++) o = o[path[i]];
+        return o;
+    }
+    function sameVals(a, b) {
+        if (Array.isArray(a)) {
+            if (!Array.isArray(b) || a.length !== b.length) return false;
+            for (var i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > 1e-9) return false;
+            return true;
+        }
+        return Math.abs(a - b) <= 1e-9;
+    }
+    function rowProblem(t, r, vals) {
+        var vs = Array.isArray(vals) ? vals : [vals];
+        var lo = r.min !== undefined ? r.min : (t.min !== undefined ? t.min : 0);
+        var hi = r.max !== undefined ? r.max : t.max;
+        for (var i = 0; i < vs.length; i++) {
+            if (vs[i] === null || isNaN(vs[i])) return '모든 칸에 숫자를 입력하세요.';
+            if (vs[i] < lo) return lo + '보다 작을 수 없습니다.';
+            if (hi !== undefined && vs[i] > hi) return hi + '보다 클 수 없습니다.';
+        }
+        var order = r.order || t.order;
+        for (var j = 1; j < vs.length; j++) {
+            if (order === 'desc' && vs[j] > vs[j - 1]) return '왼쪽에서 오른쪽으로 갈수록 같거나 작아야 합니다.';
+            if (order === 'asc' && vs[j] < vs[j - 1]) return '왼쪽에서 오른쪽으로 갈수록 같거나 커야 합니다.';
+        }
+        if (r.last !== undefined && Array.isArray(vals) && vals[vals.length - 1] !== r.last) return '마지막 칸은 ' + r.last + '이어야 합니다.';
+        return '';
+    }
+    function tablesChangedCount() { return Object.keys(S.tables || {}).length; }
+    function updateTablesSummary() {
+        var n = tablesChangedCount();
+        var box = $('tablesSummary');
+        box.textContent = n ? ('구간표 ' + n + '개 항목을 입력값으로 수정했습니다. 나머지는 기본값(경상남도 기준 예시)입니다.') :
+            '아직 수정하지 않았습니다 - 경상남도 기준 예시 구간표로 계산됩니다. 실제 입찰공고 기준에 맞게 확인·수정하세요.';
+        box.style.color = n ? '#166534' : '#b45309';
+    }
+    function renderTables() {
+        var card = $('tablesCard');
+        var tabs = spec.editable_tables || [];
+        if (!tabs.length) { card.style.display = 'none'; return; }
+        card.style.display = '';
+        var cont = $('tablesContainer');
+        clear(cont);
+        // 저장된 입력 중 현재 명세에 없는 항목은 버린다
+        var known = {};
+        tabs.forEach(function (t) { t.rows.forEach(function (r) { known[r.id] = true; }); });
+        Object.keys(S.tables).forEach(function (k) { if (!known[k]) delete S.tables[k]; });
+        tabs.forEach(function (t) {
+            var table = el('table');
+            var head = el('tr', {}, [el('th', { text: '구분' })]);
+            t.columns.forEach(function (c) { head.appendChild(el('th', { class: 'num', text: c })); });
+            head.appendChild(el('th', { text: '단위' }));
+            table.appendChild(el('thead', {}, [head]));
+            var tb = el('tbody');
+            t.rows.forEach(function (r) {
+                var def = pathValue(r.path);
+                var isVec = Array.isArray(def);
+                var cur = S.tables[r.id] !== undefined ? S.tables[r.id] : def;
+                var vals = isVec ? cur.slice() : [cur];
+                if (r.columns) {
+                    var sh = el('tr', { class: 'status' }, [el('td', { text: '' })]);
+                    r.columns.forEach(function (c) { sh.appendChild(el('td', { class: 'num', style: 'font-size:0.78rem;', text: c })); });
+                    for (var pad = r.columns.length; pad < t.columns.length; pad++) sh.appendChild(el('td'));
+                    sh.appendChild(el('td'));
+                    tb.appendChild(sh);
+                }
+                var msg = el('span', { class: 'err', style: 'font-size:0.78rem; margin-left:0.4rem;' });
+                var labelTd = el('td', {}, [r.label, msg]);
+                var tr = el('tr', {}, [labelTd]);
+                var inputs = [];
+                var onChange = function () {
+                    var now = inputs.map(function (inp) { return inp.value === '' ? null : Number(inp.value); });
+                    var v = isVec ? now : now[0];
+                    var prob = rowProblem(t, r, v);
+                    msg.textContent = prob;
+                    if (prob) { labelTd.style.background = '#fef2f2'; return; }
+                    if (sameVals(v, def)) { delete S.tables[r.id]; labelTd.style.background = ''; }
+                    else { S.tables[r.id] = v; labelTd.style.background = '#ecfdf5'; }
+                    updateTablesSummary(); touch();
+                };
+                vals.forEach(function (v) {
+                    var inp = el('input', { type: 'number', step: 'any', min: '0', value: v === null ? '' : v, style: 'width:80px; text-align:right;' });
+                    inp.addEventListener('input', onChange);
+                    inputs.push(inp);
+                    tr.appendChild(el('td', { class: 'num' }, [inp]));
+                });
+                for (var pad2 = vals.length; pad2 < t.columns.length; pad2++) tr.appendChild(el('td'));
+                tr.appendChild(el('td', { class: 'status', text: r.unit || '' }));
+                if (S.tables[r.id] !== undefined) labelTd.style.background = '#ecfdf5';
+                tb.appendChild(tr);
+            });
+            table.appendChild(tb);
+            cont.appendChild(el('h3', { style: 'font-size:0.95rem; margin:0.9rem 0 0.2rem;', text: t.title }));
+            if (t.note) cont.appendChild(el('p', { class: 'status', style: 'margin:0 0 0.3rem;', text: t.note }));
+            cont.appendChild(el('div', { class: 'tbl-wrap' }, [table]));
+        });
+        updateTablesSummary();
     }
 
     // ------------------------------------------------------------ 4. 입찰사
@@ -862,7 +966,9 @@
             }
             return out;
         });
-        return { spec_id: spec.id, project: project, bidders: bidders };
+        var payload = { spec_id: spec.id, project: project, bidders: bidders };
+        if (spec.editable_tables && tablesChangedCount()) payload.table_overrides = S.tables;
+        return payload;
     }
     function calc() {
         var status = $('scoreStatus');
@@ -892,6 +998,13 @@
             res.warnings.forEach(function (w) { ul.appendChild(el('li', { text: w })); });
             box.appendChild(el('div', { style: 'font-weight:700; margin-bottom:0.3rem;', text: '확인이 필요한 사항 ' + res.warnings.length + '건' }));
             box.appendChild(ul);
+        }
+
+        if (spec.editable_tables && spec.editable_tables.length) {
+            var custom = res.custom_tables || [];
+            box.appendChild(el('p', { class: 'status', style: 'margin:0.2rem 0 0.6rem; font-weight:600;', text: custom.length ?
+                '적용한 구간표: 입력값으로 수정한 ' + custom.length + '개 항목(' + custom.join(', ') + ') + 나머지는 기본값(경상남도 기준 예시)' :
+                '적용한 구간표: 전체 기본값(경상남도 기준 예시) - 실제 입찰공고의 구간표와 같은지 확인하세요.' }));
         }
 
         // 요약표
@@ -992,6 +1105,7 @@
     function renderAll() {
         renderProject();
         renderAdjust();
+        renderTables();
         renderBidders();
     }
 
@@ -1002,6 +1116,13 @@
             b.style.display = open ? '' : 'none';
             this.textContent = open ? '접기' : '펼치기';
         });
+        $('toggleTablesBtn').addEventListener('click', function () {
+            var b = $('tablesBox');
+            var open = b.style.display === 'none';
+            b.style.display = open ? '' : 'none';
+            this.textContent = open ? '접기' : '펼치기';
+        });
+        $('resetTablesBtn').addEventListener('click', function () { S.tables = {}; renderTables(); touch(); });
         $('resetAdjustBtn').addEventListener('click', function () { S.project.adjust = {}; renderAdjust(); touch(); });
         $('clearDraftBtn').addEventListener('click', function () {
             if (!confirm('입력한 내용을 모두 지우고 처음 상태로 되돌릴까요?')) return;

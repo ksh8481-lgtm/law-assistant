@@ -720,11 +720,97 @@ def _evaluate_design(spec, project, bidders):
 ENGINES = {'bangjae': evaluate_bangjae, 'cm': _evaluate_cm, 'env': _evaluate_env, 'safe': _evaluate_safe, 'design': _evaluate_design}
 
 
-def evaluate(spec_id: str, project: dict, bidders: list) -> dict:
+# ---------------------------------------------------------------- 발주청 구간표 직접 입력
+# 국토교통부 고시는 평가항목·배점만 정하고 경력·실적 구간표는 발주청이 정한다. 그래서 그런 명세는
+# editable_tables에 "발주청이 고칠 수 있는 구간표"를 선언해 두고, 사용자가 입력한 값(table_overrides)을
+# 검증해서 명세 사본에 덮어쓴 뒤 같은 엔진으로 계산한다(고시가 고정한 표는 고칠 수 없다).
+class OverrideError(ValueError):
+    """구간표 입력값이 형식·허용 범위에 맞지 않을 때."""
+
+
+def editable_rows(spec: dict) -> dict:
+    """{행 id: (표 정의, 행 정의)}"""
+    out = {}
+    for t in spec.get('editable_tables') or []:
+        for r in t['rows']:
+            out[r['id']] = (t, r)
+    return out
+
+
+def _get_path(obj, path):
+    for k in path:
+        obj = obj[k]
+    return obj
+
+
+def _set_path(obj, path, value):
+    for k in path[:-1]:
+        obj = obj[k]
+    obj[path[-1]] = value
+
+
+def _check_order(vals, order, label):
+    for a, b in zip(vals, vals[1:]):
+        if order == 'desc' and b > a:
+            raise OverrideError(f'{label}: 왼쪽에서 오른쪽으로 갈수록 기준값이 작아지거나 같아야 합니다({vals}).')
+        if order == 'asc' and b < a:
+            raise OverrideError(f'{label}: 왼쪽에서 오른쪽으로 갈수록 기준값이 커지거나 같아야 합니다({vals}).')
+
+
+def apply_overrides(spec: dict, overrides) -> tuple:
+    """(덮어쓴 명세 사본, 기본값과 달라진 행 id 목록). overrides: {행 id: 숫자 | 숫자 목록}."""
+    if not overrides:
+        return spec, []
+    if not isinstance(overrides, dict):
+        raise OverrideError('구간표 입력 형식이 올바르지 않습니다.')
+    rows = editable_rows(spec)
+    sp = json.loads(json.dumps(spec))
+    changed = []
+    for rid, val in overrides.items():
+        if rid not in rows:
+            raise OverrideError(f'수정할 수 없는 구간표입니다: {rid}')
+        t, r = rows[rid]
+        label = r.get('label', rid)
+        default = _get_path(spec, r['path'])
+        if isinstance(default, list):
+            if not isinstance(val, list) or len(val) != len(default):
+                raise OverrideError(f'{label}: 값 {len(default)}개를 입력해야 합니다.')
+        elif isinstance(val, (list, dict)):
+            raise OverrideError(f'{label}: 숫자 하나를 입력해야 합니다.')
+        vals = val if isinstance(val, list) else [val]
+        nums = []
+        for v in vals:
+            n = None if isinstance(v, bool) else num(v)
+            if n is None or not math.isfinite(n):
+                raise OverrideError(f'{label}: 숫자가 아닌 값이 있습니다.')
+            if n < r.get('min', t.get('min', 0)):
+                raise OverrideError(f'{label}: {r.get("min", t.get("min", 0))}보다 작을 수 없습니다.')
+            hi = r.get('max', t.get('max'))
+            if hi is not None and n > hi:
+                raise OverrideError(f'{label}: {hi}보다 클 수 없습니다.')
+            nums.append(n)
+        if isinstance(default, list):
+            _check_order(nums, r.get('order', t.get('order')), label)
+            if 'last' in r and nums[-1] != r['last']:
+                raise OverrideError(f'{label}: 마지막 칸은 {r["last"]}이어야 합니다(가장 낮은 구간의 하한).')
+            new = [int(n) if float(n).is_integer() else n for n in nums]
+        else:
+            new = int(nums[0]) if float(nums[0]).is_integer() else nums[0]
+        if new != default:
+            changed.append(rid)
+            _set_path(sp, r['path'], new)
+    return sp, changed
+
+
+def evaluate(spec_id: str, project: dict, bidders: list, table_overrides=None) -> dict:
     spec = load_spec(spec_id)
     engine = ENGINES.get(spec.get('engine'))
     if engine is None:
         raise ValueError(f'지원하지 않는 평가기준: {spec_id}')
+    spec, changed = apply_overrides(spec, table_overrides)
     out = engine(spec, project or {}, bidders or [])
     out['groups'] = spec['groups']
+    if changed:
+        rows = editable_rows(spec)
+        out['custom_tables'] = [rows[c][1].get('label', c) for c in changed]
     return out

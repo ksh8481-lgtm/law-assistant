@@ -2888,10 +2888,7 @@ def api_commencement_review():
 # 점수는 pq_engine이 고시 [별표]대로 결정적으로 계산한다. AI(pq_extract)는 서류에서 입력값을
 # 뽑아 화면에 채워줄 뿐이고, 사람이 확인·수정한 값만 계산에 들어간다.
 # ----------------------------------------------------------------------------
-PQ_PLANNED = [
-    {"id": "const_mgmt", "short": "건설엔지니어링사업자 - 국토교통부 고시", "status": "planned",
-     "note": "국토교통부 고시는 평가항목·배점만 정하고 경력·실적 구간표는 발주청이 정하게 되어 있어 구간표 직접 입력 기능이 필요 - 검토 중"},
-]
+PQ_PLANNED = []
 
 
 @app.route('/pq_score')
@@ -2921,8 +2918,10 @@ def api_pq_score():
             return jsonify({"success": False, "message": "입찰사를 1개 이상 입력해 주세요."}), 400
         if len(bidders) > 40:
             return jsonify({"success": False, "message": "입찰사는 최대 40개까지 한 번에 평가할 수 있습니다."}), 400
-        result = pq_engine.evaluate(data.get('spec_id', ''), data.get('project') or {}, bidders)
+        result = pq_engine.evaluate(data.get('spec_id', ''), data.get('project') or {}, bidders, data.get('table_overrides'))
         return jsonify({"success": True, "result": result})
+    except pq_engine.OverrideError as e:
+        return jsonify({"success": False, "message": f"구간표 입력 오류: {e}"}), 400
     except KeyError:
         return jsonify({"success": False, "message": "존재하지 않는 평가기준입니다."}), 404
     except Exception as e:

@@ -145,6 +145,17 @@
             </div>
         </div>
 
+        <div class="card" id="tablesCard" style="display:none;">
+            <h2><span><span class="step">3-2</span>구간표 설정 <small class="muted" style="font-weight:500;">(발주청이 정하는 경력·실적 구간표)</small></span>
+                <button class="btn btn-ghost btn-sm no-print" id="toggleTablesBtn">펼치기</button></h2>
+            <div id="tablesSummary" class="status"></div>
+            <div id="tablesBox" style="display:none;">
+                <p class="status" style="margin:0.5rem 0;">고시가 숫자를 정하지 않은 표만 고칠 수 있습니다. 기본값은 경상남도 기준을 예시로 채운 것이므로, 입찰공고에 적힌 기준대로 수정하세요.</p>
+                <div id="tablesContainer"></div>
+                <div style="margin-top:0.6rem;"><button class="btn btn-ghost btn-sm" id="resetTablesBtn">기본값(경상남도 예시)으로 되돌리기</button></div>
+            </div>
+        </div>
+
         <div class="card">
             <h2><span><span class="step">4</span>입찰사별 평가 자료 입력</span>
                 <button class="btn btn-ghost btn-sm no-print" id="clearDraftBtn">입력 초기화</button></h2>
