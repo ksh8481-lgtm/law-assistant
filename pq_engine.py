@@ -712,7 +712,12 @@ def _evaluate_safe(spec, project, bidders):
     return pq_safe.evaluate(spec, project, bidders)
 
 
-ENGINES = {'bangjae': evaluate_bangjae, 'cm': _evaluate_cm, 'env': _evaluate_env, 'safe': _evaluate_safe}
+def _evaluate_design(spec, project, bidders):
+    import pq_design
+    return pq_design.evaluate(spec, project, bidders)
+
+
+ENGINES = {'bangjae': evaluate_bangjae, 'cm': _evaluate_cm, 'env': _evaluate_env, 'safe': _evaluate_safe, 'design': _evaluate_design}
 
 
 def evaluate(spec_id: str, project: dict, bidders: list) -> dict:

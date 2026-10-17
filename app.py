@@ -2891,8 +2891,6 @@ def api_commencement_review():
 PQ_PLANNED = [
     {"id": "const_mgmt", "short": "건설엔지니어링사업자 - 국토교통부 고시", "status": "planned",
      "note": "국토교통부 고시는 평가항목·배점만 정하고 경력·실적 구간표는 발주청이 정하게 되어 있어 구간표 직접 입력 기능이 필요 - 검토 중"},
-    {"id": "gyeongnam_design", "short": "경상남도 설계 등 건설엔지니어링사업자", "status": "planned",
-     "note": "경상남도 세부평가기준 [별표 1] - 구현 예정"},
 ]
 
 
