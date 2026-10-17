@@ -558,7 +558,7 @@ def _member(spec, ctx, firm, warn):
         warn.add('투자실적(투자액·건설부문 총매출액) 미입력 → 0점 처리')
         put('tech.invest', None, '투자실적 미입력 → 0점', score=0.0)
     else:
-        ratio = inv / sales * 100.0
+        ratio = round(inv / sales * 100.0, 9)  # 부동소수 오차로 경계값(예: 정확히 1.5%)이 아래 구간으로 밀리지 않게 함
         cfg = sc['invest']
         pts, bound = tier_ge(ratio, cfg['points'])
         put('tech.invest', None, f"투자액 {_fmt(inv)}억 / 건설부문 총매출 {_fmt(sales)}억 = {rnd(ratio, 3)}% → {'%g%% 이상' % bound if bound > -1e8 else '0.5% 미만'} → {pts}점(원 배점 {cfg['base']}점 기준)",

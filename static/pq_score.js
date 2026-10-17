@@ -331,6 +331,7 @@
             var rowsData = S.project[def.key];
             var sumNote = el('span', { class: 'status' });
             function updateSum() {
+                if (def.no_pct) { sumNote.textContent = ''; return; }
                 var sum = rowsData.reduce(function (a, r) { return a + (Number(r.pct) || 0); }, 0);
                 var off = rowsData.length && Math.abs(sum - 100) > 0.01;
                 sumNote.textContent = (def.pct_label || '비율').replace(/\(.*\)/, '') + ' 합계 ' + fmt(sum) + '%' + (off ? ' (' + (def.normalize_note || '100%가 아니면 비율대로 환산해 계산합니다') + ')' : '');
@@ -350,7 +351,7 @@
                     });
                     var pctInp = el('input', { type: 'number', step: 'any', min: '0', value: isBlank(r.pct) ? '' : r.pct });
                     pctInp.addEventListener('input', function () { r.pct = pctInp.value === '' ? null : Number(pctInp.value); updateSum(); touch(); });
-                    var tds = [el('td', {}, [nameInp]), el('td', {}, [pctInp])];
+                    var tds = def.no_pct ? [el('td', {}, [nameInp])] : [el('td', {}, [nameInp]), el('td', {}, [pctInp])];
                     if (def.kind) {
                         var kindSel = el('select');
                         ['필수', '추가'].forEach(function (k) { kindSel.appendChild(el('option', { value: k, text: k })); });
@@ -364,12 +365,13 @@
                     tb.appendChild(el('tr', {}, tds));
                 });
                 if (!rowsData.length) {
-                    tb.appendChild(el('tr', {}, [el('td', { colspan: def.kind ? '4' : '3', class: 'muted', text: '[' + (def.add_label || '+ 분야 추가').replace(/^\+\s*/, '') + '] 버튼으로 구성하세요.' })]));
+                    tb.appendChild(el('tr', {}, [el('td', { colspan: String((def.no_pct ? 2 : 3) + (def.kind ? 1 : 0)), class: 'muted', text: '[' + (def.add_label || '+ 분야 추가').replace(/^\+\s*/, '') + '] 버튼으로 구성하세요.' })]));
                 }
             }
             draw();
             updateSum();
-            var head = [el('th', { text: def.name_label || '분야명' }), el('th', { style: 'width:150px;', text: def.pct_label || '비율(%)' })];
+            var head = [el('th', { text: def.name_label || '분야명' })];
+            if (!def.no_pct) head.push(el('th', { style: 'width:150px;', text: def.pct_label || '비율(%)' }));
             if (def.kind) head.push(el('th', { style: 'width:110px;', text: '구분' }));
             head.push(el('th', { style: 'width:60px;' }));
             box.appendChild(el('div', { style: 'margin-top:1.1rem;' }, [

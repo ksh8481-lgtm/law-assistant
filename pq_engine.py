@@ -528,7 +528,7 @@ def _evaluate_one_bangjae(spec, sc, maxes, fields, use_transfer, b, idx, tech_gr
         w.add('투자실적(투자액·총매출액) 미입력 → 0점 처리')
         zero('tech.invest', '투자실적 미입력')
     else:
-        ratio_pct = inv / sales * 100.0
+        ratio_pct = round(inv / sales * 100.0, 9)  # 부동소수 오차로 경계값이 아래 구간으로 밀리지 않게 함
         cfg = sc['tiers_ge']['tech.invest']
         pct, bound = tier_ge(ratio_pct, cfg['tiers'])
         add('tech.invest', pct, f"투자액 {_fmt(inv)}억 / 건설부문 총매출 {_fmt(sales)}억 = {rnd(ratio_pct, 3)}% "
@@ -702,7 +702,12 @@ def _evaluate_cm(spec, project, bidders):
     return pq_cm.evaluate(spec, project, bidders)
 
 
-ENGINES = {'bangjae': evaluate_bangjae, 'cm': _evaluate_cm}
+def _evaluate_env(spec, project, bidders):
+    import pq_env
+    return pq_env.evaluate(spec, project, bidders)
+
+
+ENGINES = {'bangjae': evaluate_bangjae, 'cm': _evaluate_cm, 'env': _evaluate_env}
 
 
 def evaluate(spec_id: str, project: dict, bidders: list) -> dict:
