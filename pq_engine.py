@@ -707,7 +707,12 @@ def _evaluate_env(spec, project, bidders):
     return pq_env.evaluate(spec, project, bidders)
 
 
-ENGINES = {'bangjae': evaluate_bangjae, 'cm': _evaluate_cm, 'env': _evaluate_env}
+def _evaluate_safe(spec, project, bidders):
+    import pq_safe
+    return pq_safe.evaluate(spec, project, bidders)
+
+
+ENGINES = {'bangjae': evaluate_bangjae, 'cm': _evaluate_cm, 'env': _evaluate_env, 'safe': _evaluate_safe}
 
 
 def evaluate(spec_id: str, project: dict, bidders: list) -> dict:
