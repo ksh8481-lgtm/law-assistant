@@ -6,6 +6,8 @@ import time
 import zipfile
 import io
 import re
+import sys
+import traceback
 
 API_KEY = "ksh8481"
 TARGET_LAWS = [
@@ -68,14 +70,47 @@ TARGET_LAWS = [
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'laws')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-def fetch_law_xml(search_url):
-    try:
-        res = requests.get(search_url, timeout=30)
-        if res.status_code == 200:
-            return ET.fromstring(res.content)
-    except Exception as e:
-        print(f"Request failed: {e}")
+HEADERS = {'User-Agent': 'Mozilla/5.0'}
+
+
+def _mask(url):
+    """로그에 인증키(OC)가 그대로 찍히지 않게 가린다."""
+    return re.sub(r'OC=[^&]+', 'OC=***', url)
+
+
+def http_get(url, tries=3, timeout=(10, 60), **kwargs):
+    """GET 요청. 실패(예외·200 아님)하면 잠시 쉬었다가 최대 tries번 재시도하고, 끝내 실패하면 None.
+    timeout=(연결, 읽기) 초 - 시간 제한이 없으면 서버가 응답을 흘려보낼 때 1시간 가까이 매달릴 수 있다."""
+    last = None
+    for i in range(1, tries + 1):
+        try:
+            res = requests.get(url, timeout=timeout, **kwargs)
+            if res.status_code == 200:
+                return res
+            last = f"HTTP {res.status_code}"
+        except Exception as e:
+            last = repr(e)
+        print(f"  [재시도 {i}/{tries}] {_mask(url)[:110]} -> {last}", flush=True)
+        if i < tries:
+            time.sleep(3 * i)
+    print(f"Request failed after {tries} tries: {_mask(url)[:110]} -> {last}", flush=True)
     return None
+
+
+def fetch_law_xml(search_url):
+    res = http_get(search_url, headers=HEADERS)
+    if res is None:
+        return None
+    try:
+        return ET.fromstring(res.content)
+    except Exception as e:
+        print(f"XML parse failed: {e!r} ({_mask(search_url)[:110]})", flush=True)
+        return None
+
+
+def _norm(name):
+    """법령명 비교용: 공백을 없애고 가운뎃점 변형(·ㆍ・∙)을 하나로 맞춘다(예: 소음·진동관리법 / 소음ㆍ진동관리법)."""
+    return re.sub(r'[\s·ㆍ・∙‧]', '', name or '')
 
 def extract_text_from_hwpx(hwpx_bytes):
     texts = []
@@ -114,7 +149,7 @@ def process_law(law_name):
     if root is not None:
         for law in root.findall('.//law'):
             name = law.find('법령명한글').text if law.find('법령명한글') is not None else ""
-            if name and name.replace(" ", "") == law_name.replace(" ", ""):
+            if name and _norm(name) == _norm(law_name):
                 mst_id = law.find('법령일련번호').text
                 exact_name = name
                 target_type = 'law'
@@ -123,7 +158,7 @@ def process_law(law_name):
         if not mst_id:
             for law in root.findall('.//law'):
                 name = law.find('법령명한글').text if law.find('법령명한글') is not None else ""
-                if name and law_name.replace(" ", "") in name.replace(" ", ""):
+                if name and _norm(law_name) in _norm(name):
                     mst_id = law.find('법령일련번호').text
                     exact_name = name
                     target_type = 'law'
@@ -136,7 +171,7 @@ def process_law(law_name):
         if root is not None:
             for admrul in root.findall('.//admrul'):
                 name = admrul.find('행정규칙명').text if admrul.find('행정규칙명') is not None else ""
-                if name and name.replace(" ", "") == law_name.replace(" ", ""):
+                if name and _norm(name) == _norm(law_name):
                     mst_id = admrul.find('행정규칙일련번호').text
                     exact_name = name
                     target_type = 'admrul'
@@ -145,7 +180,7 @@ def process_law(law_name):
             if not mst_id:
                 for admrul in root.findall('.//admrul'):
                     name = admrul.find('행정규칙명').text if admrul.find('행정규칙명') is not None else ""
-                    if name and law_name.replace(" ", "") in name.replace(" ", ""):
+                    if name and _norm(law_name) in _norm(name):
                         mst_id = admrul.find('행정규칙일련번호').text
                         exact_name = name
                         target_type = 'admrul'
@@ -153,7 +188,7 @@ def process_law(law_name):
 
     if not mst_id:
         print(f"Could not find exact match for {law_name}")
-        return
+        return False
 
     print(f"Found {target_type} ID: {mst_id} for {exact_name}. Fetching full details...")
     
@@ -165,7 +200,7 @@ def process_law(law_name):
     detail_root = fetch_law_xml(detail_url)
     if detail_root is None:
         print(f"Failed to fetch details for {exact_name}")
-        return
+        return False
 
     md_content = f"# {exact_name}\n\n"
     md_content += "## 본문 (조문)\n\n"
@@ -210,8 +245,8 @@ def process_law(law_name):
             
         if hwpx_link:
             print(f"Text is short. Downloading HWPX attachment from {hwpx_link}...")
-            req = requests.get(hwpx_link, headers={'User-Agent': 'Mozilla/5.0'})
-            if req.status_code == 200:
+            req = http_get(hwpx_link, tries=3, timeout=(10, 120), headers=HEADERS)
+            if req is not None:
                 print("Extracting HWPX text...")
                 hwpx_text = extract_text_from_hwpx(req.content)
                 if hwpx_text:
@@ -254,12 +289,30 @@ def process_law(law_name):
         
     print(f"Saved {exact_name} to {safe_filename} ({len(md_content)} chars)")
     time.sleep(1)
+    return True
 
 def crawl_laws():
-    print("Starting crawler...")
+    """법령 하나가 실패해도 나머지는 계속 받는다. 실패한 법령은 이전 파일이 그대로 남는다.
+    전부 실패했을 때만(= 접속 자체가 막힌 경우) 종료 코드 1로 알려, 부분 실패 때문에 나머지 갱신이 통째로 버려지지 않게 한다."""
+    print("Starting crawler...", flush=True)
+    ok, failed = 0, []
     for law_name in TARGET_LAWS:
-        process_law(law_name)
-    print("Crawling complete.")
+        try:
+            if process_law(law_name):
+                ok += 1
+            else:
+                failed.append(law_name)   # 찾지 못했거나 본문을 받지 못함 - 이전 파일 유지
+        except Exception as e:
+            failed.append(law_name)
+            print(f"::warning::{law_name} 처리 중 예외: {e!r}", flush=True)
+            traceback.print_exc()
+            sys.stdout.flush()
+    print(f"Crawling complete. 성공 {ok}건 / 실패 {len(failed)}건", flush=True)
+    if failed:
+        print("실패한 법령(이전 파일 유지): " + ", ".join(failed), flush=True)
+    if ok == 0:
+        print("::error::모든 법령 크롤링에 실패했습니다(법제처 API 접속 문제 가능성).", flush=True)
+        sys.exit(1)
 
 if __name__ == "__main__":
     crawl_laws()
