@@ -11,6 +11,7 @@ jobs:
     timeout-minutes: 30 # 크롤링은 보통 10분 안팎 - 응답이 멈춰 1시간 가까이 매달리는 일을 막는다
     permissions:
       contents: write
+      issues: write # PQ 평가기준 개정 감지 시 알림 이슈를 만든다
 
     steps:
       - name: Checkout repository
@@ -42,4 +43,25 @@ jobs:
             # 크롤링하는 동안 다른 커밋이 올라왔어도 push가 거부되지 않게 먼저 합친다
             git pull --rebase origin main
             git push
+          fi
+
+      # PQ(사업수행능력평가) 평가기준이 개정됐는지 확인한다. 점수 명세(pq_specs)는 고시의 특정 버전을 옮겨 둔 값이라
+      # 개정돼도 저절로 바뀌지 않으므로, 개정이 감지되면 GitHub 이슈(이메일 알림)로 알린다. 이 단계의 실패는 크롤링 결과와 무관하다.
+      - name: Check PQ standards for amendments
+        if: always()
+        continue-on-error: true
+        run: python -u pq_watch.py --out pq_watch_report.md
+
+      - name: Open issue when a PQ standard was amended
+        if: always() && hashFiles('pq_watch_report.md') != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 같은 개정 내용으로는 이슈를 한 번만 만든다(제목에 내용 해시를 넣어 구분)
+          TITLE="PQ 평가기준 개정 감지 ($(sha256sum pq_watch_report.md | cut -c1-8))"
+          if gh issue list --state all --search "\"$TITLE\" in:title" --json title --jq '.[].title' | grep -qxF "$TITLE"; then
+            echo "이미 같은 이슈가 있음: $TITLE"
+          else
+            gh issue create --title "$TITLE" --body-file pq_watch_report.md
           fi
