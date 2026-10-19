@@ -7,6 +7,7 @@ import zipfile
 import io
 import re
 import sys
+import threading
 import traceback
 
 API_KEY = "ksh8481"
@@ -291,14 +292,56 @@ def process_law(law_name):
     time.sleep(1)
     return True
 
+LAW_TIMEOUT = 180        # 법령 하나에 쓸 수 있는 최대 시간(초) - 응답이 멈춘 요청 하나가 하루치 갱신을 통째로 막지 않게 한다
+TOTAL_BUDGET = 22 * 60   # 전체 처리 시간 예산(초) - 워크플로 제한(30분)에 걸려 취소되기 전에 스스로 마무리해 지금까지 받은 것을 커밋한다
+
+
+TIMEOUT = object()
+
+
+def run_with_timeout(fn, arg, timeout):
+    """fn(arg)를 별도 스레드에서 실행해 timeout초 안에 끝나면 결과를 돌려주고, 못 끝나면 (TIMEOUT, 멈춘 위치)를 돌려준다.
+    멈춘 스레드는 강제로 끝낼 수 없으므로 버려 두고(daemon) 다음 법령으로 넘어간다 - 프로그램 종료를 막지 않는다."""
+    box = {}
+
+    def target():
+        try:
+            box['result'] = fn(arg)
+        except BaseException as e:  # 예외도 호출한 쪽으로 넘긴다
+            box['error'] = e
+
+    t = threading.Thread(target=target, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        frame = sys._current_frames().get(t.ident)
+        where = ''.join(traceback.format_stack(frame)[-6:]) if frame else ''
+        return TIMEOUT, where
+    if 'error' in box:
+        raise box['error']
+    return box['result'], ''
+
+
+
 def crawl_laws():
     """법령 하나가 실패해도 나머지는 계속 받는다. 실패한 법령은 이전 파일이 그대로 남는다.
-    전부 실패했을 때만(= 접속 자체가 막힌 경우) 종료 코드 1로 알려, 부분 실패 때문에 나머지 갱신이 통째로 버려지지 않게 한다."""
+    전부 실패했을 때만(= 접속 자체가 막힌 경우) 종료 코드 1로 알려, 부분 실패 때문에 나머지 갱신이 통째로 버려지지 않게 한다.
+    법령 하나가 LAW_TIMEOUT초 넘게 멈추면 어디서 멈췄는지 로그에 남기고 넘어가며, 전체가 TOTAL_BUDGET초를 넘기면 남은 법령은 다음 실행으로 미룬다."""
     print("Starting crawler...", flush=True)
-    ok, failed = 0, []
-    for law_name in TARGET_LAWS:
+    ok, failed, skipped = 0, [], []
+    began = time.time()
+    for i, law_name in enumerate(TARGET_LAWS):
+        if time.time() - began > TOTAL_BUDGET:
+            skipped = TARGET_LAWS[i:]
+            print(f"::warning::처리 시간 예산({TOTAL_BUDGET // 60}분)을 넘겨 남은 {len(skipped)}건은 다음 실행으로 미룹니다.", flush=True)
+            break
+        t0 = time.time()
         try:
-            if process_law(law_name):
+            res, where = run_with_timeout(process_law, law_name, LAW_TIMEOUT)
+            if res is TIMEOUT:
+                failed.append(law_name)
+                print(f"::warning::{law_name}: {LAW_TIMEOUT}초 넘게 응답이 없어 건너뜁니다(이전 파일 유지). 멈춘 위치:\n{where}", flush=True)
+            elif res:
                 ok += 1
             else:
                 failed.append(law_name)   # 찾지 못했거나 본문을 받지 못함 - 이전 파일 유지
@@ -307,7 +350,10 @@ def crawl_laws():
             print(f"::warning::{law_name} 처리 중 예외: {e!r}", flush=True)
             traceback.print_exc()
             sys.stdout.flush()
-    print(f"Crawling complete. 성공 {ok}건 / 실패 {len(failed)}건", flush=True)
+        took = time.time() - t0
+        if took > 60:
+            print(f"  (참고) {law_name} 처리에 {took:.0f}초 걸림", flush=True)
+    print(f"Crawling complete. 성공 {ok}건 / 실패 {len(failed)}건 / 미룸 {len(skipped)}건 (총 {time.time() - began:.0f}초)", flush=True)
     if failed:
         print("실패한 법령(이전 파일 유지): " + ", ".join(failed), flush=True)
     if ok == 0:
