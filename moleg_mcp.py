@@ -2,7 +2,10 @@ import os
 import math
 import re
 import time
+import datetime
+import threading
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 import xml.etree.ElementTree as ET
 import requests
 from mcp.server.fastmcp import FastMCP
@@ -261,6 +264,41 @@ def _law_recent_buchik(mst: str, max_len: int = 1500) -> str:
     return _recent_buchik_from_root(root, max_len)
 
 
+def _kw_norm(t: str) -> str:
+    """공백/'의'를 뺀 형태로도 비교한다("영업손실" <-> 조문의 "영업의 손실")."""
+    return t.replace(" ", "").replace("의", "")
+
+
+def _rank_by_keywords(texts: list, keywords: list) -> list:
+    """텍스트 조각(조문/별표 조각)을 질의 키워드와의 관련도로 순위를 매겨 [(점수, 인덱스)]로 돌려준다.
+
+    조각의 첫 줄(제목)에 키워드가 있으면 가중치를 4배로 주고, 여러 조각에 흔히 나오는 키워드는
+    IDF로 가중치를 낮춘다. 최고점의 35% 미만은 우연히 키워드 하나만 스친 잡음으로 보고 버린다."""
+    kws = [k for k in dict.fromkeys(keywords) if k and len(k) >= 2]
+    norm_texts = [_kw_norm(a) for a in texts]
+    n = len(texts)
+    idf = {}
+    for k in kws:
+        nk = _kw_norm(k)
+        df = sum(1 for a in norm_texts if nk in a)
+        idf[k] = math.log((n + 1) / (df + 1)) if df else 0.0
+    scored = []
+    for idx, art in enumerate(texts):
+        first = art.splitlines()[0][:100] if art else ''
+        title = _kw_norm(first)
+        na = norm_texts[idx]
+        score = 0.0
+        for k in kws:
+            nk = _kw_norm(k)
+            score += idf[k] * (4 * (nk in title) + min(na.count(nk), 3))
+        if score > 0:
+            scored.append((score, idx))
+    scored.sort(key=lambda x: -x[0])
+    if scored:
+        scored = [x for x in scored if x[0] >= scored[0][0] * 0.35]
+    return scored
+
+
 def _law_detail_text(mst: str, keywords: list, max_len: int = 6000) -> str:
     """법령 전체(수백 개 조문)를 프롬프트에 다 넣을 수 없으므로, 질의 핵심어가 조문
     제목/내용에 많이 등장하는 조문만 골라 원문 그대로 넘긴다(제목 일치에 가중치).
@@ -275,32 +313,7 @@ def _law_detail_text(mst: str, keywords: list, max_len: int = 6000) -> str:
     except Exception as e:
         return f"(법령 원문 조회 실패: {e})"
 
-    kws = [k for k in dict.fromkeys(keywords) if k and len(k) >= 2]
-    # 공백/'의'를 뺀 형태로도 비교한다("영업손실" <-> 조문의 "영업의 손실").
-    def _norm(t):
-        return t.replace(" ", "").replace("의", "")
-    norm_arts = [_norm(a) for a in articles]
-    n = len(articles)
-    # 여러 조문에 흔히 나오는 키워드(예: 사업인정고시일)는 변별력이 낮으므로 IDF로 가중치를 낮춘다.
-    idf = {}
-    for k in kws:
-        nk = _norm(k)
-        df = sum(1 for a in norm_arts if nk in a)
-        idf[k] = math.log((n + 1) / (df + 1)) if df else 0.0
-    scored = []
-    for idx, art in enumerate(articles):
-        title = _norm(art.splitlines()[0][:100])
-        na = norm_arts[idx]
-        score = 0.0
-        for k in kws:
-            nk = _norm(k)
-            score += idf[k] * (4 * (nk in title) + min(na.count(nk), 3))
-        if score > 0:
-            scored.append((score, idx))
-    scored.sort(key=lambda x: -x[0])
-    if scored:
-        # 최고점의 35% 미만인 조문은 우연히 키워드 하나만 스친 잡음으로 보고 버린다.
-        scored = [x for x in scored if x[0] >= scored[0][0] * 0.35]
+    scored = _rank_by_keywords(articles, keywords)
 
     picked, total = [], 0
     for score, idx in scored:
@@ -378,6 +391,286 @@ def search_laws_with_text(law_names: list, topic_keywords: list,
                 sections.append(f"[법령 원문 발췌: {nm}] ({link})\n{text}")
                 total_len += len(text)
             fetched_for_name += 1
+    return "\n\n".join(sections)
+
+
+# ---------------------------------------------------------------------------
+# 행정규칙(고시·훈령·예규·지침) 원문 + 별표
+#
+# 왜 필요한가: 위 search_laws_with_text는 target=law(법률/시행령/시행규칙)만 조회하고, 그마저
+# 조문(조문단위)만 읽어 별표(별표단위)를 프롬프트에 넣지 않았다. 그런데 실무 기준은 고시의 조문과
+# 별표에 있는 경우가 많다(실사용 중 발견: "건설사업관리 인원 산정 시 기술지원기술인을 빼도 되나?"
+# 질의에서, 「건설엔지니어링 대가 등에 관한 기준」 제9조 ① "시공단계의 기술인수는 기술지원기술인수를
+# 포함한다"와 별표 2 바목 "단순 10%·보통 15%·복잡 20%"를 가져오지 못해, AI가 조문 번호도 수치도
+# 못 대고 '일정 비율' 같은 일반론만 답함). 법제처 API(target=admrul)는 별표 전문(표 포함)을
+# 텍스트로 이미 내려주고 있으므로, 이쪽에서 요청해서 질의와 관련된 조문/별표 조각만 골라 넘긴다.
+# ---------------------------------------------------------------------------
+_ADM_TTL = 6 * 3600          # 이름 -> 현행 일련번호 조회 결과 캐시 시간(초)
+_ADM_DOC_CACHE_MAX = 8       # 파싱된 본문 캐시 개수(고시 1건이 수 MB일 수 있어 작게 유지)
+_ADM_LOCK = threading.Lock()
+_ADM_LOOKUP = {}             # 공백제거 이름 -> (만료시각, meta | None)
+_ADM_DOCS = {}               # 행정규칙일련번호 -> 파싱된 문서(dict). 개정되면 일련번호가 바뀌므로 안전.
+
+_ADM_ART_HEAD = re.compile(r'^\s*제\s*(\d+)\s*조(?:\s*의\s*(\d+))?\s*(?:\(([^)]*)\))?')
+_ADM_STRUCT_HEAD = re.compile(r'^\s*제\s*\d+\s*[편장절관]')      # "제1장 총칙" 같은 장/절 제목
+_BP_BOX_ONLY = re.compile(r'^[\s┌┐└┘├┤┬┴┼─━│┃┏┓┗┛┣┫┳┻╋═║╔╗╚╝╠╣╦╩╬]+$')
+_BP_TOP = re.compile(r'^\s{0,4}\d{1,2}\.\s')                    # "3. 건설사업관리 직접경비 ..."
+_BP_MOK = re.compile(r'^\s{0,8}[가-하]\.\s')                    # "바. 기술지원기술인(시공단계...)"
+
+
+def _ad_key(name: str) -> str:
+    key = re.sub(r'\s+', '', name or '')
+    for ch in '·・･•∙⋅':
+        key = key.replace(ch, 'ㆍ')
+    return key
+
+
+def _fmt_ymd(ymd: str) -> str:
+    ymd = (ymd or '').strip()
+    return f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:8]}" if len(ymd) == 8 and ymd.isdigit() else ymd
+
+
+def _admrul_search(query: str, nw: int = 0) -> list:
+    """lawSearch(target=admrul) 결과를 dict 목록으로. nw=0이면 기본(현행), 3이면 시행예정, 2면 연혁."""
+    url = (f"https://www.law.go.kr/DRF/lawSearch.do?OC={MOLEG_API_KEY}&target=admrul&type=XML"
+           f"&query={urllib.parse.quote(query)}&display=20" + (f"&nw={nw}" if nw else ""))
+    root = _fetch_law_xml_with_retry(url)
+    hits = []
+    for a in root.findall('.//admrul'):
+        hits.append({
+            'name': (a.findtext('행정규칙명') or '').strip(),
+            'mst': (a.findtext('행정규칙일련번호') or '').strip(),
+            'ymd': (a.findtext('시행일자') or '').strip(),
+            'org': (a.findtext('소관부처명') or '').strip(),
+            'kind': (a.findtext('행정규칙종류') or '').strip(),
+            'current': (a.findtext('현행연혁구분') or '현행').strip() == '현행',
+        })
+    return hits
+
+
+def _admrul_pending_ymd(meta: dict) -> str:
+    """현재 시행 중인 본문 외에, 아직 시행 전인 개정본(시행예정)이 있으면 그 시행일을 돌려준다."""
+    today = datetime.date.today().strftime('%Y%m%d')
+    try:
+        future = [h['ymd'] for h in _admrul_search(meta['name'], nw=3)
+                  if _ad_key(h['name']) == _ad_key(meta['name']) and h['mst'] != meta['mst'] and h['ymd'] > today]
+        return min(future) if future else ''
+    except Exception as e:
+        print(f"[moleg_mcp] 시행예정 조회 실패({meta['name']}): {type(e).__name__}: {e}")
+        return ''
+
+
+def _lookup_admrul(name: str):
+    """행정규칙명 -> 현행 본문의 meta(dict) 또는 None. 이름이 정확히 같은 현행본만 신뢰하고,
+    정확히 일치가 없을 때만(6자 이상) 이름이 포함된 가장 짧은 이름을 쓴다. 조회 실패는 캐시하지 않는다."""
+    key = _ad_key(name)
+    if len(key) < 4:
+        return None
+    now = time.time()
+    with _ADM_LOCK:
+        cached = _ADM_LOOKUP.get(key)
+        if cached and cached[0] > now:
+            return cached[1]
+    try:
+        hits = [h for h in _admrul_search(name) if h['current'] and h['mst']]
+    except Exception as e:
+        print(f"[moleg_mcp] 행정규칙 검색 실패({name}): {type(e).__name__}: {e}")
+        return None
+    exact = sorted((h for h in hits if _ad_key(h['name']) == key), key=lambda h: h['ymd'], reverse=True)
+    if exact:
+        meta = exact[0]
+    elif len(key) >= 6:
+        fuzzy = sorted((h for h in hits if key in _ad_key(h['name'])), key=lambda h: len(h['name']))
+        meta = fuzzy[0] if fuzzy else None
+    else:
+        meta = None
+    if meta:
+        meta = dict(meta, pending=_admrul_pending_ymd(meta))
+    with _ADM_LOCK:
+        _ADM_LOOKUP[key] = (now + _ADM_TTL, meta)
+    return meta
+
+
+def _chunk_byeolpyo(content: str, max_chunk: int = 1800) -> list:
+    """별표 본문(표는 박스 문자 텍스트)을 '호(1.)·목(가.)' 경계로 잘라 [(상위 호 제목, 본문)]으로 돌려준다.
+    별표 1건이 수십만 자일 수 있어 통째로 프롬프트에 넣을 수 없으므로, 질의와 관련된 조각만 고르기 위한 단위다.
+    표의 테두리 줄은 버리고 칸 구분은 ' | '로 줄여서 글자 수를 아낀다."""
+    chunks, cur, cur_len, top, cur_top = [], [], 0, '', ''
+
+    def flush():
+        nonlocal cur, cur_len
+        if cur:
+            chunks.append((cur_top, "\n".join(cur)))
+        cur, cur_len = [], 0
+
+    for raw in (content or '').replace('\r', '').split('\n'):
+        if not raw.strip() or _BP_BOX_ONLY.match(raw):
+            continue
+        line = re.sub(r'\s*[│┃║]\s*', ' | ', raw).strip(' |')
+        line = re.sub(r'[ 　]{2,}', ' ', line).strip()
+        if not line:
+            continue
+        if _BP_TOP.match(raw):
+            flush()
+            top = line[:80]
+        elif _BP_MOK.match(raw):
+            flush()
+        elif cur and cur_len + len(line) > max_chunk:
+            flush()
+        if not cur:
+            cur_top = top
+        cur.append(line)
+        cur_len += len(line) + 1
+    flush()
+    return chunks
+
+
+def _bp_label(no: int, br: int) -> str:
+    return f"별표 {no}" + (f"의{br}" if br else "")
+
+
+def _load_admrul_doc(mst: str) -> dict:
+    """행정규칙 본문을 한 번만 가져와 {'info','articles','byeolpyo','buchik','pool'}로 파싱해 캐시한다.
+    pool은 질의 관련 조각 선택용: [(종류('art'|'bp'), 헤더, 본문)]."""
+    with _ADM_LOCK:
+        doc = _ADM_DOCS.get(mst)
+    if doc:
+        return doc
+    root = _fetch_law_xml_with_retry(
+        f"https://www.law.go.kr/DRF/lawService.do?OC={MOLEG_API_KEY}&target=admrul&ID={mst}&type=XML", timeout=40)
+    if root.tag != 'AdmRulService':
+        raise RuntimeError(f"예상과 다른 응답({root.tag})")
+    base = root.find('행정규칙기본정보')
+    info = {
+        'name': (base.findtext('행정규칙명') or '').strip() if base is not None else '',
+        'ymd': (base.findtext('시행일자') or '').strip() if base is not None else '',
+        'org': (base.findtext('소관부처명') or '').strip() if base is not None else '',
+        'kind': (base.findtext('행정규칙종류') or '').strip() if base is not None else '',
+        'current': ((base.findtext('현행여부') or 'Y').strip() == 'Y') if base is not None else True,
+    }
+    articles = []
+    for e in root.findall('.//조문내용'):
+        text = (e.text or '').strip()
+        if not text or _ADM_STRUCT_HEAD.match(text):
+            continue
+        m = _ADM_ART_HEAD.match(text)
+        articles.append({
+            'no': int(m.group(1)) if m else 0, 'br': int(m.group(2)) if m and m.group(2) else 0,
+            'title': (m.group(3) or '') if m else '', 'text': text})
+    byeolpyo = []
+    for b in root.findall('.//별표단위'):
+        if (b.findtext('별표구분') or '').strip() not in ('별표', ''):
+            continue
+        no = (b.findtext('별표번호') or '').strip()
+        br = (b.findtext('별표가지번호') or '').strip()
+        byeolpyo.append({
+            'no': int(no) if no.isdigit() else 0, 'br': int(br) if br.isdigit() else 0,
+            'title': (b.findtext('별표제목') or '').strip(), 'content': b.findtext('별표내용') or ''})
+    buchik = [(x.text or '').strip() for x in root.findall('.//부칙내용') if (x.text or '').strip()]
+
+    pool = [('art', '', a['text'][:2500]) for a in articles]
+    for bp in byeolpyo:
+        label = _bp_label(bp['no'], bp['br'])
+        for top, body in _chunk_byeolpyo(bp['content']):
+            ctx = f" · {top}" if top and not body.startswith(top[:20]) else ''
+            pool.append(('bp', f"[{label}: {bp['title']}{ctx}]", body))
+    doc = {'info': info, 'articles': articles, 'byeolpyo': byeolpyo, 'buchik': buchik, 'pool': pool}
+    with _ADM_LOCK:
+        if len(_ADM_DOCS) >= _ADM_DOC_CACHE_MAX:
+            _ADM_DOCS.pop(next(iter(_ADM_DOCS)))
+        _ADM_DOCS[mst] = doc
+    return doc
+
+
+def load_admrul_by_name(name: str):
+    """(meta, doc) 또는 (None, None). 인용 검증기(citation_check)가 고시 조문/별표 원문을 대조할 때 쓴다."""
+    meta = _lookup_admrul(name)
+    if not meta:
+        return None, None
+    try:
+        return meta, _load_admrul_doc(meta['mst'])
+    except Exception as e:
+        print(f"[moleg_mcp] 행정규칙 본문 조회 실패({name}): {type(e).__name__}: {e}")
+        return None, None
+
+
+def _admrul_detail_text(doc: dict, keywords: list, max_len: int = 7000) -> str:
+    """질의 키워드와 관련 높은 조문/별표 조각만 원문 그대로 골라 이어붙인다(최근 부칙, 별표 목록 포함)."""
+    pool = doc['pool']
+    scored = _rank_by_keywords([p[2] for p in pool], keywords)
+    picked, total = [], 0
+    for _score, idx in scored:
+        size = len(pool[idx][2])
+        if total + size > max_len and picked:
+            continue
+        picked.append(idx)
+        total += size
+        if total >= max_len:
+            break
+    parts = []
+    for idx in sorted(picked):
+        kind, header, body = pool[idx]
+        parts.append(body if kind == 'art' else f"{header}\n{body}")
+    if not parts:
+        toc = "; ".join(f"제{a['no']}조({a['title']})" for a in doc['articles'][:40] if a['no'])
+        parts.append(f"(질의 키워드와 일치하는 조문/별표 조각을 찾지 못했습니다. 조문 목차: {toc})")
+    body = "\n\n".join(parts)
+    if doc['byeolpyo']:
+        body += "\n\n[이 고시의 별표 목록] " + "; ".join(
+            f"{_bp_label(b['no'], b['br'])} {b['title']}" for b in doc['byeolpyo'])
+    # 부칙은 오래된 개정 -> 최근 개정 순이므로 뒤에서부터 최대 3개만 담는다.
+    recent, used = [], 0
+    for b in reversed(doc['buchik']):
+        if recent and used + len(b) > 1500:
+            break
+        recent.append(b[:1500])
+        used += len(b)
+        if len(recent) >= 3:
+            break
+    if recent:
+        body += ("\n\n[부칙(최근 개정분) - 시행일·경과조치. 조문이 지금 적용되는지는 여기 명시된 시행일을 기준으로 확인할 것]\n"
+                 + "\n\n".join(recent))
+    return body
+
+
+def search_admrul_with_text(names: list, topic_keywords: list,
+                            per_len: int = 7000, max_total_len: int = 16000) -> str:
+    """정식 행정규칙명(고시·훈령·예규·지침)으로 현행 본문을 조회해, 질의와 관련된 조문과 별표 조각을
+    원문 그대로 돌려준다. 헤더에 소관·종류·시행일·현행 여부를 밝혀서 답변이 시행일을 함께 인용할 수 있게 하고,
+    시행 전 개정본이 있으면 그 사실도 알린다. 이름이 정확히 일치하는 현행본이 없으면 아무것도 지어내지 않고 건너뛴다.
+
+    헤더를 '[법령 원문 발췌: ...]'가 아닌 '[행정규칙 원문 발췌: ...]'로 쓰는 이유: 앞의 헤더는 링크 자동 생성
+    (law_linkify)이 /법령/ 주소로 연결하는 법령명 목록에 쓰이므로, 고시가 섞이면 잘못된 주소가 만들어진다."""
+    names = [n for n in dict.fromkeys(names or []) if n]
+    if not names:
+        return ""
+
+    def prepare(name):
+        meta, doc = load_admrul_by_name(name)
+        return name, meta, doc
+
+    with ThreadPoolExecutor(max_workers=min(3, len(names))) as ex:
+        prepared = list(ex.map(prepare, names))
+
+    sections, seen, total = [], set(), 0
+    today = datetime.date.today().strftime('%Y-%m-%d')
+    for name, meta, doc in prepared:
+        if not meta or not doc or meta['mst'] in seen:
+            continue
+        if total >= max_total_len:
+            break
+        seen.add(meta['mst'])
+        text = _admrul_detail_text(doc, topic_keywords, min(per_len, max_total_len - total))
+        info = doc['info']
+        link = f"https://www.law.go.kr/행정규칙/{urllib.parse.quote(meta['name'])}"
+        status = "현행" if info['current'] else "현행 아님"
+        head = (f"[행정규칙 원문 발췌: {meta['name']}] ({info['org']} {info['kind']}, "
+                f"시행 {_fmt_ymd(info['ymd'])}, {status}, 법제처 조회 {today}) ({link})")
+        if meta.get('pending'):
+            head += (f"\n※ {_fmt_ymd(meta['pending'])} 시행 예정인 개정본이 있습니다. 아래는 현재 시행 중인 본문이며, "
+                     f"시행일 이후에는 달라질 수 있습니다.")
+        sections.append(f"{head}\n{text}")
+        total += len(text)
     return "\n\n".join(sections)
 
 

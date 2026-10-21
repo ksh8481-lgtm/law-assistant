@@ -22,7 +22,10 @@ import os
 import re
 import google.generativeai as genai
 
-from moleg_mcp import search_law, search_precedents_by_keyword, search_precedent_by_case_number, search_ordinance, search_laws_with_text
+from concurrent.futures import ThreadPoolExecutor
+
+from moleg_mcp import (search_law, search_precedents_by_keyword, search_precedent_by_case_number,
+                       search_ordinance, search_laws_with_text, search_admrul_with_text)
 from korea_regions import find_jurisdiction_in_text, BASIC_REGIONS, METROPOLITAN_REGIONS
 
 _VALID_REGIONS = set(BASIC_REGIONS) | set(METROPOLITAN_REGIONS)
@@ -171,6 +174,63 @@ def _extract_subject_laws(model, query: str) -> list:
         return []
 
 
+# 고시·훈령·예규·지침(행정규칙)은 법률명 목록(law_names)에 담기지 않는다(그쪽은 '법'/'법률'로 끝나는 이름만 받는다).
+# 그런데 실무 기준(인원 산정 비율, 배치기준 등)은 이런 고시의 조문과 별표에 있는 경우가 많다.
+# 그래서 (1) 질의에 이런 낱말이 있으면 항상 가져올 고시를 결정적으로 지정하고, (2) 그 밖의 고시는 LLM이
+# 정식 명칭을 뽑게 한다. 법제처에서 이름이 정확히 일치하는 현행본을 못 찾으면 조용히 건너뛴다(지어내지 않음).
+# 새로 자주 쓰이는 고시가 생기면 여기에 (질의 속 낱말들, 고시명들)을 추가한다.
+_ADMRUL_HINTS = [
+    (('건설사업관리', '감독권한대행', '기술지원기술인', '상주기술인', '건설사업관리기술인'),
+     ['건설엔지니어링 대가 등에 관한 기준', '건설공사 사업관리방식 검토기준 및 업무수행지침']),
+]
+_ADMRUL_SUFFIXES = ('기준', '지침', '고시', '규정', '예규', '훈령', '요령')
+
+
+def _clean_admrul_name(name: str) -> str:
+    name = (name or '').strip().strip("'\"「」『』[]() ")
+    for ch in _MIDDLE_DOT_VARIANTS:
+        name = name.replace(ch, 'ㆍ')
+    if len(name) < 6 or not name.endswith(_ADMRUL_SUFFIXES):
+        return ''
+    return name
+
+
+def _hinted_admruls(query: str) -> list:
+    flat = re.sub(r'\s+', '', query or '')
+    out = []
+    for triggers, names in _ADMRUL_HINTS:
+        if any(t in flat for t in triggers):
+            out.extend(names)
+    return out
+
+
+def _extract_admrul_names(query: str) -> list:
+    """질문을 검토하는 데 필요한 고시·훈령·예규·지침의 정식 명칭을 최대 3개 뽑는다(+ 결정적 힌트). 실패하면 힌트만."""
+    names = _hinted_admruls(query)
+    try:
+        genai.configure(api_key=os.environ.get('GEMINI_API_KEY'))
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        prompt = (
+            "다음 질문을 검토하려면 조문이나 별표를 봐야 하는 대한민국 '고시·훈령·예규·지침·기준'(행정규칙)의 "
+            "정식 명칭을 쉼표로 구분해 최대 3개만 한 줄로 답해. 법률·시행령·시행규칙은 쓰지 마. 다른 설명은 절대 하지 마. "
+            "법제처(law.go.kr)에 실제로 있는 정식 명칭만 쓰고, 확신이 없으면 비워둬.\n"
+            "질문: " + query[:2000]
+        )
+        resp = model.generate_content(prompt, generation_config={"temperature": 0})
+        line = (resp.text or '').strip().splitlines()[0].strip()
+        names.extend(x for x in line.split(',') if x.strip())
+    except Exception as e:
+        print(f"[mcp_agent_sync] admrul name extraction failed: {e}")
+    seen, out = set(), []
+    for n in names:
+        n = _clean_admrul_name(n)
+        key = re.sub(r'\s+', '', n)
+        if key and key not in seen:
+            seen.add(key)
+            out.append(n)
+    return out[:4]
+
+
 def _extract_keyword_and_jurisdiction(query: str) -> tuple:
     """(keyword, jurisdiction, ordinance_keyword, law_names, topic_keywords)를 돌려준다.
 
@@ -255,6 +315,9 @@ def get_mcp_context_sync(query: str, uploaded_file=None) -> str:
     if uploaded_file:
         query = f"{query}\n(첨부 파일명: {uploaded_file})"
 
+    # 고시명 추출은 법령명 추출과 서로 독립이라 동시에 돌려서 지연을 늘리지 않는다.
+    adm_pool = ThreadPoolExecutor(max_workers=1)
+    adm_future = adm_pool.submit(_extract_admrul_names, query)
     keyword, jurisdiction, ordinance_keyword, law_names, topic_keywords = _extract_keyword_and_jurisdiction(query)
     if not keyword:
         # 키워드 추출 자체가 실패해도 빈 컨텍스트보다는 질의 앞부분이라도 검색어로 쓰는 게 낫다.
@@ -298,6 +361,23 @@ def get_mcp_context_sync(query: str, uploaded_file=None) -> str:
                 sections.append(law_text)
         except Exception as e:
             sections.append(f"[법령 원문 조회 실패: {e}]")
+
+    # 고시·지침(행정규칙)의 조문과 별표 원문. 법령 조회(target=law)와 달리 별표까지 읽는다.
+    try:
+        admrul_names = adm_future.result(timeout=60)
+    except Exception as e:
+        print(f"[mcp_agent_sync] admrul names unavailable: {e}")
+        admrul_names = _hinted_admruls(query)
+    finally:
+        adm_pool.shutdown(wait=False)
+    if admrul_names:
+        try:
+            adm_text = search_admrul_with_text(
+                admrul_names, _merge_keywords(topic_keywords or [keyword], _query_terms(query)))
+            if adm_text:
+                sections.append(adm_text)
+        except Exception as e:
+            sections.append(f"[행정규칙(고시) 원문 조회 실패: {e}]")
 
     if keyword:
         try:

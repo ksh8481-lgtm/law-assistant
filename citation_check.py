@@ -31,10 +31,15 @@ from concurrent.futures import ThreadPoolExecutor
 
 # 링크 텍스트 안에 [별표 2] 같은 대괄호가 한 단계 들어 있어도 한 링크로 인식
 _LINK_TEXT = r'\[(?:[^\[\]\n]|\[[^\[\]\n]*\])*\]'
-_LAW_LINK = re.compile(r'(' + _LINK_TEXT + r')\((https?://(?:www\.)?law\.go\.kr/[^)\s]*)\)')
+# URL 안에 공백이 있어도(AI가 고시명을 "건설엔지니어링 대가 등에 관한 기준"처럼 띄어쓰기 그대로 URL에 쓰는 일이 잦다) 한 링크로 인식한다.
+_LAW_LINK = re.compile(r'(' + _LINK_TEXT + r')\((https?://(?:www\.)?law\.go\.kr/[^)\n]*)\)')
 _ART_PATH = re.compile(r'^https?://(?:www\.)?law\.go\.kr/법령/([^/?#]+)/제(\d+)조(?:의(\d+))?$')
 _TITLE = re.compile(r'^제\d+조(?:의\d+)?\(([^)]*)\)')
 _LAW_ONLY_PATH = re.compile(r'^https?://(?:www\.)?law\.go\.kr/법령/([^/?#]+)$')
+# 고시·훈령·예규·지침(행정규칙) 링크: /행정규칙/<이름>[/제N조]
+_ADM_ART_PATH = re.compile(r'^https?://(?:www\.)?law\.go\.kr/행정규칙/([^/?#]+)/제(\d+)조(?:의(\d+))?$')
+_ADM_ONLY_PATH = re.compile(r'^https?://(?:www\.)?law\.go\.kr/행정규칙/([^/?#]+)$')
+_PERCENT = re.compile(r'(\d+(?:\.\d+)?)\s*(?:%|퍼센트)')
 _BYEOLPYO = re.compile(r'별표\s*(\d+)(?:\s*의\s*(\d+))?')
 _BYEOLPYO_AFTER = re.compile(r'^\s*\[?\s*별표\s*(\d+)(?:\s*의\s*(\d+))?\s*\]?')
 # 주장 문장에서 "테마파크업", "수영장업"처럼 업종을 가리키는 단어(일반어는 제외)
@@ -119,6 +124,30 @@ def _load_law(name_nospace: str):
     return law
 
 
+def _load_admrul(name_nospace: str):
+    """고시·훈령·예규·지침 이름 -> _load_law와 같은 {'art', 'bp'} 구조. 현행본을 못 찾거나 조회 실패면 None.
+    (본문 파싱과 캐시는 moleg_mcp가 한다 - 답변용 원문 조회와 같은 캐시를 써서 중복 호출이 없다.)"""
+    try:
+        _meta, doc = _moleg().load_admrul_by_name(name_nospace)
+    except Exception as e:
+        print(f"[citation_check] 행정규칙 조회 실패({name_nospace}): {type(e).__name__}: {e}")
+        return None
+    if not doc:
+        return None
+    art = {}
+    for a in doc['articles']:
+        if a['no']:
+            art.setdefault((a['no'], a['br']), (a['title'], a['text']))
+    bp = {(b['no'], b['br']): (b['title'], b['content']) for b in doc['byeolpyo'] if b['no']}
+    return {'art': art, 'bp': bp}
+
+
+def _load_any(key):
+    """key = (고시 여부, 이름). 고시면 target=admrul, 아니면 target=law로 조회한다."""
+    is_adm, name = key
+    return _load_admrul(name) if is_adm else _load_law(name)
+
+
 def _plain(text: str) -> str:
     """마크다운 링크/강조/코드 표시를 걷어낸 평문(주장 문장을 LLM에 보내기 위한 용도)."""
     text = re.sub(_LINK_TEXT + r'\([^)\n]*\)', lambda m: m.group(0)[1:m.group(0).index('](')], text)
@@ -153,17 +182,20 @@ def _find_citations(text: str):
         prev_end = matches[i - 1].end() if i > 0 else 0
         next_start = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         before = text[max(prev_end, line_start, m.start() - 220):m.start()]
-        art = _ART_PATH.match(url)
+        # 한 줄에 인용이 여러 개면 문장 속 수치가 어느 인용의 것인지 알 수 없어 수치 대조를 건너뛴다.
+        line_cites = sum(1 for x in matches if line_start <= x.start() < line_end)
+        adm = bool(_ADM_ART_PATH.match(url) or _ADM_ONLY_PATH.match(url))
+        art = _ADM_ART_PATH.match(url) if adm else _ART_PATH.match(url)
         if art:
             after = text[m.end():min(next_start, line_end, m.end() + 220)]
             cites.append({
-                'kind': 'art', 'law': art.group(1),
+                'kind': 'art', 'adm': adm, 'law': re.sub(r'\s+', '', art.group(1)),
                 'no': int(art.group(2)), 'br': int(art.group(3)) if art.group(3) else 0,
                 'label': label, 'end': m.end(), 'claim': _claim_for(text, m.start()),
-                'near': before + ' ' + after, 'after': after,
+                'near': before + ' ' + after, 'after': after, 'line_cites': line_cites,
             })
             continue
-        base = _LAW_ONLY_PATH.match(url)
+        base = _ADM_ONLY_PATH.match(url) if adm else _LAW_ONLY_PATH.match(url)
         if not base:
             continue
         # 법령 본문 링크 뒤에 "[별표 1]"이 붙거나, 링크 라벨 안에 "별표 1"이 들어 있는 경우
@@ -175,10 +207,10 @@ def _find_citations(text: str):
                 bp, end = after_m, m.end() + after_m.end()
         if bp:
             cites.append({
-                'kind': 'bp', 'law': base.group(1),
+                'kind': 'bp', 'adm': adm, 'law': re.sub(r'\s+', '', base.group(1)),
                 'no': int(bp.group(1)), 'br': int(bp.group(2)) if bp.group(2) else 0,
                 'label': label, 'end': end, 'claim': _claim_for(text, m.start()),
-                'near': '',
+                'near': '', 'line_cites': line_cites,
             })
     return cites
 
@@ -264,7 +296,7 @@ def _select(cites):
     """같은 (법령, 조)는 첫 등장 위주로 먼저 채우고, 상한까지만 검증한다."""
     seen, first, rest = set(), [], []
     for c in cites:
-        key = (c['kind'], c['law'], c['no'], c['br'])
+        key = (c['kind'], c.get('adm', False), c['law'], c['no'], c['br'])
         (rest if key in seen else first).append(c)
         seen.add(key)
     return (first + rest)[:MAX_CITATIONS]
@@ -336,12 +368,14 @@ def _sibling_names(name: str):
 _HINT_WORDS = ('시설', '설비', '기준', '범위', '종류', '허가', '신고', '등록', '과태료', '처분', '준수')
 
 
-def _find_related_byeolpyo(c, terms, claim):
+def _find_related_byeolpyo(c, terms, claim, own_law=None):
     """제목에 업종 용어가 들어 있는 별표를 같은 법령과 같은 계열(법/시행령/시행규칙)에서 찾는다.
-    주장 문장과 제목이 공유하는 키워드(시설/기준/허가 등)가 많은 별표를 우선한다."""
+    주장 문장과 제목이 공유하는 키워드(시설/기준/허가 등)가 많은 별표를 우선한다.
+    고시는 시행령/시행규칙 계열이 없으므로 이미 불러온 자기 자신(own_law)만 본다."""
     best, best_score = None, -1
-    for name in [c['law']] + _sibling_names(c['law']):
-        other = _load_law(name)
+    names = [c['law']] if c.get('adm') else [c['law']] + _sibling_names(c['law'])
+    for name in names:
+        other = own_law if (c.get('adm') or name == c['law']) and own_law is not None else _load_law(name)
         if not other:
             continue
         for (no, br), (title, _content) in other['bp'].items():
@@ -373,7 +407,7 @@ def _check_byeolpyo(c, law, terms):
     in_content = any(t in title + chr(10) + content for t in terms)
     if in_content and any(t in title for t in terms):
         return None
-    related = _find_related_byeolpyo(c, terms, c['claim'])
+    related = _find_related_byeolpyo(c, terms, c['claim'], own_law=law)
     hint = f"{related[0]} {_bp_label(related[1], related[2])}('{related[3]}')" if related else ''
     if not in_content:
         return (f" ⚠️(별표 불일치: 이 법령의 {label}는 '{title}'이며 '{terms[0]}' 관련 내용이 없습니다."
@@ -381,6 +415,24 @@ def _check_byeolpyo(c, law, terms):
     if hint:
         return f" 💡(참고: {label}의 제목은 '{title}'입니다. '{terms[0]}' 관련 별표는 {hint}일 수 있습니다. 확인 필요)"
     return None
+
+
+def _check_percent(c, body: str):
+    """문장에 적힌 비율(예: '15%')이 인용한 조문/별표 원문에 실제로 있는지 대조한다(결정적).
+    '그럴듯하게 틀린 수치'는 주제만 보는 LLM 판정이 놓친다(예: 별표 2 바목의 '단순 10%·보통 15%·복잡 20%'를
+    '일반 5%'처럼 바꿔 적는 경우). 한 줄에 인용이 여러 개면 비율이 어느 인용의 것인지 알 수 없어 건너뛰고,
+    문장 속 비율 중 하나라도 원문에 있으면 통과시킨다(오탐을 줄이려고 경고가 아닌 참고 💡로만 알린다)."""
+    if c.get('line_cites', 1) != 1:
+        return None
+    claimed = {float(x) for x in _PERCENT.findall(c.get('claim', ''))}
+    if not claimed:
+        return None
+    in_body = {float(x) for x in _PERCENT.findall(body)}
+    if claimed & in_body:
+        return None
+    label = _bp_label(c['no'], c['br']) if c['kind'] == 'bp' else f"제{c['no']}조" + (f"의{c['br']}" if c['br'] else '')
+    shown = ", ".join(f"{v:g}%" for v in sorted(claimed))
+    return f" 💡(참고: 문장의 비율({shown})이 인용한 {label} 원문에서 확인되지 않습니다. 원문 확인 필요)"
 
 
 def annotate_unverified_citations(text: str) -> str:
@@ -394,30 +446,35 @@ def annotate_unverified_citations(text: str) -> str:
         if not cites:
             return text
 
-        # 법령별 조문/별표 원문을 병렬로 가져온다(법령당 1회, 캐시됨).
-        names = list(dict.fromkeys(c['law'] for c in cites))
-        with ThreadPoolExecutor(max_workers=min(4, len(names))) as ex:
-            loaded = dict(zip(names, ex.map(_load_law, names)))
+        # 법령(target=law)·고시(target=admrul)별 조문/별표 원문을 병렬로 가져온다(1회씩, 캐시됨).
+        keys = list(dict.fromkeys((c.get('adm', False), c['law']) for c in cites))
+        with ThreadPoolExecutor(max_workers=min(4, len(keys))) as ex:
+            loaded = dict(zip(keys, ex.map(_load_any, keys)))
 
         notes = {}          # end 위치 -> 붙일 경고 문구
+
+        def add_note(end, note):
+            if note:
+                notes[end] = notes[end] + note if end in notes else note
+
         to_judge = []
         for c in cites:
-            law = loaded.get(c['law'])
+            law = loaded.get((c.get('adm', False), c['law']))
             if law is None:
-                continue    # 법령 조회 실패/미존재: 판단 불가 -> 그대로 둔다
+                continue    # 법령/고시 조회 실패·미존재: 판단 불가 -> 그대로 둔다
             if c['kind'] == 'bp':
-                note = _check_byeolpyo(c, law, _business_terms(c['claim']))
-                if note:
-                    notes[c['end']] = note
+                add_note(c['end'], _check_byeolpyo(c, law, _business_terms(c['claim'])))
+                bp = law['bp'].get((c['no'], c['br']))
+                if bp is not None:
+                    add_note(c['end'], _check_percent(c, bp[0] + chr(10) + bp[1]))
                 continue
             art = law['art'].get((c['no'], c['br']))
             if art is None:
                 label = f"제{c['no']}조" + (f"의{c['br']}" if c['br'] else '')
-                notes[c['end']] = f" ⚠️(원문 확인 결과 {label}는 존재하지 않는 조문입니다)"
+                add_note(c['end'], f" ⚠️(원문 확인 결과 {label}는 존재하지 않는 조문입니다)")
                 continue
-            quote_note = _check_quotes(c, art[1])
-            if quote_note:
-                notes[c['end']] = quote_note
+            add_note(c['end'], _check_quotes(c, art[1]))
+            add_note(c['end'], _check_percent(c, art[1]))
             to_judge.append({**c, 'law_display': c['law'], 'title': art[0], 'body': art[1]})
 
         verdicts = _judge(to_judge) if to_judge else {}
@@ -426,7 +483,7 @@ def annotate_unverified_citations(text: str) -> str:
             if v and v.get('verdict') == 'unsupported':
                 label = f"제{it['no']}조" + (f"의{it['br']}" if it['br'] else '')
                 title = f"'{it['title']}'" if it['title'] else '다른 내용'
-                notes[it['end']] = f" ⚠️(원문 불일치: 실제 {label}는 {title}입니다. 이 인용은 확인이 필요합니다)"
+                add_note(it['end'], f" ⚠️(원문 불일치: 실제 {label}는 {title}입니다. 이 인용은 확인이 필요합니다)")
 
         if not notes:
             return text
