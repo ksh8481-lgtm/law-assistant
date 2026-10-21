@@ -462,16 +462,23 @@ def _check_single_quoted_terms(items):
 
     items = [(cite, 조문 본문), ...] (같은 문장에 걸린 인용들). 존재하는 조문 번호라도 엉뚱한 조일 수 있다
     (운영 확인: '지정신고서'가 나오는 조는 제50조·제80조인데 제13조·제23조로 인용). 주제만 보는 LLM 판정이
-    놓치는 경우를 용어 대조로 보완한다. 하나라도 포함하면 통과시켜 오탐을 줄인다."""
+    놓치는 경우를 용어 대조로 보완한다. 하나라도 포함하면 통과시키고, 문구를 조금 바꿔 쓴 경우(운영 재확인:
+    조문의 "…공사감독자의 배치 계획"을 '건설사업관리기술인 배치 계획'으로 인용)는 4글자 조각 겹침 비율이
+    QUOTE_MIN_OVERLAP 이상이면 통과시킨다(실측: 바꿔 쓴 인용 0.7, 엉뚱한 조 0.0, 정확한 인용 1.0)."""
     if not items:
         return None
     bodies = [_norm(b) for _c, b in items]
+    body_grams = set().union(*[_grams(b) for b in bodies])
     for term in _SQUOTE.findall(items[0][0].get('claim', '')):
         nt = _norm(term)
-        if 4 <= len(term.strip()) <= 40 and len(nt) >= 4 and not any(nt in b for b in bodies):
-            labels = ", ".join(dict.fromkeys(
-                f"제{c['no']}조" + (f"의{c['br']}" if c['br'] else '') for c, _b in items))
-            return f" 💡(참고: 문장에 인용된 '{term}'이(가) 인용한 {labels} 원문에서 확인되지 않습니다. 다른 조문일 수 있으니 원문 확인 필요)"
+        if not (4 <= len(term.strip()) <= 40 and len(nt) >= 4) or any(nt in b for b in bodies):
+            continue
+        g = _grams(nt)
+        if g and len(g & body_grams) / len(g) >= QUOTE_MIN_OVERLAP:
+            continue
+        labels = ", ".join(dict.fromkeys(
+            f"제{c['no']}조" + (f"의{c['br']}" if c['br'] else '') for c, _b in items))
+        return f" 💡(참고: 문장에 인용된 '{term}'이(가) 인용한 {labels} 원문에서 확인되지 않습니다. 다른 조문일 수 있으니 원문 확인 필요)"
     return None
 
 

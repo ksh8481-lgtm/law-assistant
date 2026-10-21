@@ -173,7 +173,49 @@ def _citation_verification_output_ok(original: str, verified: str) -> bool:
     return True
 
 
-def verify_law_citations_via_search(ai_result: str, model_name: str = 'gemini-2.5-pro') -> str:
+SOURCE_CONTEXT_FOR_VERIFY_MAX = 30000
+
+
+def _build_citation_verify_prompt(ai_result: str, source_context: str = "") -> str:
+    """법조항 검증 패스의 프롬프트. source_context(서버가 법제처 API에서 직접 가져온 조문·별표 원문)가 있으면
+    '원문 우선 원칙'과 함께 근거로 싣는다.
+
+    이게 없으면 검증 모델은 구글 검색으로만 확인하므로, 원문으로 이미 확인된 고시 조문·별표 인용도 검색에서 못
+    찾으면 지우고 "(정확한 근거 조항 확인 필요)"로 바꿔 버린다(운영 확인: 별표 2 바목의 10/15/20% 문구는 원문 그대로
+    인용됐는데 그 앞의 근거 표기가 지워짐). source_context가 없으면 예전과 똑같은 프롬프트다."""
+    source_block = ""
+    if source_context:
+        source_block = f"""
+[법제처 원문 - 서버가 법제처 API에서 직접 가져온 조문·별표 원문]
+{source_context[:SOURCE_CONTEXT_FOR_VERIFY_MAX]}
+
+[원문 우선 원칙]
+위 원문에 있는 법령·고시(행정규칙)의 조문·별표·목 번호와 수치는 이미 법제처 원문으로 확인된 것입니다. 구글 검색으로
+다시 찾지 못했다는 이유로 그런 인용을 고치거나 지우거나 "(정확한 근거 조항 확인 필요)"로 바꾸지 마십시오. 위 원문과
+모순되는 인용만 원문에 맞게 고치고, 위 원문에도 없고 검색으로도 확인되지 않는 번호만 지우십시오.
+"""
+    return f"""
+당신은 건설행정 법제 검증 전문가입니다. 아래는 검토 보고서 초안입니다.
+
+[검증 원칙]
+1. 보고서 안에서 "OO법 제N조" 또는 "KDS/KCS 코드"처럼 구체적인 조항 번호나 기준 코드를
+   인용한 부분만 골라, 구글 검색으로 그 법령의 그 조항이 실제로 보고서에 쓰인 내용과
+   일치하는지 하나씩 확인하십시오.
+2. 조항 번호나 내용이 틀렸다면 실제 올바른 조항 번호로 고치고, 올바른 조항을 찾을 수
+   없다면 그 조항 번호를 지우고 "(정확한 근거 조항 확인 필요)"로 대체하십시오.
+   절대 확인 안 된 조항 번호를 새로 지어내지 마십시오.
+3. 표, 수치, 등급 판정(🔴🟡🟢💡), 문단 구성 등 법조항 인용이 아닌 나머지 내용은 절대
+   요약하거나 바꾸지 말고 원문 그대로 유지하십시오.
+4. 확인 결과 전체가 맞다면 원문을 그대로(수정 없이) 돌려주십시오.
+5. 검증 과정에 대한 설명 없이, 최종 보고서 본문만 그대로 출력하십시오.
+{source_block}
+[검토 보고서 초안]
+{ai_result}
+"""
+
+
+def verify_law_citations_via_search(ai_result: str, model_name: str = 'gemini-2.5-pro',
+                                    source_context: str = "") -> str:
     """법조항 인용을 구글 검색으로 검증/교정하는 공용 2차 패스.
 
     파일(도면 이미지 등)을 첨부해야 하는 1차 생성은 구글 검색 그라운딩을 못 붙이는
@@ -190,24 +232,7 @@ def verify_law_citations_via_search(ai_result: str, model_name: str = 'gemini-2.
     안고 있게 된다)."""
     if not ai_result:
         return ai_result
-    verify_prompt = f"""
-당신은 건설행정 법제 검증 전문가입니다. 아래는 검토 보고서 초안입니다.
-
-[검증 원칙]
-1. 보고서 안에서 "OO법 제N조" 또는 "KDS/KCS 코드"처럼 구체적인 조항 번호나 기준 코드를
-   인용한 부분만 골라, 구글 검색으로 그 법령의 그 조항이 실제로 보고서에 쓰인 내용과
-   일치하는지 하나씩 확인하십시오.
-2. 조항 번호나 내용이 틀렸다면 실제 올바른 조항 번호로 고치고, 올바른 조항을 찾을 수
-   없다면 그 조항 번호를 지우고 "(정확한 근거 조항 확인 필요)"로 대체하십시오.
-   절대 확인 안 된 조항 번호를 새로 지어내지 마십시오.
-3. 표, 수치, 등급 판정(🔴🟡🟢💡), 문단 구성 등 법조항 인용이 아닌 나머지 내용은 절대
-   요약하거나 바꾸지 말고 원문 그대로 유지하십시오.
-4. 확인 결과 전체가 맞다면 원문을 그대로(수정 없이) 돌려주십시오.
-5. 검증 과정에 대한 설명 없이, 최종 보고서 본문만 그대로 출력하십시오.
-
-[검토 보고서 초안]
-{ai_result}
-"""
+    verify_prompt = _build_citation_verify_prompt(ai_result, source_context)
     try:
         verify_resp = generate_with_search_grounding(verify_prompt, model_name, temperature=0)
     except Exception as e:
@@ -1849,8 +1874,16 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
     try:
         import os
         import tempfile
+        import time as _time
         import google.generativeai as genai
-        
+        # 단계별 소요 시간(초)을 끝에 한 줄로 남긴다(운영 확인: 제출부터 완료까지 약 3분이 걸렸는데 어느 단계가 느린지 몰랐다).
+        _t0 = _time.time()
+        _stage = {}
+        def _mark(name, since):
+            now = _time.time()
+            _stage[name] = round(now - since, 1)
+            return now
+
         genai.configure(api_key=GEMINI_KEY)
         
         uploaded_file = None
@@ -1908,11 +1941,14 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
         from mcp_agent_sync import get_mcp_context_sync
         
         # Call the new MCP Agent to search both laws and precedents
+        _t = _mark("준비(파일·모델목록)", _t0)
         mcp_rag_context = get_mcp_context_sync(full_query_for_rag)
-        
+        _t = _mark("법제처 컨텍스트(MCP)", _t)
+
         moleg_context = f"[법제처 API 실시간 RAG 검색 결과 (MCP Agent)]\n{mcp_rag_context}"
         precedent_context = "" # Merged into moleg_context
         local_law_context = fetch_local_law_data(full_query_for_rag, moleg_context)
+        _t = _mark("로컬 법령 DB", _t)
         
         raw_text = text_content.strip()
         has_file = bool(file_obj_exists or file_text or uploaded_file)
@@ -2001,7 +2037,10 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
         # 🚨 법조항 인용 검증 패스(공용 헬퍼: verify_law_citations_via_search 참고). 이
         # 함수도 파일 첨부 시 구버전 SDK로 실행돼 설계도서 검토와 똑같은 "법조항 번호를
         # 기억에만 의존해 답함" 위험에 노출되므로 같은 검증을 적용한다.
-        verified_result = verify_law_citations_via_search(response.text)
+        _t = _mark("본 답변 생성", _t)
+        # 서버가 법제처에서 직접 가져온 원문을 근거로 넘겨, 원문으로 확인된 인용을 검색 실패를 이유로 지우지 못하게 한다.
+        verified_result = verify_law_citations_via_search(response.text, source_context=mcp_rag_context)
+        _t = _mark("법조항 검증 패스(구글검색)", _t)
 
         file_name = uploaded_file.name if uploaded_file else ""
         # 이번에 법제처에서 가져온 고시·지침: 링크를 /행정규칙/ 주소로 맞추고(그래야 아래 citation_check가 고시
@@ -2010,6 +2049,8 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
         final_result = annotate_unverified_citations(
             linkify_law_citations(verified_result, extract_law_names_from_context(mcp_rag_context), adm_infos))
         final_result += admrul_footer(final_result, adm_infos)
+        _mark("후처리(링크·인용검증)", _t)
+        print(f"[run_other_review] 단계별 소요(초): {_stage} / 합계 {round(_time.time() - _t0, 1)}")
         JOBS[job_id] = {
             "status": "completed",
             # linkify 이후 최종 텍스트의 조문 링크를 법제처 실제 조문과 대조해, 원문과 안 맞는 인용에

@@ -87,6 +87,10 @@ class OfflineTests(unittest.TestCase):
         self.assertIsNone(right)                                    # 하나라도 포함하면 통과
         self.assertIsNone(cc._check_single_quoted_terms([({"no": 1, "br": 0, "claim": "따옴표 없는 문장"}, "x")]))
         self.assertIsNone(cc._check_single_quoted_terms([]))
+        # 문구를 조금 바꿔 쓴 인용은 통과(운영 재확인에서 나온 오탐: 조문 "…공사감독자의 배치 계획")
+        para = {"no": 39, "br": 2, "claim": "계획에는 '건설사업관리기술인 배치 계획'이 포함되어야 한다"}
+        body = '건설기술인(이하 "건설사업관리기술인"이라 한다) 또는 공사감독자의 배치 계획 그 밖의 사항'
+        self.assertIsNone(cc._check_single_quoted_terms([(para, body)]))
         # 짧은 인용('원칙') 사이의 문장 조각을 용어로 오인하지 않는다(운영 답변 재처리에서 발견한 오탐)
         short = {"no": 9, "br": 0, "claim": "산정을 '원칙'으로 규정하고, 시공단계 기술인수에 '포함한다'고 명시한다"}
         self.assertIsNone(cc._check_single_quoted_terms([(short, "산정하는 것을 원칙으로 한다. 기술인수는 포함한다")]))
@@ -163,6 +167,33 @@ class PostProcessTests(unittest.TestCase):
         text = "건설기술 진흥법 제39조에 따른다."
         self.assertEqual(self.ll.linkify_law_citations(text), self.ll.linkify_law_citations(text, None, None))
         self.assertIn("law.go.kr/법령/", self.ll.linkify_law_citations(text))
+
+
+class VerifyPromptTests(unittest.TestCase):
+    """구글 검색 검증 패스가 법제처 원문으로 확인된 고시 인용을 지우던 문제(운영 확인)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import app
+        cls.app = app
+
+    def test_prompt_carries_source_text_and_priority_rule(self):
+        p = self.app._build_citation_verify_prompt("초안 본문", "[행정규칙 원문 발췌: X]\n별표 2 바. 10%")
+        self.assertIn("[법제처 원문", p)
+        self.assertIn("별표 2 바. 10%", p)
+        self.assertIn("원문 우선 원칙", p)
+        self.assertIn("초안 본문", p)
+        self.assertIn("(정확한 근거 조항 확인 필요)", p)           # 원문에 없는 번호는 여전히 지울 수 있다
+
+    def test_prompt_without_source_has_no_source_block(self):
+        p = self.app._build_citation_verify_prompt("초안 본문")
+        self.assertNotIn("원문 우선 원칙", p)
+        self.assertNotIn("[법제처 원문", p)
+        self.assertIn("[검증 원칙]", p)
+
+    def test_source_text_is_capped(self):
+        p = self.app._build_citation_verify_prompt("초안", "가" * 100000)
+        self.assertLess(p.count("가"), self.app.SOURCE_CONTEXT_FOR_VERIFY_MAX + 200)
 
 
 @needs_net
