@@ -39,6 +39,9 @@ _LAW_ONLY_PATH = re.compile(r'^https?://(?:www\.)?law\.go\.kr/법령/([^/?#]+)$'
 # 고시·훈령·예규·지침(행정규칙) 링크: /행정규칙/<이름>[/제N조]
 _ADM_ART_PATH = re.compile(r'^https?://(?:www\.)?law\.go\.kr/행정규칙/([^/?#]+)/제(\d+)조(?:의(\d+))?$')
 _ADM_ONLY_PATH = re.compile(r'^https?://(?:www\.)?law\.go\.kr/행정규칙/([^/?#]+)$')
+# 고시명 링크 바로 뒤의 "(국토교통부고시) 제13조 및 제23조" 같은 조항 나열
+_TRAIL_ARTS = re.compile(
+    r'^(\s*(?:\([^)\n]{1,20}\))?\s*)((?:제\s?\d+조(?:의\s?\d+)?)(?:\s*(?:및|,|와|과|또는)\s*제\s?\d+조(?:의\s?\d+)?)*)')
 _PERCENT = re.compile(r'(\d+(?:\.\d+)?)\s*(?:%|퍼센트)')
 _BYEOLPYO = re.compile(r'별표\s*(\d+)(?:\s*의\s*(\d+))?')
 _BYEOLPYO_AFTER = re.compile(r'^\s*\[?\s*별표\s*(\d+)(?:\s*의\s*(\d+))?\s*\]?')
@@ -212,6 +215,20 @@ def _find_citations(text: str):
                 'label': label, 'end': end, 'claim': _claim_for(text, m.start()),
                 'near': '', 'line_cites': line_cites,
             })
+        elif adm:
+            # 고시명 링크 뒤에 조항 번호가 떨어져 쓰인 경우("[…지침](링크)(국토교통부고시) 제13조 및 제23조")도
+            # 각 조를 그 고시의 조문으로 보고 검증한다(운영 확인: 링크에 조가 없다는 이유로 가짜 조항 번호를 놓침).
+            trail = _TRAIL_ARTS.match(text[m.end():m.end() + 80])
+            if trail:
+                arts = list(re.finditer(r'제\s?(\d+)조(?:의\s?(\d+))?', trail.group(2)))
+                for a in arts:
+                    cites.append({
+                        'kind': 'art', 'adm': True, 'law': re.sub(r'\s+', '', base.group(1)),
+                        'no': int(a.group(1)), 'br': int(a.group(2)) if a.group(2) else 0,
+                        'label': label, 'end': m.end() + len(trail.group(1)) + a.end(),
+                        'claim': _claim_for(text, m.start()), 'near': before, 'after': '',
+                        'line_cites': line_cites + len(arts) - 1,
+                    })
     return cites
 
 
@@ -435,6 +452,29 @@ def _check_percent(c, body: str):
     return f" 💡(참고: 문장의 비율({shown})이 인용한 {label} 원문에서 확인되지 않습니다. 원문 확인 필요)"
 
 
+# 길이 제한(4~40자)은 짝을 지은 뒤에 건다. 정규식 안에서 걸면 '원칙' 같은 짧은 인용이 짝으로 인정되지 않아
+# 닫는 따옴표가 다음 인용의 여는 따옴표로 잘못 짝지어진다(운영 답변 재처리에서 발견한 오탐).
+_SQUOTE = re.compile(r"['‘]([^'’\n]*)['’]")
+
+
+def _check_single_quoted_terms(items):
+    """문장에 작은따옴표로 옮긴 용어가 그 문장이 인용한 조문들 중 어디에도 없으면 참고 💡를 돌려준다.
+
+    items = [(cite, 조문 본문), ...] (같은 문장에 걸린 인용들). 존재하는 조문 번호라도 엉뚱한 조일 수 있다
+    (운영 확인: '지정신고서'가 나오는 조는 제50조·제80조인데 제13조·제23조로 인용). 주제만 보는 LLM 판정이
+    놓치는 경우를 용어 대조로 보완한다. 하나라도 포함하면 통과시켜 오탐을 줄인다."""
+    if not items:
+        return None
+    bodies = [_norm(b) for _c, b in items]
+    for term in _SQUOTE.findall(items[0][0].get('claim', '')):
+        nt = _norm(term)
+        if 4 <= len(term.strip()) <= 40 and len(nt) >= 4 and not any(nt in b for b in bodies):
+            labels = ", ".join(dict.fromkeys(
+                f"제{c['no']}조" + (f"의{c['br']}" if c['br'] else '') for c, _b in items))
+            return f" 💡(참고: 문장에 인용된 '{term}'이(가) 인용한 {labels} 원문에서 확인되지 않습니다. 다른 조문일 수 있으니 원문 확인 필요)"
+    return None
+
+
 def annotate_unverified_citations(text: str) -> str:
     """linkify 이후의 최종 텍스트에서, 실제 조문/별표와 맞지 않는 법령 인용 뒤에 ⚠️ 경고를 붙인다.
     어떤 단계에서든 실패하면 원문을 그대로 돌려준다."""
@@ -458,6 +498,7 @@ def annotate_unverified_citations(text: str) -> str:
                 notes[end] = notes[end] + note if end in notes else note
 
         to_judge = []
+        by_claim = {}       # 같은 문장(주장)에 걸린 조문 인용들 -> [(cite, 본문)]
         for c in cites:
             law = loaded.get((c.get('adm', False), c['law']))
             if law is None:
@@ -475,7 +516,10 @@ def annotate_unverified_citations(text: str) -> str:
                 continue
             add_note(c['end'], _check_quotes(c, art[1]))
             add_note(c['end'], _check_percent(c, art[1]))
+            by_claim.setdefault(c['claim'], []).append((c, art[1]))
             to_judge.append({**c, 'law_display': c['law'], 'title': art[0], 'body': art[1]})
+        for items in by_claim.values():
+            add_note(items[-1][0]['end'], _check_single_quoted_terms(items))
 
         verdicts = _judge(to_judge) if to_judge else {}
         for i, it in enumerate(to_judge):

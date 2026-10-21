@@ -131,18 +131,22 @@ def _name_pattern(name: str) -> str:
     return r'\s?'.join(chars)
 
 
-_LAW_LINK_WITH_URL = re.compile(r'(' + _LINK_TEXT + r')\((https?://(?:www\.)?law\.go\.kr/[^)\s]*)\)')
+_LAW_LINK_WITH_URL = re.compile(r'(' + _LINK_TEXT + r')\((https?://(?:www\.)?law\.go\.kr/[^)\n]*)\)')
 _SUPPORTED_ARTICLE_PATH = re.compile(r'/제\d+조(?:의\d+)?')
 
 
-def _fix_law_url(url: str) -> str:
+def _fix_law_url(url: str, adm_by_key=None) -> str:
     """AI가 직접 쓴 law.go.kr 법령 링크의 URL을 우리가 검증한 형태로만 남긴다.
 
     law.go.kr의 /법령/<법령명> 과 /법령/<법령명>/제N조(의M) 는 열리지만, AI는 종종
     존재하지 않는 하위 경로를 지어낸다 - 실사용 중 발견: ".../체육시설의설치·이용에관한법률시행령/별표2"
     같은 링크를 쓰는데 실제로 열면 "국가법령정보센터 | 오류페이지"가 뜬다. 지원되지 않는
     하위 경로(별표/서식 등)는 떼어내고 법령 본문 링크로 낮추며(링크가 오류 페이지로 가는 것보다
-    법령 페이지로 가는 게 낫다), 법령명은 공백 제거 + 가운뎃점 공식 표기로 통일한다."""
+    법령 페이지로 가는 게 낫다), 법령명은 공백 제거 + 가운뎃점 공식 표기로 통일한다.
+
+    adm_by_key({공백제거 고시명: 정보})가 주어지면, 이번에 법제처에서 가져온 고시·지침을 AI가 /법령/ 주소로
+    잘못 연결한 경우(실사용 중 발견: 「건설공사 사업관리방식 검토기준 및 업무수행지침」을 /법령/으로 링크)
+    /행정규칙/<공식 고시명> 주소로 바로잡는다. 그래야 citation_check가 그 인용을 고시 원문과 대조할 수 있다."""
     decoded = urllib.parse.unquote(url)
     m = re.match(r'(https?://(?:www\.)?law\.go\.kr/법령/)([^/?#]+)(/[^?#]*)?$', decoded)
     if not m:
@@ -150,6 +154,12 @@ def _fix_law_url(url: str) -> str:
     base, name, rest = m.group(1), m.group(2), m.group(3) or ''
     if rest and not _SUPPORTED_ARTICLE_PATH.fullmatch(rest):
         rest = ''
+    adm = (adm_by_key or {}).get(_canon_dots(_nospace(name)))
+    if adm:
+        fixed = LAW_URL.replace('/법령/', '/행정규칙/') + urllib.parse.quote(adm['name'], safe='')
+        if rest:
+            fixed += '/' + urllib.parse.quote(rest[1:], safe='')
+        return fixed
     fixed = base + urllib.parse.quote(_canon_dots(_nospace(name)), safe='')
     if rest:
         fixed += '/' + urllib.parse.quote(rest[1:], safe='')
@@ -179,9 +189,9 @@ def _fix_link_target(label_md: str, target: str) -> str:
     return f"{label_md[1:-1]} ({t})"            # URL이 아닌 대상 -> 평문
 
 
-def _repair_ai_links(text: str) -> str:
+def _repair_ai_links(text: str, adm_by_key=None) -> str:
     text = _ANY_LINK.sub(lambda m: _fix_link_target(m.group(1), m.group(2)), text)
-    return _LAW_LINK_WITH_URL.sub(lambda m: f"{m.group(1)}({_fix_law_url(m.group(2))})", text)
+    return _LAW_LINK_WITH_URL.sub(lambda m: f"{m.group(1)}({_fix_law_url(m.group(2), adm_by_key)})", text)
 
 
 def extract_law_names_from_context(context: str) -> list:
@@ -189,10 +199,58 @@ def extract_law_names_from_context(context: str) -> list:
     return re.findall(r'\[법령 원문 발췌: ([^\]\n]+)\]', context or '')
 
 
-def linkify_law_citations(text: str, extra_names=None) -> str:
+# moleg_mcp.search_admrul_with_text가 만드는 고시 헤더를 읽는다. 두 곳의 형식은 반드시 함께 바꿀 것:
+#   [행정규칙 원문 발췌: 이름] (소관 종류, 시행 YYYY-MM-DD, 현행|현행 아님, 법제처 조회 YYYY-MM-DD) (링크)
+#   ※ YYYY-MM-DD 시행 예정인 개정본이 있습니다. ...        <- 시행예정 개정본이 있을 때만
+_ADMRUL_HEADER = re.compile(
+    r'\[행정규칙 원문 발췌: ([^\]\n]+)\] \(([^,\n]*), 시행 ([0-9-]+), (현행 아님|현행), 법제처 조회 ([0-9-]+)\) '
+    r'\((https?://[^)\s]+)\)(?:\n※ (\d{4}-\d{2}-\d{2}) 시행 예정)?')
+
+
+def extract_admrul_info_from_context(context: str) -> list:
+    """검색 컨텍스트에서 이번에 가져온 고시·지침의 이름, 시행일, 현행 여부 등을 뽑는다(없으면 빈 목록)."""
+    infos = []
+    for m in _ADMRUL_HEADER.finditer(context or ''):
+        infos.append({'name': m.group(1).strip(), 'org_kind': m.group(2).strip(), 'ymd': m.group(3),
+                      'status': m.group(4), 'queried': m.group(5), 'url': m.group(6),
+                      'pending': m.group(7) or ''})
+    return infos
+
+
+def admrul_footer(answer: str, infos: list) -> str:
+    """답변이 실제로 언급한 고시·지침의 시행일/현행 여부를 답변 끝에 붙일 푸터로 만든다.
+
+    프롬프트로 "시행일을 함께 밝히라"고 지시해도 모델이 빼먹는 일이 있었다(운영 확인: 제9조·별표 2는 정확히
+    인용했지만 시행일은 한 번도 안 씀). 시행일은 법제처에서 가져온 사실이므로 모델에 맡기지 않고 서버가 답변
+    뒤에 결정적으로 붙인다. 가져왔어도 답변에서 언급하지 않은 고시는 싣지 않는다."""
+    flat = _nospace(answer or '')
+    used = [i for i in infos or [] if _nospace(i['name']) in flat]
+    if not used:
+        return ''
+    lines = ["", "---", "**📌 참고한 고시·지침의 현행 정보** (법제처 API 조회 기준)"]
+    for i in used:
+        line = f"- [{i['name']}]({i['url']}) ({i['org_kind']}) — 시행 {i['ymd']}, {i['status']}, 조회 {i['queried']}"
+        if i['pending']:
+            line += f" ※ {i['pending']} 시행 예정인 개정본이 있어 그 이후에는 내용이 달라질 수 있습니다"
+        lines.append(line)
+    lines.append("기안·인용 전에 법제처(law.go.kr)에서 최종 확인하십시오.")
+    return "\n".join(lines)
+
+
+_BYEOLPYO_REF = r'(?:\s*\[?\s*별표\s?\d+(?:\s?의\s?\d+)?\s*\]?)'
+
+
+def linkify_law_citations(text: str, extra_names=None, admrul_infos=None) -> str:
     if not text:
         return text
     known = _known_names(extra_names)
+    # 이번에 가져온 고시·지침: 이름이 나오면 /행정규칙/ 주소로 연결한다("제N조"/"별표 N"이 뒤따르면 함께).
+    adm_by_key = {_canon_dots(_nospace(i['name'])): i for i in (admrul_infos or [])}
+    adm_re = None
+    if adm_by_key:
+        adm_alt = "|".join(_name_pattern(i['name']) for i in
+                           sorted(adm_by_key.values(), key=lambda i: len(i['name']), reverse=True))
+        adm_re = re.compile(r'[「『]?(' + adm_alt + r')[」』]?(?:(' + _ARTICLE + r')' + _SUBITEM + r'|' + _BYEOLPYO_REF + r')?')
     # 긴 이름부터 시도해야 "…시행규칙"이 "…법"에 먼저 먹히지 않는다.
     names = sorted(known, key=len, reverse=True)
     known_re = None
@@ -217,6 +275,21 @@ def linkify_law_citations(text: str, extra_names=None) -> str:
                 return _OPEN + str(len(holders) - 1) + _CLOSE
             part = _BRACKETED.sub(repl_bracket, part)
 
+            # 1-2) 이번에 가져온 고시·지침(/행정규칙/ 주소). 법령명 매칭(2단계)이 고시명 속 단어를 먼저 건드리지
+            #      않도록 자리표시자로 감싸 둔다.
+            if adm_re is not None:
+                def repl_adm(m):
+                    info = adm_by_key.get(_canon_dots(_nospace(m.group(1))))
+                    if not info:
+                        return m.group(0)
+                    url = LAW_URL.replace('/법령/', '/행정규칙/') + urllib.parse.quote(info['name'], safe='')
+                    art = _nospace(m.group(2) or '')
+                    if art:
+                        url += '/' + urllib.parse.quote(art, safe='')
+                    holders.append(f"[{m.group(0)}]({url})")
+                    return _OPEN + str(len(holders) - 1) + _CLOSE
+                part = adm_re.sub(repl_adm, part)
+
             # 2) 알려진 법령명(약칭 포함)
             if known_re is not None:
                 def repl_known(m):
@@ -232,5 +305,6 @@ def linkify_law_citations(text: str, extra_names=None) -> str:
     # 코드블록은 통째로 제외
     pieces = re.split(r'(```.*?```)', text, flags=re.S)
     return "".join(
-        p if p.startswith('```') else process(_repair_ai_links(_CODE_LINK.sub(r'\1', _CODE_CITATION.sub(r'\1', p))))
+        p if p.startswith('```') else process(
+            _repair_ai_links(_CODE_LINK.sub(r'\1', _CODE_CITATION.sub(r'\1', p)), adm_by_key))
         for p in pieces)

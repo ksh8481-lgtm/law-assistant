@@ -19,7 +19,8 @@ try:
 except Exception as e:
     print(f"Failed to import kcsc_engine: {e}")
     kcsc_engine = None
-from law_linkify import linkify_law_citations, extract_law_names_from_context
+from law_linkify import (linkify_law_citations, extract_law_names_from_context,
+                         extract_admrul_info_from_context, admrul_footer)
 from citation_check import annotate_unverified_citations
 import pq_engine
 import pq_extract
@@ -2003,12 +2004,17 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
         verified_result = verify_law_citations_via_search(response.text)
 
         file_name = uploaded_file.name if uploaded_file else ""
+        # 이번에 법제처에서 가져온 고시·지침: 링크를 /행정규칙/ 주소로 맞추고(그래야 아래 citation_check가 고시
+        # 조문·별표를 원문과 대조한다), 시행일/현행 여부는 모델이 빼먹어도 답변 끝에 서버가 붙인다.
+        adm_infos = extract_admrul_info_from_context(mcp_rag_context)
+        final_result = annotate_unverified_citations(
+            linkify_law_citations(verified_result, extract_law_names_from_context(mcp_rag_context), adm_infos))
+        final_result += admrul_footer(final_result, adm_infos)
         JOBS[job_id] = {
             "status": "completed",
             # linkify 이후 최종 텍스트의 조문 링크를 법제처 실제 조문과 대조해, 원문과 안 맞는 인용에
             # ⚠️ 경고를 붙인다(citation_check 참고). 구글 검색 기반 검증 패스가 놓친 가짜 조항을 잡는 2중 방어.
-            "result": annotate_unverified_citations(
-                linkify_law_citations(verified_result, extract_law_names_from_context(mcp_rag_context))),
+            "result": final_result,
             "file_name": file_name,
             "initial_context": full_query_for_rag
         }

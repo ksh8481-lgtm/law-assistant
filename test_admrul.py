@@ -76,6 +76,21 @@ class OfflineTests(unittest.TestCase):
         self.assertEqual((bp["law"], bp["no"]), ("건설엔지니어링대가등에관한기준", 2))
         self.assertEqual(bp["line_cites"], 1)
 
+    def test_single_quoted_term_must_appear_in_cited_articles(self):
+        c = {"no": 13, "br": 0, "claim": "착수 시 '상주, 기술지원 기술인 지정신고서'를 제출한다"}
+        c2 = {**c, "no": 23}
+        wrong = cc._check_single_quoted_terms([(c, "제13조(과업착수준비) 업무수행계획서를 작성한다"),
+                                               (c2, "제23조(발주방식 결정 지원) 발주방식을 정한다")])
+        self.assertIn("지정신고서", wrong)
+        self.assertIn("제13조, 제23조", wrong)
+        right = cc._check_single_quoted_terms([(c, "제13조 ..."), ({**c, "no": 50}, "3. 상주, 기술지원 기술인 지정신고서")])
+        self.assertIsNone(right)                                    # 하나라도 포함하면 통과
+        self.assertIsNone(cc._check_single_quoted_terms([({"no": 1, "br": 0, "claim": "따옴표 없는 문장"}, "x")]))
+        self.assertIsNone(cc._check_single_quoted_terms([]))
+        # 짧은 인용('원칙') 사이의 문장 조각을 용어로 오인하지 않는다(운영 답변 재처리에서 발견한 오탐)
+        short = {"no": 9, "br": 0, "claim": "산정을 '원칙'으로 규정하고, 시공단계 기술인수에 '포함한다'고 명시한다"}
+        self.assertIsNone(cc._check_single_quoted_terms([(short, "산정하는 것을 원칙으로 한다. 기술인수는 포함한다")]))
+
     def test_find_citations_keeps_law_links_as_non_admrul(self):
         cites = cc._find_citations("[건설기술 진흥법 제39조](https://www.law.go.kr/법령/건설기술진흥법/제39조)")
         self.assertEqual(len(cites), 1)
@@ -90,8 +105,107 @@ class OfflineTests(unittest.TestCase):
         self.assertIsNone(cc._check_percent({**base, "claim": "비율을 곱한다"}, body))
 
 
+GUIDE_NAME = "건설공사 사업관리방식 검토기준 및 업무수행지침"
+SAMPLE_CONTEXT = (
+    f"[행정규칙 원문 발췌: {CM_NAME}] (국토교통부 고시, 시행 2023-10-17, 현행, 법제처 조회 2026-10-21) "
+    f"(https://www.law.go.kr/행정규칙/%EA%B1%B4)\n제9조 ...\n\n"
+    f"[행정규칙 원문 발췌: {GUIDE_NAME}] (국토교통부 고시, 시행 2026-07-08, 현행, 법제처 조회 2026-10-21) "
+    f"(https://www.law.go.kr/행정규칙/%EA%B1%B5)\n※ 2027-01-01 시행 예정인 개정본이 있습니다. 아래는 ...\n제8조 ...")
+
+
+class PostProcessTests(unittest.TestCase):
+    """운영 확인에서 드러난 문제: 시행일 미표기, 고시를 /법령/ 주소로 링크, 링크 없는 고시 인용."""
+
+    def setUp(self):
+        import law_linkify as ll
+        self.ll = ll
+        self.infos = ll.extract_admrul_info_from_context(SAMPLE_CONTEXT)
+
+    def test_extract_info_parses_headers_and_pending(self):
+        self.assertEqual([i["name"] for i in self.infos], [CM_NAME, GUIDE_NAME])
+        self.assertEqual((self.infos[0]["ymd"], self.infos[0]["status"], self.infos[0]["pending"]),
+                         ("2023-10-17", "현행", ""))
+        self.assertEqual(self.infos[1]["pending"], "2027-01-01")
+        self.assertEqual(self.ll.extract_admrul_info_from_context("고시 없음"), [])
+
+    def test_footer_lists_only_mentioned_admruls_with_effective_date(self):
+        footer = self.ll.admrul_footer(f"{CM_NAME} 제9조에 따라 산정한다.", self.infos)
+        self.assertIn("시행 2023-10-17, 현행", footer)
+        self.assertNotIn(GUIDE_NAME, footer)
+        self.assertEqual(self.ll.admrul_footer("고시 언급 없음", self.infos), "")
+        both = self.ll.admrul_footer(f"{CM_NAME}, {GUIDE_NAME}", self.infos)
+        self.assertIn("2027-01-01 시행 예정", both)
+
+    def test_wrong_law_url_for_admrul_is_rewritten_to_admrul_url(self):
+        text = f"[{GUIDE_NAME}](https://www.law.go.kr/법령/건설공사사업관리방식검토기준및업무수행지침/제13조)"
+        out = self.ll.linkify_law_citations(text, None, self.infos)
+        self.assertIn("law.go.kr/행정규칙/", out)
+        self.assertNotIn("law.go.kr/법령/", out)
+        self.assertTrue(out.endswith("%EC%A0%9C13%EC%A1%B0)"))     # 제13조 경로 유지
+
+    def test_bare_admrul_mentions_get_admrul_links(self):
+        out = self.ll.linkify_law_citations(
+            f"「{CM_NAME}」 제9조 ①과 {CM_NAME} 별표 2를 따른다.", None, self.infos)
+        self.assertEqual(out.count("](https://www.law.go.kr/행정규칙/"), 2)
+        self.assertIn("/%EC%A0%9C9%EC%A1%B0)", out)            # 제9조까지 연결
+        self.assertIn(f"[{CM_NAME} 별표 2](", out)              # 별표는 라벨에 포함(주소는 고시 본문)
+        self.assertNotIn("law.go.kr/법령/", out)
+
+    def test_existing_admrul_links_and_law_links_are_untouched(self):
+        text = (f"[{CM_NAME} 제9조](https://www.law.go.kr/행정규칙/{CM_NAME}/제9조) "
+                "[건설기술 진흥법 제39조](https://www.law.go.kr/법령/건설기술진흥법/제39조)")
+        out = self.ll.linkify_law_citations(text, None, self.infos)
+        self.assertIn("/행정규칙/", out)
+        self.assertIn("law.go.kr/법령/%EA%B1%B4%EC%84%A4%EA%B8%B0%EC%88%A0%EC%A7%84%ED%9D%A5%EB%B2%95/", out)
+        self.assertEqual(out.count("]("), 2)                    # 링크 안에 링크가 생기지 않음
+
+    def test_without_admrul_infos_behaves_as_before(self):
+        text = "건설기술 진흥법 제39조에 따른다."
+        self.assertEqual(self.ll.linkify_law_citations(text), self.ll.linkify_law_citations(text, None, None))
+        self.assertIn("law.go.kr/법령/", self.ll.linkify_law_citations(text))
+
+
 @needs_net
 class OnlineTests(unittest.TestCase):
+    def test_real_header_matches_the_parser(self):
+        """moleg_mcp가 만드는 헤더 형식과 law_linkify의 파서가 어긋나면(한쪽만 바꾸면) 여기서 걸린다."""
+        import law_linkify as ll
+        out = m.search_admrul_with_text([CM_NAME], TOPIC)
+        infos = ll.extract_admrul_info_from_context(out)
+        self.assertEqual(len(infos), 1)
+        self.assertEqual(infos[0]["name"], CM_NAME)
+        self.assertEqual(infos[0]["status"], "현행")
+        self.assertRegex(infos[0]["ymd"], r"^\d{4}-\d{2}-\d{2}$")
+
+    def test_articles_listed_after_admrul_link_are_verified(self):
+        """운영 확인: '[…지침](링크)(국토교통부고시) 제13조 및 제23조'처럼 링크 뒤에 조가 떨어져 있으면 검증이 안 됐다."""
+        url = "https://www.law.go.kr/행정규칙/" + GUIDE_NAME
+        text = f"[{GUIDE_NAME}]({url})(국토교통부고시) 제8조 및 제999조: 배치기준을 정한다."
+        cites = cc._find_citations(text)
+        self.assertEqual([(c["no"], c["adm"]) for c in cites], [(8, True), (999, True)])
+        out = cc.annotate_unverified_citations(text)
+        self.assertNotIn("제8조는 존재하지 않는", out)
+        self.assertIn("제999조는 존재하지 않는 조문", out)
+        self.assertLess(out.index("제8조"), out.index("⚠️"))        # 경고는 해당 조 바로 뒤에 붙는다
+
+    def test_wrong_but_existing_article_is_flagged_by_quoted_term(self):
+        """운영 답변의 실제 사례: 지정신고서는 제50조·제80조에 있는데 제13조·제23조로 인용했다(둘 다 존재하는 조문)."""
+        url = "https://www.law.go.kr/행정규칙/" + GUIDE_NAME
+        wrong = (f"[{GUIDE_NAME}]({url})(국토교통부고시) 제13조 및 제23조: 착수 시 "
+                 f"'상주, 기술지원 기술인 지정신고서'를 포함한다.")
+        right = wrong.replace("제13조 및 제23조", "제50조")
+        self.assertIn("지정신고서'이(가) 인용한 제13조, 제23조", cc.annotate_unverified_citations(wrong))
+        self.assertNotIn("💡", cc.annotate_unverified_citations(right))
+
+    def test_bare_citation_is_linked_then_verified(self):
+        """링크 없이 쓴 고시 인용도 링크가 달리고, 없는 조문이면 경고가 붙는다(운영에서 못 잡던 경로)."""
+        import law_linkify as ll
+        infos = ll.extract_admrul_info_from_context(m.search_admrul_with_text([CM_NAME], TOPIC))
+        text = f"{CM_NAME} 제9조에 따라 포함한다.\n{CM_NAME} 제99조에 따른다.\n"
+        lines = cc.annotate_unverified_citations(ll.linkify_law_citations(text, None, infos)).splitlines()
+        self.assertNotIn("⚠️", lines[0])
+        self.assertIn("제99조는 존재하지 않는 조문", lines[1])
+
     def test_lookup_returns_current_exact_match_only(self):
         meta = m._lookup_admrul(CM_NAME)
         self.assertIsNotNone(meta)
