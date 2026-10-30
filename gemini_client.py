@@ -74,6 +74,43 @@ def _log(label, model, seconds, resp):
           f"think={getattr(um, 'thoughts_token_count', None)}")
 
 
+def _part(p):
+    """구 SDK 시절 형식의 조각을 신 SDK 형식으로 바꾼다. 문자열 -> {"text"}, 파일 객체(uri/mime_type) -> {"file_data"}."""
+    if isinstance(p, str):
+        return {"text": p}
+    if isinstance(p, dict):
+        return p
+    uri, mime = getattr(p, "uri", None), getattr(p, "mime_type", None)
+    if uri:
+        return {"file_data": {"file_uri": uri, "mime_type": mime}}
+    return p
+
+
+def normalize_contents(contents):
+    """구 SDK 형식의 contents를 신 SDK가 받는 형식으로 바꾼다(신 형식은 그대로 둔다).
+
+    - 채팅 기록 {"role": "user"|"model", "parts": ["문자열", 파일객체, ...]} 의 parts 안 문자열/파일 객체를 변환한다.
+      신 SDK는 parts 안의 맨 문자열을 받지 않는다.
+    - 최상위 리스트의 문자열·파일 조각 dict는 신 SDK가 그대로 받으므로 건드리지 않는다.
+    - 최상위 리스트에 파일 객체(uri/mime_type 속성)가 직접 들어 있으면 file_data로 바꾼다."""
+    if isinstance(contents, list):
+        out = []
+        for c in contents:
+            if isinstance(c, dict) and "parts" in c:
+                out.append({**c, "parts": [_part(p) for p in c["parts"]]})
+            elif isinstance(c, (str, dict)):
+                out.append(c)
+            else:
+                out.append(_part(c))
+        return out
+    return contents
+
+
+def get_file(name):
+    """업로드해 둔 파일을 이름("files/...")으로 다시 가져온다(구 SDK의 genai.get_file 대체)."""
+    return get_client().files.get(name=name)
+
+
 def generate(contents, model=None, temperature=None, json_mode=False, search=False, label="", thinking_budget=None):
     """한 번 호출해서 응답 객체(.text, .usage_metadata)를 돌려준다.
 
@@ -96,7 +133,7 @@ def generate(contents, model=None, temperature=None, json_mode=False, search=Fal
         kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=thinking_budget)
     config = types.GenerateContentConfig(**kwargs) if kwargs else None
     t = time.time()
-    resp = get_client().models.generate_content(model=model, contents=contents, config=config)
+    resp = get_client().models.generate_content(model=model, contents=normalize_contents(contents), config=config)
     _log(label, model, time.time() - t, resp)
     return resp
 

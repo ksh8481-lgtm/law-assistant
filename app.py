@@ -5,7 +5,6 @@ import xml.etree.ElementTree as ET
 import urllib.parse
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-import google.generativeai as genai
 import random
 # dotenv removed
 
@@ -317,12 +316,6 @@ def get_supervisor_checklist():
             project_data = request.json
             if project_data.get('description') or project_data.get('budget'):
                 if GEMINI_KEY:
-                    genai.configure(api_key=GEMINI_KEY)
-                    try:
-                        model = genai.GenerativeModel('models/gemini-2.5-flash')
-                    except:
-                        model = genai.GenerativeModel('models/gemini-2.0-flash')
-                    
                     prompt = f"""
 당신은 현장 공사감독관을 위한 맞춤형 체크리스트 필터링 AI입니다.
 아래 [사업 개요]를 꼼꼼히 읽고, 이어지는 [전체 체크리스트 DB]의 항목(task) 중에서 이 공사에 **해당하지 않거나 불필요한 항목의 task_id**를 추출하세요.
@@ -347,7 +340,8 @@ def get_supervisor_checklist():
 제외할 항목이 없으면 빈 배열 []을 반환하세요.
 """
                     try:
-                        response = model.generate_content(prompt)
+                        response, _ = gemini_client.generate_with_fallback(
+                            prompt, models=[gemini_client.fast_model(), gemini_client.main_model()], label="체크리스트 필터")
                         resp_text = response.text.strip()
                         if resp_text.startswith("```json"): resp_text = resp_text[7:]
                         if resp_text.startswith("```"): resp_text = resp_text[3:]
@@ -417,8 +411,6 @@ def extract_parcel_from_drawing():
         temp_path = os.path.join(temp_dir, f"drawing_{uuid.uuid4().hex}{ext}")
         file.save(temp_path)
         
-        genai.configure(api_key=GEMINI_KEY)
-        
         try:
             uploaded_file = upload_file_for_gemini(temp_path)
 
@@ -435,20 +427,8 @@ def extract_parcel_from_drawing():
             ]
             """
             
-            try:
-                available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            except:
-                available_models = []
-            model_name = None
-            for preferred in ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']:
-                if preferred in available_models:
-                    model_name = preferred
-                    break
-            if not model_name:
-                model_name = 'models/gemini-2.5-flash'
-
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content([prompt, gemini_file_part(uploaded_file)])
+            response, _ = gemini_client.generate_with_fallback(
+                [prompt, gemini_file_part(uploaded_file)], models=[gemini_client.fast_model(), gemini_client.main_model()], label="도면 지번 추출")
 
             resp_text = response.text.strip()
             if resp_text.startswith("```json"): resp_text = resp_text[7:]
@@ -550,9 +530,6 @@ def search_duties_chunk():
         if not GEMINI_KEY:
             return jsonify({"success": False, "message": "Gemini API 키가 설정되지 않았습니다."})
             
-        genai.configure(api_key=GEMINI_KEY)
-        model_name = 'models/gemini-2.5-flash'
-        model = genai.GenerativeModel(model_name)
         
         # 4. Prompt without 7-item limit but allowing detailed output
         prompt = f"""
@@ -577,7 +554,7 @@ def search_duties_chunk():
   }}
 ]
 """
-        response = model.generate_content(prompt)
+        response = gemini_client.generate(prompt, model=gemini_client.fast_model(), label="의무 추출(조각)")
         resp_text = response.text.strip()
         if resp_text.startswith("```json"): resp_text = resp_text[7:]
         if resp_text.startswith("```"): resp_text = resp_text[3:]
@@ -889,10 +866,6 @@ def search_duties():
         if not GEMINI_KEY:
             return jsonify({"success": False, "message": "Gemini API 키가 설정되지 않았습니다."})
             
-        genai.configure(api_key=GEMINI_KEY)
-        model_name = 'models/gemini-2.5-flash'
-    
-        model = genai.GenerativeModel(model_name)
         prompt = f"""
 다음은 '{exact_law_name}' 법령의 일부 조문입니다:
 {full_text}
@@ -910,7 +883,7 @@ def search_duties():
   }}
 ]
 """
-        response = model.generate_content(prompt)
+        response = gemini_client.generate(prompt, model=gemini_client.fast_model(), label="의무 추출")
         resp_text = response.text.strip()
         if resp_text.startswith("```json"): resp_text = resp_text[7:]
         if resp_text.startswith("```"): resp_text = resp_text[3:]
@@ -1001,24 +974,12 @@ def download_law_to_db(law_name, law_key, md_path):
 
 def extract_keyword_via_llm(text):
     try:
-        genai.configure(api_key=GEMINI_KEY)
         kw_prompt = f"다음 텍스트에서 대한민국 법제처 판례/법령 검색에 가장 적합한 핵심 명사 키워드 딱 1개(예: 영업손실보상, 하도급, 직불)만 추출해. 다른 말은 절대 하지마.\n텍스트: {text[:3000]}"
-        
-        try:
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
-            models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-pro' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3 if '1.5-flash' in x else 4))
-        except:
-            models_to_try = ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']
-            
-        for m in models_to_try:
-            try:
-                model = genai.GenerativeModel(m)
-                kw_res = model.generate_content(kw_prompt)
-                keyword = kw_res.text.strip().replace("'", "").replace('"', "")
-                if len(keyword) > 10: keyword = keyword[:10]
-                if keyword: return keyword
-            except Exception as e:
-                continue
+        kw_res, _ = gemini_client.generate_with_fallback(
+            kw_prompt, models=[gemini_client.fast_model(), gemini_client.main_model()], label="키워드 추출")
+        keyword = kw_res.text.strip().replace("'", "").replace('"', "")
+        if len(keyword) > 10: keyword = keyword[:10]
+        if keyword: return keyword
     except Exception as e:
         pass
     return ""
@@ -1026,29 +987,18 @@ def extract_keyword_via_llm(text):
 
 def extract_cases_via_llm(text, uploaded_file=None):
     try:
-        genai.configure(api_key=GEMINI_KEY)
         kw_prompt = "다음 텍스트나 첨부된 문서에서 인용된 '대법원 판례 사건번호(예: 2010두11641)'를 모두 찾아내어 쉼표로 구분해 줘. 판례가 없으면 '없음'이라고 해.\n텍스트: " + text[:3000]
-        
+
         contents_payload = [kw_prompt]
         if uploaded_file:
             contents_payload.append(uploaded_file)
-            
-        try:
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
-            models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-flash' in x else 1 if '1.5-pro' in x else 2 if '2.5-flash' in x else 3 if 'pro' in x else 4))
-        except:
-            models_to_try = ['models/gemini-1.5-flash', 'models/gemini-2.5-flash', 'models/gemini-2.0-flash']
-            
-        for m in models_to_try:
-            try:
-                model = genai.GenerativeModel(m)
-                res = model.generate_content(contents_payload)
-                result_text = res.text.strip().replace(" ", "").replace("'", "").replace('"', "")
-                if '없음' not in result_text and len(result_text) > 4:
-                    return result_text
-                return ""
-            except Exception as e:
-                continue
+
+        res, _ = gemini_client.generate_with_fallback(
+            contents_payload, models=[gemini_client.fast_model(), gemini_client.main_model()], label="사건번호 추출")
+        result_text = res.text.strip().replace(" ", "").replace("'", "").replace('"', "")
+        if '없음' not in result_text and len(result_text) > 4:
+            return result_text
+        return ""
     except Exception as e:
         pass
     return ""
@@ -1530,39 +1480,10 @@ def verify_parcel():
 
 def run_analysis(job_id, data):
     try:
-        genai.configure(api_key=GEMINI_KEY)
-        # ⚠️ genai.list_models()는 최근 구글이 모델 목록 API 응답에 추가한 "thinking" 필드를
-        # 구버전(EOL 예정) SDK가 파싱하지 못해 TypeError로 죽는다 (앱 전체 공통 문제).
-        # 다른 기능들은 전부 이 호출을 try/except로 감싸 고정 목록으로 폴백하는데
-        # run_analysis(law_review)만 방어 코드가 없어서 분석 자체가 통째로 실패하고
-        # 있었다. 다른 곳과 동일한 방어 패턴 적용.
-        try:
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            if not available_models:
-                raise ValueError("empty model list")
-        except Exception as e:
-            print(f"[run_analysis] genai.list_models() failed, using fallback list: {e}")
-            available_models = ['models/gemini-2.5-pro', 'models/gemini-2.5-flash', 'models/gemini-1.5-pro', 'models/gemini-1.5-flash', 'models/gemini-2.0-flash']
-
-        flash_model_name = None
-        pro_model_name = None
-        
-        for preferred in ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']:
-            if preferred in available_models:
-                flash_model_name = preferred
-                break
-                
-        for preferred in ['models/gemini-2.5-pro', 'models/gemini-1.5-pro']:
-            if preferred in available_models:
-                pro_model_name = preferred
-                break
-                
-        if not flash_model_name: flash_model_name = available_models[0]
-        if not pro_model_name: pro_model_name = flash_model_name # Fallback to flash if no pro
-
-        extractor_model = genai.GenerativeModel(flash_model_name)
-        
-        model = genai.GenerativeModel(pro_model_name)
+        # 모델은 gemini_client에 고정된 이름을 쓴다(예전에는 list_models() 결과를 정렬해 골랐고, 그 호출이 구버전 SDK에서
+        # 응답 필드 파싱 오류로 죽는 일이 있었다).
+        flash_model_name = gemini_client.fast_model()
+        pro_model_name = gemini_client.main_model()
         
         project_name = data.get('projectName', '이름 없음')
         project_type = data.get('projectType', '복합공사')
@@ -1619,7 +1540,7 @@ def run_analysis(job_id, data):
         
         (주의: 정보가 부족하거나 해당되지 않는 변수는 아예 JSON 키를 생성하지 마세요. 불확실한 경우에도 제외하세요. "budget", "total_area", "floors", "excavation_depth"와 같은 숫자 변수는 숫자로 추출하세요. "has_", "is_" 로 시작하는 것은 true/false로 출력하세요.)
         """
-        extractor_resp = extractor_model.generate_content(extractor_prompt)
+        extractor_resp = gemini_client.generate(extractor_prompt, model=flash_model_name, label="변수 추출")
         ext_text = extractor_resp.text.strip().replace('```json', '').replace('```', '').strip()
         
         try:
@@ -1746,7 +1667,7 @@ def run_analysis(job_id, data):
             response = generate_with_search_grounding(prompt, pro_model_name)
         except Exception as e:
             print(f"Search grounding failed, falling back to standard: {e}")
-            response = model.generate_content(prompt)
+            response = gemini_client.generate(prompt, model=pro_model_name, label="법령 검토(검색 없이)")
             
         text_resp = response.text.strip()
         
@@ -2119,13 +2040,11 @@ def api_chat_other_review():
         if not new_message:
             return jsonify({"success": False, "message": "질문이 제공되지 않았습니다."}), 400
             
-        genai.configure(api_key=GEMINI_KEY)
-        
         contents_payload = []
         first_user_parts = [initial_context]
         if file_name:
             try:
-                file_obj = genai.get_file(file_name)
+                file_obj = gemini_client.get_file(file_name)
                 first_user_parts.append(file_obj)
             except Exception as e:
                 print(f"File retrieval failed: {e}")
@@ -2144,24 +2063,10 @@ def api_chat_other_review():
         })
         
         try:
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
-            models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-pro' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3 if '1.5-flash' in x else 4))
-        except:
-            models_to_try = ['models/gemini-2.5-pro', 'models/gemini-1.5-pro', 'models/gemini-2.5-flash', 'models/gemini-2.0-flash']
-            
-        response = None
-        last_err = None
-        for m in models_to_try:
-            try:
-                model = genai.GenerativeModel(model_name=m)
-                response = model.generate_content(contents_payload, generation_config=LEGAL_GEN_CONFIG)
-                break
-            except Exception as e:
-                last_err = e
-                continue
-                
-        if not response:
-            raise Exception(f"채팅 응답 생성 실패: {last_err}")
+            response, _ = gemini_client.generate_with_fallback(
+                contents_payload, temperature=LEGAL_GEN_CONFIG["temperature"], label="후속 질의")
+        except Exception as e:
+            raise Exception(f"채팅 응답 생성 실패: {e}")
             
         return jsonify({"success": True, "result": annotate_unverified_citations(linkify_law_citations(response.text))})
         
@@ -2213,8 +2118,6 @@ def api_chat_duty_list():
             except Exception as e:
                 print(f"chat_duty_list law fetch failed: {e}")
 
-        genai.configure(api_key=GEMINI_KEY)
-
         if law_text:
             system_context = f"""당신은 '{law_name}' 법령 전문 상담 AI입니다. 아래 [법령 원문]만을 근거로 사용자의 질문에 답변하세요.
 원문에 없는 내용은 절대 추측하거나 지어내지 말고 "법령 원문에서 해당 내용을 확인할 수 없습니다"라고 답하세요.
@@ -2232,24 +2135,10 @@ def api_chat_duty_list():
         contents_payload.append({"role": "user", "parts": [new_message]})
 
         try:
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
-            models_to_try = sorted(available_models, key=lambda x: (0 if '2.5-flash' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3))
-        except:
-            models_to_try = ['models/gemini-2.5-flash', 'models/gemini-2.5-pro', 'models/gemini-1.5-flash']
-
-        response = None
-        last_err = None
-        for m in models_to_try:
-            try:
-                model = genai.GenerativeModel(model_name=m)
-                response = model.generate_content(contents_payload)
-                break
-            except Exception as e:
-                last_err = e
-                continue
-
-        if not response:
-            raise Exception(f"채팅 응답 생성 실패: {last_err}")
+            response, _ = gemini_client.generate_with_fallback(
+                contents_payload, models=[gemini_client.fast_model(), gemini_client.main_model()], label="의무 목록 채팅")
+        except Exception as e:
+            raise Exception(f"채팅 응답 생성 실패: {e}")
 
         return jsonify({"success": True, "result": linkify_law_citations(response.text)})
 
@@ -2268,7 +2157,6 @@ def api_chat_report():
         if not new_message:
             return jsonify({"success": False, "message": "질문이 제공되지 않았습니다."}), 400
             
-        genai.configure(api_key=GEMINI_KEY)
         
         initial_context = f"""
         당신은 건설사업의 [AI 법규 검토 종합 보고서]에 대해 설명해주는 AI 챗봇입니다.
@@ -2294,28 +2182,8 @@ def api_chat_report():
             "parts": [new_message]
         })
         
-        try:
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            if not available_models:
-                raise ValueError("empty model list")
-        except Exception as e:
-            print(f"[api_chat_report] genai.list_models() failed, using fallback list: {e}")
-            available_models = ['models/gemini-2.5-flash', 'models/gemini-2.5-pro', 'models/gemini-1.5-flash', 'models/gemini-2.0-flash']
-
-        model_name = None
-        for preferred in ['models/gemini-2.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']:
-            if preferred in available_models:
-                model_name = preferred
-                break
-
-        # If no preferred model is found, just pick the very first available one
-        if not model_name and available_models:
-            model_name = available_models[0]
-        elif not model_name:
-            model_name = 'models/gemini-2.5-flash'  # Final fallback if list is empty
-
-        model = genai.GenerativeModel(model_name)
-        response = model.generate_content(contents_payload)
+        response, _ = gemini_client.generate_with_fallback(
+            contents_payload, models=[gemini_client.fast_model(), gemini_client.main_model()], label="보고서 채팅")
 
         return jsonify({
             "success": True,
@@ -2338,8 +2206,6 @@ DESIGN_DOC_LABELS = {
 def run_design_review(job_id, project_name, project_domain, review_modes, additional_notes, saved_files):
     try:
         import os
-        import google.generativeai as genai
-        genai.configure(api_key=GEMINI_KEY)
 
         # 카테고리(문서 종류)별로 텍스트를 따로 모아둔다 - 뒤에서 "도면 vs 물량산출서
         # vs 내역서" 3자 대조를 프롬프트에 명시적으로 지시하려면, 어느 텍스트가
@@ -2382,11 +2248,7 @@ def run_design_review(job_id, project_name, project_domain, review_modes, additi
         except Exception as e:
             print(f"[Design Review] guideline_store 로드 실패: {e}")
 
-        try:
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
-            models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-pro' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3 if '1.5-flash' in x else 4))
-        except:
-            models_to_try = ['models/gemini-1.5-pro', 'models/gemini-2.5-pro', 'models/gemini-1.5-flash']
+        # 모델은 gemini_client에 고정된 순서(기본 pro -> flash)로 시도한다.
 
         has_drawing = len(filenames_by_category['file_drawing']) > 0
         has_quantity_doc = len(filenames_by_category['file_quantity']) > 0
@@ -2474,17 +2336,12 @@ def run_design_review(job_id, project_name, project_domain, review_modes, additi
         content_payload.append(system_instruction + "\n\n" + prompt)
         
         ai_result = ""
-        for model_name in models_to_try:
-            try:
-                print(f"[Design Review] Trying model: {model_name}")
-                model = genai.GenerativeModel(model_name=model_name)
-                response = model.generate_content(content_payload, generation_config=LEGAL_GEN_CONFIG)
-                ai_result = response.text
-                print(f"[Design Review] Success with model: {model_name}")
-                break
-            except Exception as e:
-                print(f"[Design Review] Failed with model {model_name}: {e}")
-                continue
+        try:
+            response, _used = gemini_client.generate_with_fallback(
+                content_payload, temperature=LEGAL_GEN_CONFIG["temperature"], label="설계도서 검토")
+            ai_result = response.text
+        except Exception as e:
+            print(f"[Design Review] 모든 모델 실패: {e}")
                 
         if not ai_result:
             ai_result = "🔴 [오류]: 첨부파일 및 AI 분석 과정에서 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
@@ -2643,8 +2500,6 @@ COMMENCEMENT_TOPIC_KEYWORDS = [
 def run_commencement_review(job_id, project_name, contract_amount, total_cost, additional_notes, saved_files):
     try:
         import os
-        import google.generativeai as genai
-        genai.configure(api_key=GEMINI_KEY)
 
         extracted_text_combined = ""
         uploaded_genai_files = []
@@ -2735,11 +2590,7 @@ def run_commencement_review(job_id, project_name, contract_amount, total_cost, a
 
         moleg_context = "\n\n".join(moleg_sections)
 
-        try:
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
-            models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-pro' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3 if '1.5-flash' in x else 4))
-        except:
-            models_to_try = ['models/gemini-1.5-pro', 'models/gemini-2.5-pro', 'models/gemini-1.5-flash']
+        # 모델은 gemini_client에 고정된 순서(기본 pro -> flash)로 시도한다.
 
         system_instruction = """
         당신은 대한민국 공공발주 건설공사의 공사감독관(감독자) 업무를 보좌하는 최고 수준의 전문가입니다.
@@ -2838,17 +2689,12 @@ def run_commencement_review(job_id, project_name, contract_amount, total_cost, a
         content_payload.append(system_instruction + "\n\n" + prompt)
 
         ai_result = ""
-        for model_name in models_to_try:
-            try:
-                print(f"[Commencement Review] Trying model: {model_name}")
-                model = genai.GenerativeModel(model_name=model_name)
-                response = model.generate_content(content_payload, generation_config=LEGAL_GEN_CONFIG)
-                ai_result = response.text
-                print(f"[Commencement Review] Success with model: {model_name}")
-                break
-            except Exception as e:
-                print(f"[Commencement Review] Failed with model {model_name}: {e}")
-                continue
+        try:
+            response, _used = gemini_client.generate_with_fallback(
+                content_payload, temperature=LEGAL_GEN_CONFIG["temperature"], label="착공계 검토")
+            ai_result = response.text
+        except Exception as e:
+            print(f"[Commencement Review] 모든 모델 실패: {e}")
 
         if not ai_result:
             ai_result = "🔴 [오류]: 첨부파일 및 AI 분석 과정에서 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
@@ -2956,8 +2802,6 @@ def api_pq_score():
 def run_pq_extract(job_id, spec_id, project, bidder_name, saved_files):
     try:
         import os
-        import google.generativeai as genai
-        genai.configure(api_key=GEMINI_KEY)
         spec = pq_engine.load_spec(spec_id)
 
         parts, texts = [], ""
@@ -2980,18 +2824,11 @@ def run_pq_extract(job_id, spec_id, project, bidder_name, saved_files):
 
         prompt = pq_extract.build_prompt(spec, project, bidder_name)
         payload = parts + [prompt + "\n\n[서류에서 추출한 텍스트(참고)]\n" + texts[:120000]]
-        last_err, response = None, None
-        for model_name in ('models/gemini-2.5-pro', 'models/gemini-2.5-flash'):
-            try:
-                model = genai.GenerativeModel(model_name=model_name)
-                response = model.generate_content(
-                    payload, generation_config={"temperature": 0, "response_mime_type": "application/json"})
-                break
-            except Exception as e:
-                last_err = e
-                print(f"[PQ extract] {model_name} 실패: {e}")
-        if response is None:
-            raise Exception(f"AI 추출에 실패했습니다: {last_err}")
+        try:
+            response, _ = gemini_client.generate_with_fallback(
+                payload, models=[gemini_client.main_model(), gemini_client.fast_model()], temperature=0, json_mode=True, label="PQ 서류 추출")
+        except Exception as e:
+            raise Exception(f"AI 추출에 실패했습니다: {e}")
 
         inputs, evidence, notes = pq_extract.parse_response(spec, project, response.text)
         JOBS[job_id] = {"status": "completed", "result": {"inputs": inputs, "evidence": evidence, "notes": notes}}

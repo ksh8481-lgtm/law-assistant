@@ -2,8 +2,8 @@ import os
 import glob
 import json
 import time
-import google.generativeai as genai
 from dotenv import load_dotenv
+import gemini_client
 
 load_dotenv()
 
@@ -12,8 +12,7 @@ if not API_KEY:
     print("No GEMINI_API_KEY found.")
     exit(1)
 
-genai.configure(api_key=API_KEY)
-model = genai.GenerativeModel('gemini-1.5-pro')
+model_name = gemini_client.main_model()
 
 laws_dir = os.path.join(os.path.dirname(__file__), 'data', 'laws')
 md_files = glob.glob(os.path.join(laws_dir, '*.md'))
@@ -52,7 +51,7 @@ for idx, file_path in enumerate(md_files):
     prompt = f"{system_instruction}\n\n[법령 텍스트]\n{content[:150000]}"
     
     try:
-        response = model.generate_content(prompt)
+        response = gemini_client.generate(prompt, model=model_name, label="의무 추출")
         text = response.text.strip()
         if text.startswith('```json'):
             text = text[7:]

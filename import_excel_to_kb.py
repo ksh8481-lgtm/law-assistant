@@ -1,7 +1,7 @@
 import json
 import os
-import google.generativeai as genai
 from dotenv import load_dotenv
+import gemini_client
 
 # 환경변수 로드
 load_dotenv()
@@ -10,19 +10,8 @@ if not GEMINI_KEY:
     print("Error: GEMINI_API_KEY is not set.")
     exit(1)
 
-genai.configure(api_key=GEMINI_KEY)
-
-available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-model_name = None
-for preferred in ['models/gemini-1.5-pro-latest', 'models/gemini-1.5-pro', 'models/gemini-1.5-flash-latest', 'models/gemini-1.5-flash', 'models/gemini-pro', 'models/gemini-1.0-pro']:
-    if preferred in available_models:
-        model_name = preferred
-        break
-if not model_name and available_models:
-    model_name = available_models[0]
-
+model_name = gemini_client.main_model()
 print(f"Using model: {model_name}")
-model = genai.GenerativeModel(model_name)
 
 # 1. 엑셀 파싱 JSON 로드
 with open('checklist_output.json', 'r', encoding='utf-8') as f:
@@ -71,7 +60,7 @@ for i in range(0, len(valid_items), chunk_size):
 - "desc": 보정된 2026년 최신 기준을 반영한 명확한 요약 설명
 """
     try:
-        response = model.generate_content(prompt)
+        response = gemini_client.generate(prompt, model=model_name, label="체크리스트 변환")
         text = response.text.strip()
         if text.startswith("```json"):
             text = text[7:]
