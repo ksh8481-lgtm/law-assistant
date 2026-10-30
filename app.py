@@ -19,6 +19,7 @@ try:
 except Exception as e:
     print(f"Failed to import kcsc_engine: {e}")
     kcsc_engine = None
+import gemini_client
 from law_linkify import (linkify_law_citations, extract_law_names_from_context,
                          extract_admrul_info_from_context, admrul_footer)
 from citation_check import annotate_unverified_citations
@@ -140,15 +141,9 @@ def generate_with_search_grounding(prompt, model_name, temperature=0.2):
     신버전 SDK로 옮긴다. 반환값은 신버전 SDK의 응답 객체인데 .text 프로퍼티가 동일하게
     있어서, 이 함수를 호출하는 쪽 코드(response.text 사용)는 그대로 쓸 수 있다.
     """
-    from google import genai as google_genai_client
-    from google.genai import types
-
-    client = google_genai_client.Client(api_key=GEMINI_KEY)
-    grounding_tool = types.Tool(google_search=types.GoogleSearch())
-    config = types.GenerateContentConfig(tools=[grounding_tool], temperature=temperature)
-
-    clean_model_name = model_name.replace('models/', '')
-    return client.models.generate_content(model=clean_model_name, contents=prompt, config=config)
+    # 인용 검증은 검색 결과를 대조해 고치는 작업이라 사고가 필요 없다(flash는 끌 수 있다, pro는 항상 사고하므로 무시됨).
+    return gemini_client.generate(prompt, model=model_name, temperature=temperature, search=True,
+                                  thinking_budget=0, label="구글검색 그라운딩")
 
 
 def _citation_verification_output_ok(original: str, verified: str) -> bool:
@@ -1875,7 +1870,6 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
         import os
         import tempfile
         import time as _time
-        import google.generativeai as genai
         # 단계별 소요 시간(초)을 끝에 한 줄로 남긴다(운영 확인: 제출부터 완료까지 약 3분이 걸렸는데 어느 단계가 느린지 몰랐다).
         _t0 = _time.time()
         _stage = {}
@@ -1884,8 +1878,6 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
             _stage[name] = round(now - since, 1)
             return now
 
-        genai.configure(api_key=GEMINI_KEY)
-        
         uploaded_file = None
         file_text = ""
         
@@ -1929,11 +1921,8 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
             except Exception as e:
                 print(f"temp file cleanup failed: {e}")
             
-        try:
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'vision' not in m.name.lower()]
-            models_to_try = sorted(available_models, key=lambda x: (0 if '1.5-pro' in x else 1 if '2.5-pro' in x else 2 if 'pro' in x else 3 if '1.5-flash' in x else 4))
-        except:
-            models_to_try = ['models/gemini-2.5-pro', 'models/gemini-1.5-pro', 'models/gemini-2.5-flash', 'models/gemini-2.0-flash']
+        # 모델은 gemini_client에 고정된 순서(기본 pro -> flash)로 시도한다. 예전에는 요청마다 list_models()로 목록을 받아
+        # 정렬했는데, 왕복 시간이 들고 실제로 어느 모델이 답했는지 알 수 없었다.
             
         # RAG 검색 시에는 파일 내 텍스트까지 합쳐서 분석!
         full_query_for_rag = text_content + "\n" + file_text
@@ -2013,33 +2002,20 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
         if uploaded_file:
             contents_payload.append(gemini_file_part(uploaded_file))
 
-        response = None
-        last_err = None
-        for m in models_to_try:
-            try:
-                try:
-                    model = genai.GenerativeModel(model_name=m)
-                    response = model.generate_content(contents_payload, generation_config=LEGAL_GEN_CONFIG)
-                    break
-                except Exception as tool_e:
-                    print(f"Tool {m} fallback: {tool_e}")
-                    model = genai.GenerativeModel(model_name=m)
-                    response = model.generate_content(contents_payload, generation_config=LEGAL_GEN_CONFIG)
-                    break
-            except Exception as e:
-                last_err = e
-                print(f"Model {m} failed: {e}")
-                continue
-                
-        if not response:
-            raise Exception(f"모든 AI 모델이 요청 한도 초과 또는 오류로 실패했습니다. 마지막 오류: {last_err}")
+        try:
+            response, _used_model = gemini_client.generate_with_fallback(
+                contents_payload, temperature=LEGAL_GEN_CONFIG["temperature"], label="본 답변")
+        except Exception as e:
+            raise Exception(f"모든 AI 모델이 요청 한도 초과 또는 오류로 실패했습니다. 마지막 오류: {e}")
 
         # 🚨 법조항 인용 검증 패스(공용 헬퍼: verify_law_citations_via_search 참고). 이
         # 함수도 파일 첨부 시 구버전 SDK로 실행돼 설계도서 검토와 똑같은 "법조항 번호를
         # 기억에만 의존해 답함" 위험에 노출되므로 같은 검증을 적용한다.
         _t = _mark("본 답변 생성", _t)
         # 서버가 법제처에서 직접 가져온 원문을 근거로 넘겨, 원문으로 확인된 인용을 검색 실패를 이유로 지우지 못하게 한다.
-        verified_result = verify_law_citations_via_search(response.text, source_context=mcp_rag_context)
+        _verify_model = gemini_client.citation_verify_model()      # CITATION_VERIFY_MODE: off(기본) | pro | flash
+        verified_result = (response.text if _verify_model is None else verify_law_citations_via_search(
+            response.text, model_name=_verify_model, source_context=mcp_rag_context))
         _t = _mark("법조항 검증 패스(구글검색)", _t)
 
         file_name = uploaded_file.name if uploaded_file else ""

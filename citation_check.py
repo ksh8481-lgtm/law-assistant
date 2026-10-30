@@ -226,7 +226,8 @@ def _find_citations(text: str):
                         'kind': 'art', 'adm': True, 'law': re.sub(r'\s+', '', base.group(1)),
                         'no': int(a.group(1)), 'br': int(a.group(2)) if a.group(2) else 0,
                         'label': label, 'end': m.end() + len(trail.group(1)) + a.end(),
-                        'claim': _claim_for(text, m.start()), 'near': before, 'after': '',
+                        'claim': _claim_for(text, m.start()), 'near': before,
+                        'after': text[m.end() + trail.end():min(next_start, line_end, m.end() + trail.end() + 220)],
                         'line_cites': line_cites + len(arts) - 1,
                     })
     return cites
@@ -322,9 +323,7 @@ def _select(cites):
 def _judge(items):
     """LLM에 (주장, 실제 조문)을 한 번에 보내 판정을 받는다. 실패하면 {}."""
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=os.environ.get('GEMINI_API_KEY'))
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        import gemini_client
         blocks = []
         for i, it in enumerate(items):
             blocks.append(
@@ -349,8 +348,9 @@ def _judge(items):
             "오직 JSON 배열만 출력해라. 형식: [{\"id\":0,\"verdict\":\"supported\",\"reason\":\"한 줄\"}, ...]\n\n"
             + "\n".join(blocks)
         )
-        resp = model.generate_content(prompt, generation_config={
-            "temperature": 0, "response_mime_type": "application/json"})
+        # 사고(thinking)를 끄지 않는다: 끄면 6초 -> 1~2초로 빨라지지만, 인용 5개를 한 번에 판정할 때 5번 중 2번
+        # 정확한 인용(제9조 제1항)에 오탐 경고가 붙었다(사고를 켜면 0/5). 오탐은 답변 신뢰를 깎는다.
+        resp = gemini_client.generate(prompt, temperature=0, json_mode=True, label="인용 주제 판정")
         raw = (resp.text or '').strip()
         try:
             data = json.loads(raw)
@@ -458,27 +458,36 @@ _SQUOTE = re.compile(r"['‘]([^'’\n]*)['’]")
 
 
 def _check_single_quoted_terms(items):
-    """문장에 작은따옴표로 옮긴 용어가 그 문장이 인용한 조문들 중 어디에도 없으면 참고 💡를 돌려준다.
+    """인용 바로 뒤에 작은따옴표로 옮긴 용어가, 그 문장이 인용한 조문들 중 어디에도 없으면 참고 💡를 돌려준다.
 
     items = [(cite, 조문 본문), ...] (같은 문장에 걸린 인용들). 존재하는 조문 번호라도 엉뚱한 조일 수 있다
     (운영 확인: '지정신고서'가 나오는 조는 제50조·제80조인데 제13조·제23조로 인용). 주제만 보는 LLM 판정이
-    놓치는 경우를 용어 대조로 보완한다. 하나라도 포함하면 통과시키고, 문구를 조금 바꿔 쓴 경우(운영 재확인:
-    조문의 "…공사감독자의 배치 계획"을 '건설사업관리기술인 배치 계획'으로 인용)는 4글자 조각 겹침 비율이
-    QUOTE_MIN_OVERLAP 이상이면 통과시킨다(실측: 바꿔 쓴 인용 0.7, 엉뚱한 조 0.0, 정확한 인용 1.0)."""
+    놓치는 경우를 용어 대조로 보완한다.
+
+    - 대조 범위는 인용 '뒤' 구간(c['after'])뿐이다. 한국어 문장은 "○○조에 따라 … '용어'" 순서로 쓰이는데, 앞쪽의
+      따옴표 용어는 다른 출처(예: 앞에서 인용한 별표의 '원칙으로 한다')를 가리키는 경우가 있어 오탐이 났다.
+    - 하나라도 포함하면 통과시키고, 문구를 조금 바꿔 쓴 경우(조문의 "…공사감독자의 배치 계획"을 '건설사업관리기술인
+      배치 계획'으로 인용)는 4글자 조각 겹침 비율이 QUOTE_MIN_OVERLAP 이상이면 통과시킨다
+      (실측: 바꿔 쓴 인용 0.7, 엉뚱한 조 0.0, 정확한 인용 1.0)."""
     if not items:
         return None
     bodies = [_norm(b) for _c, b in items]
     body_grams = set().union(*[_grams(b) for b in bodies])
-    for term in _SQUOTE.findall(items[0][0].get('claim', '')):
-        nt = _norm(term)
-        if not (4 <= len(term.strip()) <= 40 and len(nt) >= 4) or any(nt in b for b in bodies):
-            continue
-        g = _grams(nt)
-        if g and len(g & body_grams) / len(g) >= QUOTE_MIN_OVERLAP:
-            continue
-        labels = ", ".join(dict.fromkeys(
-            f"제{c['no']}조" + (f"의{c['br']}" if c['br'] else '') for c, _b in items))
-        return f" 💡(참고: 문장에 인용된 '{term}'이(가) 인용한 {labels} 원문에서 확인되지 않습니다. 다른 조문일 수 있으니 원문 확인 필요)"
+    seen = set()
+    for c, _b in items:
+        for term in _SQUOTE.findall(c.get('after', '')):
+            if term in seen:
+                continue
+            seen.add(term)
+            nt = _norm(term)
+            if not (4 <= len(term.strip()) <= 40 and len(nt) >= 4) or any(nt in b for b in bodies):
+                continue
+            g = _grams(nt)
+            if g and len(g & body_grams) / len(g) >= QUOTE_MIN_OVERLAP:
+                continue
+            labels = ", ".join(dict.fromkeys(
+                f"제{x['no']}조" + (f"의{x['br']}" if x['br'] else '') for x, _y in items))
+            return f" 💡(참고: 문장에 인용된 '{term}'이(가) 인용한 {labels} 원문에서 확인되지 않습니다. 다른 조문일 수 있으니 원문 확인 필요)"
     return None
 
 

@@ -77,7 +77,7 @@ class OfflineTests(unittest.TestCase):
         self.assertEqual(bp["line_cites"], 1)
 
     def test_single_quoted_term_must_appear_in_cited_articles(self):
-        c = {"no": 13, "br": 0, "claim": "착수 시 '상주, 기술지원 기술인 지정신고서'를 제출한다"}
+        c = {"no": 13, "br": 0, "after": "에 따라 착수 시 '상주, 기술지원 기술인 지정신고서'를 제출한다"}
         c2 = {**c, "no": 23}
         wrong = cc._check_single_quoted_terms([(c, "제13조(과업착수준비) 업무수행계획서를 작성한다"),
                                                (c2, "제23조(발주방식 결정 지원) 발주방식을 정한다")])
@@ -85,15 +85,24 @@ class OfflineTests(unittest.TestCase):
         self.assertIn("제13조, 제23조", wrong)
         right = cc._check_single_quoted_terms([(c, "제13조 ..."), ({**c, "no": 50}, "3. 상주, 기술지원 기술인 지정신고서")])
         self.assertIsNone(right)                                    # 하나라도 포함하면 통과
-        self.assertIsNone(cc._check_single_quoted_terms([({"no": 1, "br": 0, "claim": "따옴표 없는 문장"}, "x")]))
+        self.assertIsNone(cc._check_single_quoted_terms([({"no": 1, "br": 0, "after": "따옴표 없는 문장"}, "x")]))
         self.assertIsNone(cc._check_single_quoted_terms([]))
         # 문구를 조금 바꿔 쓴 인용은 통과(운영 재확인에서 나온 오탐: 조문 "…공사감독자의 배치 계획")
-        para = {"no": 39, "br": 2, "claim": "계획에는 '건설사업관리기술인 배치 계획'이 포함되어야 한다"}
+        para = {"no": 39, "br": 2, "after": "에 따라 계획에는 '건설사업관리기술인 배치 계획'이 포함되어야 한다"}
         body = '건설기술인(이하 "건설사업관리기술인"이라 한다) 또는 공사감독자의 배치 계획 그 밖의 사항'
         self.assertIsNone(cc._check_single_quoted_terms([(para, body)]))
         # 짧은 인용('원칙') 사이의 문장 조각을 용어로 오인하지 않는다(운영 답변 재처리에서 발견한 오탐)
-        short = {"no": 9, "br": 0, "claim": "산정을 '원칙'으로 규정하고, 시공단계 기술인수에 '포함한다'고 명시한다"}
+        short = {"no": 9, "br": 0, "after": "는 산정을 '원칙'으로 규정하고, 시공단계 기술인수에 '포함한다'고 명시한다"}
         self.assertIsNone(cc._check_single_quoted_terms([(short, "산정하는 것을 원칙으로 한다. 기술인수는 포함한다")]))
+
+    def test_quote_before_the_citation_is_not_checked_against_it(self):
+        """운영 재측정에서 나온 오탐: 앞에서 별표를 가리키며 쓴 '원칙으로 한다'를 뒤의 제37조 탓으로 돌렸다."""
+        text = ("위 규정의 '원칙으로 한다'는 표현은 상위법인 "
+                "[건설기술 진흥법 제37조](https://www.law.go.kr/법령/건설기술진흥법/제37조)에서 금지하는 임의 감액에 해당할 소지가 있습니다.")
+        c = cc._find_citations(text)[0]
+        self.assertNotIn("원칙으로 한다", c["after"])
+        self.assertIn("임의 감액", c["after"])
+        self.assertIsNone(cc._check_single_quoted_terms([(c, "제37조(건설엔지니어링 대가) 발주청은 비용을 지급해야 한다")]))
 
     def test_find_citations_keeps_law_links_as_non_admrul(self):
         cites = cc._find_citations("[건설기술 진흥법 제39조](https://www.law.go.kr/법령/건설기술진흥법/제39조)")
@@ -167,6 +176,107 @@ class PostProcessTests(unittest.TestCase):
         text = "건설기술 진흥법 제39조에 따른다."
         self.assertEqual(self.ll.linkify_law_citations(text), self.ll.linkify_law_citations(text, None, None))
         self.assertIn("law.go.kr/법령/", self.ll.linkify_law_citations(text))
+
+
+class GeminiClientTests(unittest.TestCase):
+    """모델 고정·검증 모드·폴백 순서(네트워크 불필요, 환경변수와 generate는 테스트 안에서 바꿨다 되돌린다)."""
+
+    ENV = ("GEMINI_MAIN_MODEL", "GEMINI_FAST_MODEL", "GEMINI_MAIN_FALLBACKS", "CITATION_VERIFY_MODE")
+
+    def setUp(self):
+        import os
+        import gemini_client
+        self.os, self.gc = os, gemini_client
+        self._saved = {k: os.environ.pop(k, None) for k in self.ENV}
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            if v is None:
+                self.os.environ.pop(k, None)
+            else:
+                self.os.environ[k] = v
+
+    def test_defaults_are_pinned(self):
+        self.assertEqual(self.gc.main_model(), "gemini-2.5-pro")
+        self.assertEqual(self.gc.fast_model(), "gemini-2.5-flash")
+        self.assertEqual(self.gc.main_fallbacks(), ["gemini-2.5-pro", "gemini-2.5-flash"])
+
+    def test_env_overrides_and_models_prefix_is_stripped(self):
+        self.os.environ["GEMINI_MAIN_FALLBACKS"] = "models/gemini-x-pro, gemini-x-flash ,"
+        self.assertEqual(self.gc.main_fallbacks(), ["gemini-x-pro", "gemini-x-flash"])
+        self.os.environ["GEMINI_MAIN_MODEL"] = "gemini-x-pro"
+        self.assertEqual(self.gc.main_model(), "gemini-x-pro")
+
+    def test_citation_verify_mode(self):
+        self.assertIsNone(self.gc.citation_verify_model())                          # 기본 off(측정 근거는 gemini_client 참고)
+        self.os.environ["CITATION_VERIFY_MODE"] = "pro"
+        self.assertEqual(self.gc.citation_verify_model(), "gemini-2.5-pro")
+        self.os.environ["CITATION_VERIFY_MODE"] = " Flash "
+        self.assertEqual(self.gc.citation_verify_model(), "gemini-2.5-flash")
+        self.os.environ["CITATION_VERIFY_MODE"] = " OFF "
+        self.assertIsNone(self.gc.citation_verify_model())
+
+    def test_client_is_created_once_under_concurrent_first_calls(self):
+        """첫 호출이 겹칠 때 스레드마다 클라이언트를 만들면 덮어써진 쪽이 닫혀 'client has been closed'로 실패한다(실측)."""
+        import threading
+        import time
+        from google import genai
+        created = []
+        real_client = genai.Client
+
+        class Dummy:
+            def __init__(self, **kw):
+                time.sleep(0.05)               # 생성이 겹치도록 일부러 늦춘다
+                created.append(self)
+
+        genai.Client = Dummy
+        saved, self.gc._client = self.gc._client, None
+        try:
+            got, barrier = [], threading.Barrier(16)
+
+            def worker():
+                barrier.wait()
+                got.append(self.gc.get_client())
+
+            threads = [threading.Thread(target=worker) for _ in range(16)]
+            [t.start() for t in threads]
+            [t.join() for t in threads]
+        finally:
+            genai.Client = real_client
+            self.gc._client = saved
+        self.assertEqual(len(created), 1)
+        self.assertEqual(len({id(c) for c in got}), 1)
+
+    def test_fallback_tries_next_model_and_reports_which_answered(self):
+        calls = []
+
+        def fake_generate(contents, model=None, **kw):
+            calls.append(model)
+            if model == "gemini-2.5-pro":
+                raise RuntimeError("429 quota")
+            return type("R", (), {"text": "ok"})()
+
+        real = self.gc.generate
+        self.gc.generate = fake_generate
+        try:
+            resp, used = self.gc.generate_with_fallback("q", label="t")
+        finally:
+            self.gc.generate = real
+        self.assertEqual((resp.text, used, calls), ("ok", "gemini-2.5-flash", ["gemini-2.5-pro", "gemini-2.5-flash"]))
+
+    def test_fallback_raises_last_error_when_all_fail(self):
+        real = self.gc.generate
+
+        def always_fail(contents, model=None, **kw):
+            raise RuntimeError(f"fail {model}")
+
+        self.gc.generate = always_fail
+        try:
+            with self.assertRaises(RuntimeError) as cm:
+                self.gc.generate_with_fallback("q")
+        finally:
+            self.gc.generate = real
+        self.assertIn("gemini-2.5-flash", str(cm.exception))
 
 
 class VerifyPromptTests(unittest.TestCase):

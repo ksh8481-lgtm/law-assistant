@@ -20,7 +20,7 @@ search_precedent_by_case_number)를 LangGraph ReAct 에이전트에게 맡겨서
 """
 import os
 import re
-import google.generativeai as genai
+import gemini_client
 
 from concurrent.futures import ThreadPoolExecutor
 
@@ -153,7 +153,7 @@ def _rename_notice(law_text: str) -> str:
             "절대 쓰지 말고 오른쪽의 현행 용어를 쓰십시오.\n" + "\n".join(lines))
 
 
-def _extract_subject_laws(model, query: str) -> list:
+def _extract_subject_laws(query: str) -> list:
     """질문에 등장하는 업종/시설/제도 용어 각각을 정의·규율하는 법률의 정식 명칭을 뽑는다.
     (사용자가 언급한 법률과 무관하게, 용어의 소관 법률을 묻는다.) 실패하면 빈 목록."""
     try:
@@ -166,7 +166,7 @@ def _extract_subject_laws(model, query: str) -> list:
             "시행령/시행규칙은 쓰지 말고 법률명만, 확실히 존재하는 정식 명칭만 쓰고 확신이 없으면 비워둬.\n"
             "질문: " + query[:2000]
         )
-        resp = model.generate_content(prompt, generation_config={"temperature": 0})
+        resp = gemini_client.generate(prompt, temperature=0, label="소관법률 추출")
         line = resp.text.strip().splitlines()[0].strip()
         return [x.strip().strip("'\"") for x in line.split(',') if x.strip()][:4]
     except Exception as e:
@@ -208,15 +208,13 @@ def _extract_admrul_names(query: str) -> list:
     """질문을 검토하는 데 필요한 고시·훈령·예규·지침의 정식 명칭을 최대 3개 뽑는다(+ 결정적 힌트). 실패하면 힌트만."""
     names = _hinted_admruls(query)
     try:
-        genai.configure(api_key=os.environ.get('GEMINI_API_KEY'))
-        model = genai.GenerativeModel('gemini-2.5-flash')
         prompt = (
             "다음 질문을 검토하려면 조문이나 별표를 봐야 하는 대한민국 '고시·훈령·예규·지침·기준'(행정규칙)의 "
             "정식 명칭을 쉼표로 구분해 최대 3개만 한 줄로 답해. 법률·시행령·시행규칙은 쓰지 마. 다른 설명은 절대 하지 마. "
             "법제처(law.go.kr)에 실제로 있는 정식 명칭만 쓰고, 확신이 없으면 비워둬.\n"
             "질문: " + query[:2000]
         )
-        resp = model.generate_content(prompt, generation_config={"temperature": 0})
+        resp = gemini_client.generate(prompt, temperature=0, label="고시명 추출")
         line = (resp.text or '').strip().splitlines()[0].strip()
         names.extend(x for x in line.split(',') if x.strip())
     except Exception as e:
@@ -252,8 +250,6 @@ def _extract_keyword_and_jurisdiction(query: str) -> tuple:
     행동매뉴얼"을 써서 결과가 안 나옴).
     """
     try:
-        genai.configure(api_key=os.environ.get('GEMINI_API_KEY'))
-        model = genai.GenerativeModel('gemini-2.5-flash')
         prompt = (
             "다음 텍스트에서 다섯 가지를 뽑아서 정확히 '키워드|지자체명|조례검색키워드|법령명들|조문키워드들' "
             "형식의 한 줄로만 답해. 다른 설명은 절대 하지 마. 구분자 파이프(|)는 정확히 "
@@ -284,7 +280,12 @@ def _extract_keyword_and_jurisdiction(query: str) -> tuple:
         # temperature=0: 같은 질의를 여러 번 돌려도 뽑히는 법령이 달라지는 걸 최소화한다
         # (실사용 중 발견: 같은 질문을 3번 돌렸더니 관광진흥법이 1번만 뽑혔고, 안 뽑힌 호출에서는
         # 그 법 원문이 컨텍스트에 아예 없어서 답변이 소관 법률 하나만 보고 결론을 확정함).
-        resp = model.generate_content(prompt, generation_config={"temperature": 0})
+        # 소관 법률 추출은 이 호출과 서로 독립이라 동시에 시작한다(순차 실행이면 두 호출 시간이 더해져 20~30초가 걸렸다).
+        # 사고(thinking)는 일부러 끄지 않는다 - 끄면 3초로 빨라지지만 선정되는 법령이 좁아져 필요한 법(예: 관광진흥법,
+        # 건설산업기본법)이 빠지는 일이 측정됐고(4개 질문 중 3개), 이 프로젝트는 법령이 빠지면 결론이 틀어진 전례가 있다.
+        subject_pool = ThreadPoolExecutor(max_workers=1)
+        subject_future = subject_pool.submit(_extract_subject_laws, query)
+        resp = gemini_client.generate(prompt, temperature=0, label="키워드·법령명 추출")
         line = resp.text.strip().splitlines()[0].strip()
         parts = line.split('|')
         keyword = parts[0].strip().replace("'", "").replace('"', "")[:15]
@@ -294,7 +295,14 @@ def _extract_keyword_and_jurisdiction(query: str) -> tuple:
         # 사용자가 언급한 법률과 다른 법률 소관일 수 있으므로(예: "체육시설법에 따른 수영장업만
         # 명시되어 있는데 테마파크업 등록 가능여부" -> 테마파크업은 관광진흥법 소관), "용어별 소관
         # 법률"만 따로 물어 합친다.
-        law_names = _merge_unique(law_names, _extract_subject_laws(model, query))[:5]
+        try:
+            subject_laws = subject_future.result(timeout=90)
+        except Exception as e:
+            print(f"[mcp_agent_sync] subject-law extraction failed: {e}")
+            subject_laws = []
+        finally:
+            subject_pool.shutdown(wait=False)
+        law_names = _merge_unique(law_names, subject_laws)[:5]
         topic_keywords = [x.strip() for x in (parts[4] if len(parts) > 4 else "").split(',') if x.strip()][:6]
         jurisdiction_raw = parts[1].strip().replace("'", "").replace('"', "")[:10] if len(parts) > 1 else ""
         ordinance_keyword = parts[2].strip().replace("'", "").replace('"', "")[:15] if len(parts) > 2 else keyword
