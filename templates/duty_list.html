@@ -659,7 +659,8 @@
                     } else {
                         progressContainer.style.background = '#dcfce3';
                         progressContainer.style.borderLeftColor = '#22c55e';
-                        progressContainer.innerHTML = `<span style="color: #166534; font-weight: 600; font-size: 0.95rem;">✅ 해당 법률의 모든 조항에 대한 분석이 완료되었습니다. (총 ${totalChunks}개 파트${dateNote})</span>`;
+                        progressContainer.innerHTML = `<span style="color: #166534; font-weight: 600; font-size: 0.95rem;">✅ 해당 법률의 모든 조항에 대한 분석이 완료되었습니다. (총 ${totalChunks}개 파트${dateNote})</span>
+                            <div style="color: #166534; font-size: 0.85rem; margin-top: 0.4rem;">※ 선택한 법령 한 건의 조문만 분석했습니다(조문이 인용한 별표의 수치는 반영). 시행령·시행규칙에 있는 의무는 왼쪽 목록에서 따로 선택해 분석하세요.</div>`;
                     }
                 }
                 if (targetContainer && targetContainer.children.length === 0) {

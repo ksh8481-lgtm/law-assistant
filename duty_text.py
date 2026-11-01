@@ -51,8 +51,61 @@ def article_text(art):
     return "\n".join(lines)
 
 
+def _compact(s):
+    """별표 표는 칸 맞춤용 공백이 수십 칸씩 붙어 있어 글자 수만 늘린다. 공백 덩어리와 빈 줄을 줄인다."""
+    s = re.sub(r"[ \t\u3000]{2,}", " ", (s or "").replace("\r", ""))
+    s = re.sub(r"[ \t]+\n", "\n", s)
+    return re.sub(r"\n{3,}", "\n\n", s).strip()
+
+
+def byeolpyo_label(no, branch=None):
+    """별표번호 '0004', 가지번호 '02' -> '별표 4의2'"""
+    try:
+        n = int((no or "0").strip() or 0)
+        b = int((branch or "0").strip() or 0)
+    except ValueError:
+        return ""
+    return f"별표 {n}" + (f"의{b}" if b else "") if n else ""
+
+
+def byeolpyo_from_root(root):
+    """법령 XML의 별표단위(구분이 '별표'인 것만; '서식'은 신청서 양식이라 의무 내용이 없다)를
+    [{"label":"별표 4","title","text"}]로. 내용이 비어 있으면(그림·파일로만 제공) 뺀다."""
+    out = []
+    for b in root.findall('.//별표단위'):
+        if _norm_space(b.findtext('별표구분')) != '별표':
+            continue
+        label = byeolpyo_label(b.findtext('별표번호'), b.findtext('별표가지번호'))
+        text = _compact(b.findtext('별표내용'))
+        if label and text:
+            out.append({"label": label, "title": _norm_space(b.findtext('별표제목')), "text": text})
+    return out
+
+
+_BYEOLPYO_REF = re.compile(r"별표\s*(\d+)(?:\s*의\s*(\d+))?")
+
+
+def referenced_byeolpyo(chunk_text, byeolpyo, per=2500, total=6000):
+    """조각 본문이 인용한 별표('별표 4' 등)의 내용을 프롬프트에 덧붙일 문자열로. 없으면 ''.
+    의무의 시간·횟수·기한 같은 수치는 조문이 아니라 별표 표에 있는 경우가 많다."""
+    if not byeolpyo or not chunk_text:
+        return ""
+    by_label = {b["label"]: b for b in byeolpyo}
+    seen, parts, used = set(), [], 0
+    for m in _BYEOLPYO_REF.finditer(chunk_text):
+        label = f"별표 {int(m.group(1))}" + (f"의{int(m.group(2))}" if m.group(2) else "")
+        b = by_label.get(label)
+        if not b or label in seen or used >= total:
+            continue
+        seen.add(label)
+        body = b["text"][:per]
+        parts.append(f"[참조 {label}] {b['title']}\n{body}")
+        used += len(body)
+    return "\n\n".join(parts)
+
+
 def parse_law(xml_text):
-    """법제처 lawService XML -> {"name","enforce_date","articles":[{"label","title","text"}]}.
+    """법제처 lawService XML -> {"name","enforce_date","articles":[{"label","title","text"}],"byeolpyo":[...]}.
     장·절 제목(조문여부가 '전문')은 조문이 아니므로 뺀다."""
     root = ET.fromstring(xml_text)
     info = root.find('기본정보')
@@ -69,6 +122,7 @@ def parse_law(xml_text):
         "name": _norm_space(info.findtext('법령명_한글')) if info is not None else "",
         "enforce_date": _norm_space(info.findtext('시행일자')) if info is not None else "",
         "articles": arts,
+        "byeolpyo": byeolpyo_from_root(root),
     }
 
 
@@ -96,16 +150,30 @@ def fetch_law(lsi_seq, law_key, timeout=10):
     return law
 
 
+# 의무 표현이 들어 있는 조문 표시용. 모델이 조각을 빠르게 훑다가 이런 조문을 통째로 건너뛰는 일이 있어(같은 조각을 세 번 돌리면
+# 한 번만 제42조의 의무 9건을 뽑고 두 번은 2건만 뽑았다) 1차 결과에 한 건도 없는 조를 서버가 찾아 다시 묻는다.
+# "하여야 한다·받아야 할·이수하여야 하며"처럼 '야 …'로 끝나는 의무 표현과, 의무의 내용을 별표에 넘기는 표현("별표 3과 같다", "별표 3에 따라").
+# (제42조 제2항은 "건설기술인이 받아야 할 교육ㆍ훈련의 종류ㆍ시간 … 은 별표 3과 같다"처럼 '하여야 한다'가 없는데도 의무 9건이 별표에 있다)
+_OBLIGATION = re.compile(r"야\s*(한다|하며|하고|함|할)|별표\s*\d+(?:\s*의\s*\d+)?\s*(?:과|와)?\s*(?:같다|에\s*따|에\s*의)")
+
+
+def uncovered_labels(chunk, duties):
+    """조각에서 의무 표현이 있는데 추출 결과에 한 건도 없는 조 번호 목록(조각 안의 순서대로)."""
+    covered = {normalize_article(str(d.get("article", ""))) for d in duties if isinstance(d, dict)}
+    return [l for l in chunk.get("duty_like", []) if l not in covered]
+
+
 def chunk_articles(articles, size=CHUNK_SIZE):
-    """조문 경계에서만 잘라 [{"text","labels"}]로 묶는다. 한 조문이 size보다 길면 줄 단위로 나누고 조각마다 조 번호를 붙인다."""
-    chunks, cur_text, cur_labels = [], [], []
+    """조문 경계에서만 잘라 [{"text","labels","duty_like"}]로 묶는다. 한 조문이 size보다 길면 줄 단위로 나누고 조각마다 조 번호를 붙인다."""
+    chunks, cur_text, cur_labels, cur_duty_like, cur_blocks = [], [], [], [], []
     cur_len = 0
 
     def flush():
-        nonlocal cur_text, cur_labels, cur_len
+        nonlocal cur_text, cur_labels, cur_duty_like, cur_blocks, cur_len
         if cur_text:
-            chunks.append({"text": "\n\n".join(cur_text), "labels": cur_labels})
-        cur_text, cur_labels, cur_len = [], [], 0
+            chunks.append({"text": "\n\n".join(cur_text), "labels": cur_labels, "duty_like": cur_duty_like,
+                           "blocks": cur_blocks})
+        cur_text, cur_labels, cur_duty_like, cur_blocks, cur_len = [], [], [], [], 0
 
     for art in articles:
         pieces = [art["text"]]
@@ -123,8 +191,11 @@ def chunk_articles(articles, size=CHUNK_SIZE):
             if cur_len and cur_len + len(block) > size:
                 flush()
             cur_text.append(block)
+            cur_blocks.append({"label": art["label"], "text": block})
             if art["label"] not in cur_labels:
                 cur_labels.append(art["label"])
+            if _OBLIGATION.search(piece) and art["label"] not in cur_duty_like:
+                cur_duty_like.append(art["label"])
             cur_len += len(block) + 2
     flush()
     return chunks

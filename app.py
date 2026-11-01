@@ -492,11 +492,18 @@ def search_duties_chunk():
             return jsonify({"success": False, "message": "Gemini API 키가 설정되지 않았습니다."})
 
         chunk = chunks[chunk_index]
-        prompt = f"""
-다음은 '{exact_law_name}' 법령의 일부 조문입니다 (파트 {chunk_index + 1}/{len(chunks)}). 이 파트에 들어 있는 조: {', '.join(chunk['labels'])}
-{chunk['text']}
 
-이 법령 내용 중에서 '행정/건설 관리기관, 사업주, 지자체 등이 의무적으로 이행해야 하는 사항'(예: 정기 안전점검, 교육 실시, 계획 수립, 결과 통보 등)만 모두 추출하세요.
+        def make_prompt(body_text, labels):
+            # 조문이 "별표 4에 따른다"처럼 인용한 별표는 내용을 덧붙인다(시간·횟수·기한 수치가 표에 있는 경우가 많다).
+            refs = duty_text.referenced_byeolpyo(body_text, law.get('byeolpyo'))
+            refs_block = ("\n\n[이 파트의 조문이 인용한 별표 - 의무의 시간·횟수·기한 같은 수치는 여기서 찾아 의무 설명에 반영하세요. "
+                          "단 \"article\"에는 의무가 적힌 조 번호를 쓰고 별표 번호를 쓰지 마세요]\n" + refs) if refs else ""
+            return f"""
+다음은 '{exact_law_name}' 법령의 일부 조문입니다 (파트 {chunk_index + 1}/{len(chunks)}). 이 파트에 들어 있는 조: {', '.join(labels)}
+{body_text}{refs_block}
+
+이 법령 내용 중에서 '이 법령이 지키도록 정한 의무'(예: 정기 안전점검, 교육 실시, 계획 수립, 결과 통보, 교육 이수 등)를 모두 추출하세요.
+의무를 지는 주체는 행정기관·발주청·지자체·사업주·사업자·건설기술인 등 법령이 의무를 지우는 모든 대상이며, "target"에 그 주체를 쓰세요.
 (발견되는 모든 의무사항을 남김없이 전부 추출하되, 각 의무의 내용을 충분히 구체적이고 상세하게 설명하세요.)
 
 🚨 [조문번호 관련 필수 규칙]: "article" 값은 위 조문 텍스트에 실제로 적힌 조 번호(예: "제3조", "제5조제3항")를 그대로 옮기십시오.
@@ -516,21 +523,40 @@ def search_duties_chunk():
   }}
 ]
 """
-        duties, parse_failed = None, False
-        for attempt in range(2):              # JSON이 깨져 오면 한 번 더 시도한다(조용히 빈 결과로 넘기지 않는다)
-            response = gemini_client.generate(prompt, model=gemini_client.fast_model(), json_mode=True,
-                                              label="의무 추출(조각)")
-            resp_text = (response.text or "").strip()
-            if resp_text.startswith("```json"): resp_text = resp_text[7:]
-            if resp_text.startswith("```"): resp_text = resp_text[3:]
-            if resp_text.endswith("```"): resp_text = resp_text[:-3]
-            try:
-                duties = json.loads(resp_text.strip())
-                break
-            except json.JSONDecodeError:
-                print(f"[의무 추출] JSON 해석 실패(시도 {attempt + 1}/2). 응답 앞부분: {resp_text[:200]!r}")
-        if duties is None:
-            parse_failed, duties = True, []
+
+        prompt = make_prompt(chunk['text'], chunk['labels'])
+
+        def ask(p, label):
+            """프롬프트를 보내 JSON 배열을 받는다. 깨져 오면 한 번 더 시도하고(조용히 빈 결과로 넘기지 않는다), 끝내 실패하면 None."""
+            for attempt in range(2):
+                response = gemini_client.generate(p, model=gemini_client.fast_model(), json_mode=True, label=label)
+                resp_text = (response.text or "").strip()
+                if resp_text.startswith("```json"): resp_text = resp_text[7:]
+                if resp_text.startswith("```"): resp_text = resp_text[3:]
+                if resp_text.endswith("```"): resp_text = resp_text[:-3]
+                try:
+                    return json.loads(resp_text.strip())
+                except json.JSONDecodeError:
+                    print(f"[의무 추출] JSON 해석 실패(시도 {attempt + 1}/2). 응답 앞부분: {resp_text[:200]!r}")
+            return None
+
+        duties = ask(prompt, "의무 추출(조각)")
+        parse_failed = duties is None
+        if parse_failed:
+            duties = []
+        else:
+            # 모델이 이 파트의 어떤 조를 통째로 건너뛰는 일이 있어, 의무 표현이 있는데 결과가 0건인 조만 한 번 더 묻는다.
+            missing = duty_text.uncovered_labels(chunk, duties if isinstance(duties, list) else [])
+            if missing:
+                print(f"[의무 추출] 파트 {chunk_index + 1}: 결과가 없는 조 {missing} 재검토")
+                # 건너뛴 조의 본문만 보낸다(파트 전체를 다시 보내면 같은 곳을 또 건너뛰는 일이 있다).
+                only = "\n\n".join(b["text"] for b in chunk.get("blocks", []) if b["label"] in missing) or chunk['text']
+                extra = ask(make_prompt(only, missing) + (
+                    "\n\n[재검토] 이 조들은 '하여야 한다' 같은 의무 표현이 있습니다. 조문 안의 각 항·호·목과 인용된 별표를 하나씩 읽고 "
+                    "의무를 빠짐없이 뽑으세요. 정말 의무가 하나도 없을 때만 []을 반환하세요."),
+                    "의무 추출(재검토)")
+                if isinstance(extra, list) and isinstance(duties, list):
+                    duties = duties + extra
 
         result_data = {
             "law_name": exact_law_name,
@@ -2014,19 +2040,30 @@ def api_chat_duty_list():
         if lsi_seq:
             try:
                 law = duty_text.fetch_law(lsi_seq, LAW_KEY)
-                law_text, excerpted = duty_text.select_for_question(law["articles"], new_message, 30000)
+                # 조문과 별표를 함께 놓고 질문과 관련된 것부터 고른다(시간·횟수 기준이 별표에 있는 경우가 많다)
+                law_text, excerpted = duty_text.select_for_question(
+                    law["articles"] + law.get("byeolpyo", []), new_message, 30000)
             except Exception as e:
                 print(f"chat_duty_list law fetch failed: {e}")
 
+        # 선택한 법령에 없는 시행령·시행규칙·고시 원문을 질문에 맞춰 추가로 가져온다(실패하거나 12초를 넘으면 건너뜀)
+        grounding = {"text": "", "adm_infos": []}
         if law_text:
-            excerpt_note = ("※ 법령이 길어서 이번 질문과 관련 있어 보이는 조문만 발췌했습니다. 발췌에 없는 조문이 필요하면 "
-                            "'해당 조문이 발췌에 없어 확인하지 못했습니다'라고 답하세요.") if excerpted else ""
-            system_context = f"""당신은 '{law_name}' 법령 전문 상담 AI입니다. 아래 [법령 원문]만을 근거로 사용자의 질문에 답변하세요.
+            grounding = qa_grounding.build_grounding(
+                law_name, new_message, extra_laws=qa_grounding._base_law_names([law_name]),
+                skip_msts={lsi_seq}, law_byeolpyo=True)
+
+        if law_text:
+            excerpt_note = ("※ 법령이 길어서 이번 질문과 관련 있어 보이는 조문·별표만 발췌했습니다. 발췌에 없는 내용이 필요하면 "
+                            "'해당 내용이 발췌에 없어 확인하지 못했습니다'라고 답하세요.") if excerpted else ""
+            system_context = f"""당신은 '{law_name}' 법령 전문 상담 AI입니다. 아래 [법령 원문]과 [법제처 원문]만을 근거로 사용자의 질문에 답변하세요.
 원문에 없는 내용은 절대 추측하거나 지어내지 말고 "법령 원문에서 해당 내용을 확인할 수 없습니다"라고 답하세요.
 답변 시 관련 조 번호를 반드시 함께 밝히세요.
 {excerpt_note}
 [법령 원문]
 {law_text}"""
+            if grounding["text"]:
+                system_context += "\n\n" + qa_grounding.GROUNDING_INSTRUCTION + grounding["text"]
         else:
             system_context = f"""당신은 '{law_name}' 법령 전문 상담 AI입니다. 법령 원문을 불러오지 못했으니, 확실하지 않은 조문 번호나 세부 수치는
 절대 단정하지 말고 "정확한 조항은 법제처 원문을 직접 확인하시기 바랍니다"라고 안내하며 답변하세요."""
@@ -2042,7 +2079,10 @@ def api_chat_duty_list():
         except Exception as e:
             raise Exception(f"채팅 응답 생성 실패: {e}")
 
-        return jsonify({"success": True, "result": linkify_law_citations(response.text)})
+        final_text = linkify_law_citations(
+            response.text, extract_law_names_from_context(grounding["text"]) + [law_name], grounding["adm_infos"])
+        final_text += admrul_footer(final_text, grounding["adm_infos"])
+        return jsonify({"success": True, "result": final_text})
 
     except Exception as e:
         print(f"Chat Duty List API Error: {e}")

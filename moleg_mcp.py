@@ -299,7 +299,7 @@ def _rank_by_keywords(texts: list, keywords: list) -> list:
     return scored
 
 
-def _law_detail_text(mst: str, keywords: list, max_len: int = 6000) -> str:
+def _law_detail_text(mst: str, keywords: list, max_len: int = 6000, include_byeolpyo: bool = False) -> str:
     """법령 전체(수백 개 조문)를 프롬프트에 다 넣을 수 없으므로, 질의 핵심어가 조문
     제목/내용에 많이 등장하는 조문만 골라 원문 그대로 넘긴다(제목 일치에 가중치).
     이렇게 원문을 넘겨야 AI가 "원문이 없어 일반 원칙으로 설명"하는 대신 실제
@@ -326,6 +326,18 @@ def _law_detail_text(mst: str, keywords: list, max_len: int = 6000) -> str:
             break
     body = "\n\n".join(articles[i][:2500] for i in sorted(picked))
 
+    # 시행령·시행규칙은 시간·횟수·기준 같은 수치가 조문이 아니라 별표 표에 있는 경우가 많다. 키워드와 관련 있는 별표만 최대 2개,
+    # 각 2,500자까지 붙인다(기본은 끔 - 첫 질의응답 경로의 동작과 프롬프트 크기를 바꾸지 않기 위해).
+    if include_byeolpyo:
+        try:
+            from duty_text import byeolpyo_from_root
+            bps = byeolpyo_from_root(root)
+            ranked = _rank_by_keywords([f"{b['title']}\n{b['text']}" for b in bps], keywords)
+            for _score, i in ranked[:2]:
+                body += f"\n\n[{bps[i]['label']}] {bps[i]['title']}\n{bps[i]['text'][:2500]}"
+        except Exception as e:
+            print(f"[moleg_mcp] 별표 추출 실패(무시): {type(e).__name__}: {e}")
+
     buchik = _recent_buchik_from_root(root)
     if buchik:
         body += (
@@ -338,7 +350,7 @@ def _law_detail_text(mst: str, keywords: list, max_len: int = 6000) -> str:
 
 def search_laws_with_text(law_names: list, topic_keywords: list,
                           per_law_len: int = 5000, per_name_max: int = 2,
-                          max_total_len: int = 20000) -> str:
+                          max_total_len: int = 20000, skip_msts=None, include_byeolpyo: bool = False) -> str:
     """정식 법령명(예: 공익사업을 위한 토지 등의 취득 및 보상에 관한 법률)으로 검색해,
     그 법령과 시행령/시행규칙 중 질의와 관련된 조문 원문을 가져온다.
 
@@ -360,7 +372,7 @@ def search_laws_with_text(law_names: list, topic_keywords: list,
     커질 수 있다. max_total_len으로 전체 합계에도 상한을 둬서, 법령이 여러 개 걸린
     질의에서도 프롬프트 크기가 과도하게 불어나지 않게 한다."""
     sections = []
-    seen = set()
+    seen = set(skip_msts or ())      # 이미 프롬프트에 통째로 들어 있는 법령(법정 의무 마스터 채팅의 선택 법령)은 다시 가져오지 않는다
     total_len = 0
     for name in law_names:
         if total_len >= max_total_len:
@@ -385,7 +397,7 @@ def search_laws_with_text(law_names: list, topic_keywords: list,
             if not mst or mst in seen or not nm.startswith(base):
                 continue
             seen.add(mst)
-            text = _law_detail_text(mst, topic_keywords, per_law_len)
+            text = _law_detail_text(mst, topic_keywords, per_law_len, include_byeolpyo)
             link = f"https://www.law.go.kr/법령/{urllib.parse.quote(nm)}"
             if text:
                 sections.append(f"[법령 원문 발췌: {nm}] ({link})\n{text}")

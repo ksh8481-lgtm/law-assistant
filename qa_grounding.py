@@ -119,8 +119,13 @@ def _keywords(initial_context: str, new_message: str) -> list:
     return out
 
 
-def build_grounding(initial_context: str, new_message: str) -> dict:
-    """{"text": 근거 원문(없으면 ""), "adm_infos": 고시 정보 목록}. 어떤 경우에도 예외를 올리지 않는다."""
+def build_grounding(initial_context: str, new_message: str, extra_laws=None, skip_msts=None,
+                    law_byeolpyo: bool = False) -> dict:
+    """{"text": 근거 원문(없으면 ""), "adm_infos": 고시 정보 목록}. 어떤 경우에도 예외를 올리지 않는다.
+
+    extra_laws: 처음 질의응답 기억이 없는 대화(법정 의무 마스터 채팅 등)에서 시행령·시행규칙까지 찾아올 기본 법령명 목록
+    skip_msts: 이미 프롬프트에 통째로 들어 있어 다시 가져오지 않을 법령일련번호
+    law_byeolpyo: 시행령·시행규칙의 별표(질문과 관련된 것만 최대 2개)도 붙일지"""
     empty = {"text": "", "adm_infos": []}
     try:
         from mcp_agent_sync import _hinted_admruls
@@ -135,7 +140,7 @@ def build_grounding(initial_context: str, new_message: str) -> dict:
             if k not in seen:
                 seen.add(k)
                 adm_names.append(n)
-        law_names = entry["laws"][:3]
+        law_names = (list(extra_laws or []) + entry["laws"])[:3]
         if not adm_names and not law_names:
             return empty
 
@@ -143,7 +148,8 @@ def build_grounding(initial_context: str, new_message: str) -> dict:
         pool = ThreadPoolExecutor(max_workers=2)
         try:
             f_adm = pool.submit(search_admrul_with_text, adm_names[:3], keywords, 6000, 12000) if adm_names else None
-            f_law = pool.submit(search_laws_with_text, law_names, keywords, 3500, 2, 9000) if law_names else None
+            f_law = (pool.submit(search_laws_with_text, law_names, keywords, 3500, 2, 9000, skip_msts, law_byeolpyo)
+                     if law_names else None)
             adm_text, law_text = "", ""
             for fut, label in ((f_adm, "고시"), (f_law, "법령")):
                 if fut is None:
