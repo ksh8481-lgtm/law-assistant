@@ -598,7 +598,7 @@
                 // (예전엔 파트를 하나씩 순차적으로 요청해서, 파트가 40개면 법 하나 분석에
                 //  10분 넘게 걸렸다 - 청크당 평균 20초 x 40개를 그대로 다 더한 시간.
                 //  동시에 여러 개씩 보내면 그만큼 총 대기시간이 줄어든다.)
-                const CONCURRENCY = 5;
+                const CONCURRENCY = 3;
 
                 const first = await fetchChunk(lsi_seq, law_name, 0);
                 if (!first) {
@@ -693,19 +693,26 @@
                 const targetContainer = document.getElementById('target-sections-container');
 
                 try {
-                    const response = await fetch('/api/search_duties_chunk', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ lsi_seq: lsi_seq, law_name: law_name, chunk_index: chunkIndex })
-                    });
-
-                    if (!response.ok) {
-                        console.error(`파트 ${chunkIndex + 1} 서버 응답 오류`);
+                    // 서버가 바쁠 때 게이트웨이가 HTML 오류(504 등)를 돌려주거나 연결이 끊길 수 있어 한 번 더 시도한다.
+                    let result = null;
+                    for (let attempt = 0; attempt < 2 && !result; attempt++) {
+                        try {
+                            const response = await fetch('/api/search_duties_chunk', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ lsi_seq: lsi_seq, law_name: law_name, chunk_index: chunkIndex })
+                            });
+                            if (response.ok) result = await response.json();
+                            else console.error(`파트 ${chunkIndex + 1} 서버 응답 오류 ${response.status} (시도 ${attempt + 1}/2)`);
+                        } catch (e) {
+                            console.error(`파트 ${chunkIndex + 1} 응답을 읽지 못함 (시도 ${attempt + 1}/2):`, e);
+                        }
+                        if (!result && attempt === 0) await new Promise(r => setTimeout(r, 4000));
+                    }
+                    if (!result) {
                         failedChunks.push(chunkIndex);
                         return null;
                     }
-
-                    const result = await response.json();
 
                     if (result.success && result.data.duties) {
                         const duties = result.data.duties;
