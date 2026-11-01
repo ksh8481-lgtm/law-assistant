@@ -107,6 +107,7 @@
         }
         .percentile-table th { background: #faf5ff; color: #6d28d9; font-weight: 700; }
         .percentile-table td.highlight { background: #ede9fe; font-weight: 800; color: #6d28d9; }
+        .percentile-table tr.highlight-row td { background: #fef3c7; }
 
         .target-result {
             background: #ede9fe; border: 1px solid #c4b5fd; border-radius: 12px; padding: 1.2rem 1.4rem;
@@ -244,7 +245,26 @@
                 <div class="form-group">
                     <label for="baseAmount">이번 공고문의 기초금액 (원, 선택)</label>
                     <input type="number" id="baseAmount" placeholder="예: 520000000">
-                    <div class="hint">입력하면 각 백분위(%)를 실제 목표 입찰가(원)로 환산해서 보여줍니다. (예정가격은 추첨으로 기초금액 대비 ±3% 정도 변동 가능해 근사치입니다)</div>
+                    <div class="hint">입력하면 과거 사례의 기초금액까지 조회해 <b>"기초금액 대비 낙찰금액" 분포로 투찰 금액과 낙찰 확률</b>을 계산합니다(최대 약 20초 추가).</div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="floorRate">낙찰하한율 (%, 선택)</label>
+                        <input type="number" id="floorRate" step="0.001" placeholder="비우면 과거 사례에서 자동 추정">
+                        <div class="hint">공고문에 낙찰하한율이 있으면 입력하세요. 하한 아래로 쓰면 탈락하므로 계산의 기준이 됩니다.</div>
+                    </div>
+                    <div class="form-group">
+                        <label for="participants">예상 경쟁 규모 (선택)</label>
+                        <select id="participants">
+                            <option value="">전체 (구분 안 함)</option>
+                            <option value="lt20">참가업체 1~19곳</option>
+                            <option value="20_59">참가업체 20~59곳</option>
+                            <option value="60_119">참가업체 60~119곳</option>
+                            <option value="ge120">참가업체 120곳 이상</option>
+                        </select>
+                        <div class="hint">경쟁이 심할수록 낙찰 가격대가 좁게 몰립니다. 비슷한 경쟁 규모의 과거 사례로만 계산합니다.</div>
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -270,6 +290,8 @@
         <div class="card" id="result-section">
             <div class="section-title">📈 분석 결과</div>
             <p id="result-summary" style="color:var(--text-muted); font-size:0.9rem; margin-bottom:1.2rem;"></p>
+
+            <div id="model-section" style="display:none; margin-bottom:1.6rem;"></div>
 
             <div class="stat-grid" id="stat-grid"></div>
 
@@ -297,7 +319,7 @@
 
         <div class="card" id="backtest-section" style="display:none;">
             <div class="section-title">🧪 전략 백테스트 결과 (사후 검증)</div>
-            <p class="hint" style="margin-bottom:1rem;">"학습 구간"(더 예전 데이터)에서 뽑은 추천 낙찰률을 그대로 썼다면, "검증 구간"(더 최근 데이터)의 실제 낙찰 사례들을 상대로 몇 %나 이겼을지 계산한 결과입니다. 이 값은 전체 기간을 통으로 본 백분위(위 분석 결과)와는 다른, 시간 순서를 지킨 사후 검증치입니다.</p>
+            <p class="hint" style="margin-bottom:1rem;">"학습 구간"(더 예전 데이터)으로 정한 투찰 가격을 "검증 구간"(더 최근 데이터)의 실제 낙찰 사례에 그대로 썼다면 몇 %를 이겼을지 계산합니다. 사례마다 <b>낙찰하한 아래면 탈락, 실제 낙찰자보다 높으면 패배</b>로 판정하고, 학습 구간에서 예상한 비율과 실제 비율이 얼마나 맞는지 보여 줍니다. (기초금액을 조회하므로 최대 40초 걸립니다.)</p>
             <p id="backtest-summary" style="color:var(--text-muted); font-size:0.9rem; margin-bottom:1.2rem;"></p>
             <div style="overflow-x:auto;">
                 <table class="percentile-table" id="backtest-table"></table>
@@ -570,6 +592,8 @@
                 presumedPrice: document.getElementById('presumedPrice').value.trim(),
                 targetRate: document.getElementById('targetRate').value.trim(),
                 baseAmount: document.getElementById('baseAmount').value.trim(),
+                floorRate: document.getElementById('floorRate').value.trim(),
+                participants: document.getElementById('participants').value,
             };
 
             if (!payload.dminsttNm && !payload.keyword && !payload.region) {
@@ -579,7 +603,7 @@
             }
 
             submitBtn.disabled = true;
-            btnText.textContent = '조달청 데이터 조회 및 통계 분석 중... (최대 20초 소요)';
+            btnText.textContent = '조달청 데이터 조회 및 통계 분석 중... (기초금액 입력 시 최대 40초)';
 
             try {
                 const res = await fetch('/api/analyze/bid_predict', {
@@ -627,7 +651,9 @@
 
             renderChart(data.histogram, s);
             renderPercentileTable(s, data.target_rate);
-            renderWonEstimates(data.won_estimates);
+            const hasBase = !!document.getElementById('baseAmount').value.trim();
+            const modelShown = renderModel(data.model, data.model_error, hasBase);
+            renderWonEstimates(modelShown ? null : data.won_estimates);     // 새 모델이 계산되면 ±3% 근사 환산표는 보여 주지 않는다
 
             const targetBox = document.getElementById('target-result');
             if (data.target_rate && data.target_percentile !== null && data.target_percentile !== undefined) {
@@ -646,6 +672,131 @@
 
             resultSection.style.display = 'block';
             resultSection.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // ------------------------------------------------------------------
+        // 투찰 추천 (기초금액 기준) - 서버의 bid_model이 과거 낙찰 사례 각각에 "이 가격으로 썼다면 이겼을까"를 대 보고 계산한 확률.
+        // 낙찰하한 아래는 탈락, 실제 낙찰자보다 높으면 패배로 본다.
+        // ------------------------------------------------------------------
+        function esc(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+        function pctTxt(v, d = 1) { return (Number(v) * 100).toFixed(d) + '%'; }
+
+        function renderModel(model, modelError, hasBase) {
+            const box = document.getElementById('model-section');
+            if (!model) {
+                if (hasBase && modelError) {
+                    box.style.display = 'block';
+                    box.innerHTML = `<div class="target-result" style="background:#fff7ed; border-color:#fdba74; color:#9a3412;">⚠️ 기초금액 기준 투찰 확률을 계산하지 못했습니다: ${esc(modelError)}<br>아래 "백분위별 목표 입찰가 환산"은 예정가격을 모르는 상태의 거친 근사(±3%)입니다.</div>`;
+                } else {
+                    box.style.display = 'none';
+                    box.innerHTML = '';
+                }
+                return false;
+            }
+            const rec = model.recommend;
+            const base = model.base_amount;
+            const s = model.sample;
+            const peak = rec.peak;
+
+            let rows = '';
+            const peakRow = `<tr class="highlight-row">
+                <td><b>🏆 확률 최고 지점</b></td>
+                <td><b>${peak.x.toFixed(3)}%</b></td>
+                <td><b>${peak.amount != null ? formatWon(peak.amount) : '-'}</b></td>
+                <td><b>${pctTxt(peak.p)}</b></td>
+                <td>${peak.margin_pp >= 0 ? '+' : ''}${peak.margin_pp.toFixed(3)}%p</td></tr>`;
+            rows += peakRow;
+            rec.targets.forEach(t => {
+                if (t.reachable) {
+                    rows += `<tr>
+                        <td>목표 ${Math.round(t.target * 100)}% 이상</td>
+                        <td>${t.x.toFixed(3)}%</td>
+                        <td>${t.amount != null ? formatWon(t.amount) : '-'}</td>
+                        <td>${pctTxt(t.p)}</td>
+                        <td>${t.margin_pp >= 0 ? '+' : ''}${t.margin_pp.toFixed(3)}%p</td></tr>`;
+                } else {
+                    rows += `<tr style="color:#94a3b8;"><td>목표 ${Math.round(t.target * 100)}% 이상</td><td colspan="4">과거 사례로는 도달할 수 없습니다 (가장 높은 확률이 ${pctTxt(peak.p)})</td></tr>`;
+                }
+            });
+
+            const segRows = (list) => list.map(g => `<tr>
+                <td>${esc(g.label)}</td><td>${g.n}건</td><td>${g.w_median.toFixed(3)}%</td>
+                <td>${g.w_p10.toFixed(2)} ~ ${g.w_p90.toFixed(2)}%</td><td>${g.peak_x.toFixed(3)}%</td><td>${pctTxt(g.peak_p)}</td></tr>`).join('');
+            const segHead = '<tr><th>구분</th><th>사례</th><th>낙찰금액÷기초금액 중앙값</th><th>하위10%~90% 범위</th><th>확률 최고 투찰률</th><th>그때 확률</th></tr>';
+            const seg = model.segments;
+            const segHtml = (seg.participants.length || seg.size.length) ? `
+                <div class="section-title" style="font-size:0.95rem; margin-top:1.4rem;">경쟁 규모·공사 규모별로 보면</div>
+                <p class="hint" style="margin-bottom:0.5rem;">사례가 8건 이상인 구간만 표시합니다. 참가업체가 많거나 규모가 다르면 낙찰 가격대가 달라집니다. 위 추천을 특정 구간으로 좁히려면 "예상 경쟁 규모"를 고르고 다시 분석하세요.</p>
+                <div style="overflow-x:auto;">
+                    ${seg.participants.length ? `<table class="percentile-table" style="margin-bottom:0.8rem;">${segHead}${segRows(seg.participants)}</table>` : ''}
+                    ${seg.size.length ? `<table class="percentile-table">${segHead.replace('<th>구분</th>', '<th>기초금액 규모</th>')}${segRows(seg.size)}</table>` : ''}
+                </div>` : '';
+
+            box.style.display = 'block';
+            box.innerHTML = `
+                <div class="recommend-box">
+                    <div class="title">🎯 투찰 추천 — 기초금액 ${base ? formatWon(base) : ''} 기준</div>
+                    <div class="sub">비슷한 과거 낙찰 <b>${model.cases_used}건</b>(기초금액을 확인한 ${model.cases_total}건 중)에 "이 가격으로 썼다면 이겼을까"를 하나씩 대 본 결과입니다.
+                    낙찰하한율 <b>${model.floor_rate}%</b>${model.floor_estimated ? '(추정)' : '(입력값)'} 미만으로 쓰면 탈락, 실제 낙찰자보다 높게 쓰면 패배로 계산했습니다.</div>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table class="percentile-table" style="margin-top:0.8rem;">
+                        <tr><th>구분</th><th>투찰률 (기초금액 대비)</th><th>투찰 금액</th><th>과거 사례에서 낙찰된 비율</th><th>하한가 대비 여유</th></tr>
+                        ${rows}
+                    </table>
+                </div>
+                <p class="hint" style="margin-top:0.5rem;">같은 확률이면 더 높은 가격(이윤이 큰 쪽)을 골랐습니다. "하한가 대비 여유"는 과거 사례의 낙찰하한가(중앙값 ${rec.floor_x_median}%)보다 얼마나 높은지입니다.
+                예정가격은 개찰 때 복수예비가격 추첨으로 정해져 같은 가격도 결과가 갈리므로, 한 가격으로 낙찰되는 비율은 아무리 높아도 100%가 되지 않습니다.</p>
+                <div class="chart-wrap">
+                    <div class="section-title" style="font-size:0.95rem;">투찰률별 낙찰 확률 곡선</div>
+                    <div class="chart-svg-wrap" id="model-chart"></div>
+                    <p class="hint">가로축은 기초금액 대비 투찰률, 세로축은 과거 사례에서 그 가격으로 이겼을 비율입니다. 낙찰하한 근처에서 오르다가 낙찰이 몰린 가격대를 넘으면 급격히 떨어집니다. 낮게 쓴다고 유리하지 않습니다.</p>
+                </div>
+                ${segHtml}
+                <p class="hint" style="margin-top:0.8rem;">기초금액 ${s.fetched + s.cached}건 확인(새로 조회 ${s.fetched}, 보관된 값 ${s.cached}, 공고에 없음 ${s.missing}${s.failed ? `, 오류 ${s.failed}` : ''}).</p>
+                <ul class="hint" style="margin:0.4rem 0 0 1.1rem; line-height:1.7;">${model.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>`;
+            renderModelChart(model);
+            return true;
+        }
+
+        function renderModelChart(model) {
+            const pts = model.curve;
+            if (!pts || pts.length < 2) return;
+            const w = 900, h = 280, padL = 48, padB = 34, padT = 14, padR = 14;
+            const xs = pts.map(p => p.x), xmin = Math.min(...xs), xmax = Math.max(...xs);
+            const ymax = Math.max(...pts.map(p => p.p), 0.05) * 1.15;
+            const X = x => padL + (x - xmin) / (xmax - xmin || 1) * (w - padL - padR);
+            const Y = p => h - padB - p / ymax * (h - padT - padB);
+            const d = pts.map((p, i) => `${i ? 'L' : 'M'}${X(p.x).toFixed(1)},${Y(p.p).toFixed(1)}`).join(' ');
+            const area = `${d} L${X(xmax).toFixed(1)},${(h - padB)} L${X(xmin).toFixed(1)},${(h - padB)} Z`;
+            const peak = model.recommend.peak;
+            const floorX = model.recommend.floor_x_median;
+            let ticks = '';
+            const step = Math.max(0.2, Math.round(((xmax - xmin) / 6) * 10) / 10);
+            for (let t = Math.ceil(xmin / step) * step; t <= xmax; t += step) {
+                ticks += `<line x1="${X(t)}" y1="${h - padB}" x2="${X(t)}" y2="${h - padB + 4}" stroke="#94a3b8"/><text x="${X(t)}" y="${h - padB + 17}" font-size="10" fill="#64748b" text-anchor="middle">${t.toFixed(1)}%</text>`;
+            }
+            let yticks = '';
+            for (let p = 0; p <= ymax; p += 0.2) {
+                yticks += `<line x1="${padL}" y1="${Y(p)}" x2="${w - padR}" y2="${Y(p)}" stroke="#f1f5f9"/><text x="${padL - 6}" y="${Y(p) + 3}" font-size="10" fill="#64748b" text-anchor="end">${Math.round(p * 100)}%</text>`;
+            }
+            const marks = model.recommend.targets.filter(t => t.reachable).map(t =>
+                `<circle cx="${X(t.x)}" cy="${Y(t.p)}" r="4" fill="#7c3aed"/><text x="${X(t.x)}" y="${Y(t.p) - 8}" font-size="10" fill="#6d28d9" text-anchor="middle">${Math.round(t.target * 100)}%</text>`).join('');
+            document.getElementById('model-chart').innerHTML = `
+                <svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" style="width:100%; max-width:900px; height:auto;">
+                    ${yticks}
+                    <line x1="${padL}" y1="${h - padB}" x2="${w - padR}" y2="${h - padB}" stroke="#cbd5e1"/>
+                    <path d="${area}" fill="#ede9fe" opacity="0.8"/>
+                    <path d="${d}" fill="none" stroke="#7c3aed" stroke-width="2"/>
+                    <line x1="${X(floorX)}" y1="${padT}" x2="${X(floorX)}" y2="${h - padB}" stroke="#ef4444" stroke-dasharray="4 3"/>
+                    <text x="${X(floorX) + 4}" y="${padT + 10}" font-size="10" fill="#b91c1c">낙찰하한가 ${floorX}%</text>
+                    <circle cx="${X(peak.x)}" cy="${Y(peak.p)}" r="6" fill="#f59e0b" stroke="#fff" stroke-width="2"/>
+                    <text x="${X(peak.x)}" y="${Y(peak.p) - 12}" font-size="11" font-weight="700" fill="#b45309" text-anchor="middle">최고 ${peak.x.toFixed(2)}%</text>
+                    ${marks}
+                    ${ticks}
+                </svg>`;
         }
 
         function renderChart(histogram, s) {
@@ -746,6 +897,8 @@
                 months: parseInt(document.getElementById('months').value) || 12,
                 testMonths: parseInt(document.getElementById('testMonths').value) || 3,
                 presumedPrice: document.getElementById('presumedPrice').value.trim(),
+                floorRate: document.getElementById('floorRate').value.trim(),
+                participants: document.getElementById('participants').value,
             };
 
             if (!payload.dminsttNm && !payload.keyword && !payload.region) {
@@ -790,43 +943,31 @@
 
         function renderBacktestResult(data) {
             document.getElementById('backtest-summary').textContent =
-                `학습 구간 ${data.train_months}개월(${data.train_count}건 데이터)로 뽑은 추천 낙찰률을, ` +
-                `검증 구간 최근 ${data.test_months}개월(${data.test_count}건 실제 사례)에 대입해 사후 검증했습니다.`;
+                `학습 구간 ${data.train_months}개월(기초금액을 확인한 ${data.train_n}건)에서 정한 투찰 가격을, ` +
+                `검증 구간 최근 ${data.test_months}개월(${data.test_n}건)에 그대로 썼다면 어땠는지 계산했습니다. 낙찰하한율 ${data.floor_rate}% 기준입니다.`;
 
-            const keys = ['min', 'p10', 'p25', 'p40', 'p50', 'p60', 'p75', 'p90'];
-            const labels = { min: '최소', p10: '하위10%', p25: '하위25%', p40: '하위40%', p50: '중앙값', p60: '하위60%', p75: '하위75%', p90: '하위90%' };
-
-            let html = '<tr><th>구분</th>' + keys.map(k => `<th>${labels[k]}${k === 'p10' ? ' ⭐' : ''}</th>`).join('') + '</tr>';
-
-            html += '<tr><td><b>학습구간 추천 낙찰률</b></td>' + keys.map(k => {
-                const p = data.per_percentile[k];
-                return `<td${k === 'p10' ? ' class="highlight"' : ''}>${p.trained_rate}%</td>`;
-            }).join('') + '</tr>';
-
-            html += '<tr><td><b>검증구간 승률</b></td>' + keys.map(k => {
-                const p = data.per_percentile[k];
-                const color = p.win_rate >= 80 ? '#15803d' : p.win_rate >= 50 ? '#b45309' : '#b91c1c';
-                return `<td${k === 'p10' ? ' class="highlight"' : ''} style="color:${color}; font-weight:700;">${p.win_rate}%</td>`;
-            }).join('') + '</tr>';
-
-            html += '<tr><td>평균 여유폭(%p)</td>' + keys.map(k => {
-                const p = data.per_percentile[k];
-                return `<td${k === 'p10' ? ' class="highlight"' : ''}>${p.avg_margin !== null && p.avg_margin !== undefined ? p.avg_margin : '-'}</td>`;
-            }).join('') + '</tr>';
-
+            let html = '<tr><th>전략</th><th>투찰률 (기초금액 대비)</th><th>학습 구간에서 예상한 낙찰 비율</th><th>검증 구간에서 실제 낙찰 비율</th><th>차이</th></tr>';
+            data.rows.forEach(r => {
+                const diff = (r.realized - r.predicted) * 100;
+                const isRef = r.key === 'median' || r.key === 'low10';
+                html += `<tr${r.key === 'peak' ? ' class="highlight-row"' : ''}${isRef ? ' style="color:#64748b;"' : ''}>
+                    <td>${esc(r.label)}${isRef ? ' (비교용)' : ''}</td>
+                    <td>${r.x.toFixed(3)}%</td>
+                    <td>${(r.predicted * 100).toFixed(1)}%</td>
+                    <td><b>${(r.realized * 100).toFixed(1)}%</b></td>
+                    <td style="color:${Math.abs(diff) <= 10 ? '#15803d' : '#b45309'};">${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%p</td></tr>`;
+            });
             document.getElementById('backtest-table').innerHTML = html;
 
-            const p10 = data.per_percentile.p10;
+            const peak = data.rows.find(r => r.key === 'peak');
+            const low = data.rows.find(r => r.key === 'low10');
+            const gap = peak ? (peak.realized - peak.predicted) * 100 : null;     // +면 실제가 예상보다 좋았다
             let verdict;
-            if (p10.win_rate >= 80) {
-                verdict = '학습 구간의 감각이 검증 구간(최근)에도 잘 맞아떨어지고 있습니다 — 이 조건에서는 현재 추천 낙찰률을 신뢰할 만합니다.';
-            } else if (p10.win_rate >= 50) {
-                verdict = '어느 정도는 맞지만 시차 오차가 있는 편입니다. 조회 기간을 좀 더 최근 위주로 좁혀서 다시 확인해보는 것을 권장합니다.';
-            } else {
-                verdict = '검증 구간에서 승률이 낮게 나왔습니다 — 최근 낙찰하한율 고시 개정이나 시장 상황 변화로 감이 틀어졌을 가능성이 있으니, 조회 기간을 최근 몇 개월로 크게 좁혀서 다시 분석해보시길 권장합니다.';
-            }
-            document.getElementById('backtest-explain').innerHTML =
-                `🧪 <b>하위10% 전략</b>(학습구간 기준 낙찰률 ${p10.trained_rate}%)을 검증 구간에 그대로 대입했다면 <b>${p10.win_rate}%</b> 승률이 나왔을 것으로 계산됩니다. ${verdict}`;
+            if (gap === null) verdict = '';
+            else if (gap >= -10) verdict = `예상(${(peak.predicted * 100).toFixed(1)}%)보다 실제(${(peak.realized * 100).toFixed(1)}%)가 ${gap >= 0 ? '같거나 더 좋았습니다' : '조금 낮았지만 큰 차이는 아닙니다'}(${gap >= 0 ? '+' : ''}${gap.toFixed(1)}%p). 이 조건에서는 계산한 낙찰 확률을 ${gap >= 0 ? '보수적인 기준으로' : ''} 참고할 만합니다.`;
+            else verdict = `예상(${(peak.predicted * 100).toFixed(1)}%)보다 실제(${(peak.realized * 100).toFixed(1)}%)가 ${(-gap).toFixed(1)}%p 낮았습니다. 최근 낙찰하한율이나 시장 상황이 바뀐 것일 수 있어, 조회 기간을 최근 위주로 좁혀 다시 확인해 보세요.`;
+            const lowTxt = (peak && low) ? ` 반면 예전처럼 낮게 쓰는 전략(하위 10%, ${low.x.toFixed(2)}%)은 실제 ${(low.realized * 100).toFixed(1)}%로, 확률 최고 지점(${(peak.realized * 100).toFixed(1)}%)보다 낮습니다. 하한 아래로 떨어지는 사례에서 탈락하기 때문입니다.` : '';
+            document.getElementById('backtest-explain').innerHTML = `🧪 ${esc(verdict)}${esc(lowTxt)}`;
 
             if (data.errors && data.errors.length > 0) {
                 console.warn('일부 월 조회 실패:', data.errors);

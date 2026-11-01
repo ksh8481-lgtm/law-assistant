@@ -763,6 +763,18 @@ def api_bid_predict():
             except (TypeError, ValueError):
                 pass
 
+        # 기초금액을 입력했으면 과거 사례의 기초금액까지 조회해 "기초금액 대비 낙찰금액" 분포로 투찰 확률을 계산한다(bid_model.py).
+        # 위의 won_estimates(낙찰률 x 기초금액 +-3%)는 예정가격을 모르는 상태의 거친 근사라, 이 모델이 계산되면 화면은 이쪽을 우선 보여 준다.
+        model, model_error = None, None
+        if base_amount not in (None, ''):
+            try:
+                import bid_service
+                model, model_error = bid_service.analyze(
+                    items, base_amount, floor_rate=data.get('floorRate'), participants=(data.get('participants') or None))
+            except Exception as me:
+                print("Bid model error:", type(me).__name__, me)
+                model_error = f"투찰 확률 계산 중 오류: {me}"
+
         return jsonify({
             "success": True,
             "stats": stats,
@@ -772,6 +784,8 @@ def api_bid_predict():
             "target_rate": target_rate,
             "target_percentile": target_percentile,
             "won_estimates": won_estimates,
+            "model": model,
+            "model_error": model_error,
             "errors": errors,
         })
     except Exception as e:
@@ -819,13 +833,20 @@ def api_bid_backtest():
         if not dminstt_nm and not keyword and not region:
             return jsonify({"success": False, "message": "발주기관명, 공고 키워드, 참가제한지역 중 최소 하나는 입력해 주세요."}), 400
 
-        result, err = backtest_bid_strategy(
-            months=months, test_months=test_months, dminstt_nm=dminstt_nm, keyword=keyword,
-            region=region, presumed_price_min=price_min, presumed_price_max=price_max,
-        )
+        # 예전 backtest_bid_strategy는 "추천 낙찰률이 실제 낙찰률보다 낮거나 같으면 이긴다"고만 봐서 낮게 쓸수록 승률이 높게 나왔다
+        # (낙찰하한 아래는 탈락인데 반영하지 않음). 새 방식은 기초금액 기준 + 낙찰하한을 반영한다(bid_model.backtest).
+        import bid_service
+        from pps_bid import _month_ranges, _fetch_rate_group
+        if test_months >= months:
+            return jsonify({"success": False, "message": "검증 기간은 전체 조회 기간보다 짧아야 합니다."})
+        ranges = _month_ranges(months)
+        test_items, e1 = _fetch_rate_group(ranges[:test_months], dminstt_nm, keyword, region, price_min, price_max)
+        train_items, e2 = _fetch_rate_group(ranges[test_months:], dminstt_nm, keyword, region, price_min, price_max)
+        result, err = bid_service.backtest(
+            train_items, test_items, floor_rate=data.get('floorRate'), participants=(data.get('participants') or None))
         if err:
             return jsonify({"success": False, "message": err})
-
+        result.update(train_months=len(ranges) - test_months, test_months=test_months, errors=e1 + e2)
         return jsonify({"success": True, **result})
     except Exception as e:
         print("Bid Backtest Error:", e)
