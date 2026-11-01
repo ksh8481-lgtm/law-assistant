@@ -225,6 +225,11 @@ def _clean_admrul_name(name: str) -> str:
     return name
 
 
+def _law_byeolpyo_enabled() -> bool:
+    """법률·시행령·시행규칙의 별표(질문과 관련된 것 최대 2개)를 첫 답변 근거에 넣을지. 환경변수 LAW_BYEOLPYO_IN_ANSWER=0이면 끈다."""
+    return os.environ.get("LAW_BYEOLPYO_IN_ANSWER", "1") != "0"
+
+
 def _hinted_admruls(query: str) -> list:
     """질의 속 낱말로 고른 고시 이름(목록 앞쪽 항목 우선, 중복 제거, 최대 _MAX_HINTED개)."""
     flat = re.sub(r'\s+', '', query or '')
@@ -393,7 +398,9 @@ def get_mcp_context_sync(query: str, uploaded_file=None) -> str:
             # "테마파크업"이 나오는 조문이 발췌에서 빠짐). 사용자가 질문에 직접 쓴 단어는 가장 믿을
             # 만한 키워드이므로 같이 합친다. 법령에 없는 단어는 IDF가 0이라 점수에 영향이 없다.
             law_keywords = _merge_keywords(topic_keywords or [keyword], _query_terms(query))
-            law_text = search_laws_with_text(law_names, law_keywords)
+            bp = _law_byeolpyo_enabled()
+            # 별표를 켜면 시행규칙까지(법·시행령·시행규칙 3단계) 가져온다. 2개까지만 가져오면 고용노동부령·국토교통부령에 있는 시간·기준이 통째로 빠진다.
+            law_text = search_laws_with_text(law_names, law_keywords, per_name_max=3 if bp else 2, include_byeolpyo=bp)
             if law_text:
                 evidence = _term_evidence(law_text, _query_terms(query))
                 if evidence:

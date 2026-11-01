@@ -526,5 +526,20 @@ class OnlineTests(unittest.TestCase):
         self.assertIn(BP2_PHRASE, ctx)
 
 
+class QuoteMarkdownTests(unittest.TestCase):
+    BODY = "제8조(품질시험기준) ① 건설공사의 종류별, 공종별 시험종목ㆍ방법 및 빈도 등 건설공사 품질시험기준은 별표 2와 같다."
+
+    def _cite(self, near):
+        return {"near": near, "no": 8, "br": 0, "label": "제8조", "after": ""}
+
+    def test_bold_markers_inside_a_quote_do_not_cause_false_mismatch(self):
+        near = '제1항은 "건설공사의 종류별, 공종별 시험종목ㆍ방법 및 **빈도** 등 건설공사 품질시험기준은 **별표 2**와 같다"고 명시하고 있습니다.'
+        self.assertIsNone(cc._check_quotes(self._cite(near), self.BODY))
+
+    def test_a_really_different_quote_is_still_flagged(self):
+        near = '제1항은 "시험종목은 발주청이 협의하여 임의로 정한다고 되어 있고 별도의 빈도 기준은 없다"고 명시합니다.'
+        self.assertIn("인용문 불일치", cc._check_quotes(self._cite(near), self.BODY) or "")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
