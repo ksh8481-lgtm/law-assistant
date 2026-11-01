@@ -116,7 +116,7 @@ def generate(contents, model=None, temperature=None, json_mode=False, search=Fal
 
     contents: 문자열, 또는 [문자열, 파일 조각, ...]. 파일 조각은 `gemini_file_part()`가 만든 dict도 된다.
     json_mode: 응답을 JSON으로 강제한다. search: 구글 검색 그라운딩을 붙인다.
-    thinking_budget: 0이면 사고(thinking)를 끈다. flash 계열만 가능하고 pro는 항상 사고하므로 무시한다.
+    thinking_budget: 사고(thinking) 토큰 상한. 0이면 끈다(flash만 가능, pro는 항상 사고하므로 0은 무시). 양수는 pro에도 적용.
       실측(2.5-flash): 키워드 추출처럼 단순한 호출도 사고에 1,000~2,000토큰을 써서 7~12초가 걸렸다."""
     from google.genai import types
     model = (model or fast_model()).replace("models/", "")
@@ -129,7 +129,8 @@ def generate(contents, model=None, temperature=None, json_mode=False, search=Fal
         kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
         # 검색 도구만 쓰는 호출이라 함수 자동호출(AFC)은 필요 없고, 켜 두면 불필요한 경고 로그가 남는다.
         kwargs["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(disable=True)
-    if thinking_budget is not None and "pro" not in model:
+    # pro는 사고를 끌 수 없으므로(0 불가) 0만 무시하고, 양수 예산은 pro에도 적용한다(사고량 상한).
+    if thinking_budget is not None and not (thinking_budget == 0 and "pro" in model):
         kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=thinking_budget)
     config = types.GenerateContentConfig(**kwargs) if kwargs else None
     t = time.time()

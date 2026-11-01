@@ -19,6 +19,7 @@ except Exception as e:
     print(f"Failed to import kcsc_engine: {e}")
     kcsc_engine = None
 import gemini_client
+import qa_grounding
 from law_linkify import (linkify_law_citations, extract_law_names_from_context,
                          extract_admrul_info_from_context, admrul_footer)
 from citation_check import annotate_unverified_citations
@@ -1854,6 +1855,8 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
         _t = _mark("준비(파일·모델목록)", _t0)
         mcp_rag_context = get_mcp_context_sync(full_query_for_rag)
         _t = _mark("법제처 컨텍스트(MCP)", _t)
+        # 후속 질의 채팅이 같은 법령·고시를 새 질문에 맞춰 다시 발췌할 수 있게 이름만 기억해 둔다(qa_grounding 참고).
+        qa_grounding.remember(full_query_for_rag, mcp_rag_context)
 
         moleg_context = f"[법제처 API 실시간 RAG 검색 결과 (MCP Agent)]\n{mcp_rag_context}"
         precedent_context = "" # Merged into moleg_context
@@ -1904,7 +1907,7 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
 6. 🚨 **[하위 항목 개수 조작 절대 금지]**: 어떤 조항이 [로컬 법령 데이터베이스]에 원문 그대로 제공되어 있다면, 그 조항의 호(1. 2. 3. ...)ㆍ목(가. 나. 다. ...) 구성을 **절대로 실제보다 더 많이 지어내지 마십시오.** 인용하기 전에 제공된 원문에서 그 조항에 실제로 몇 개의 호가 있는지 직접 세어보고, 그 범위를 벗어나는 호(예: 원문엔 제1호ㆍ제2호뿐인데 제3호 이상을 언급)를 절대 만들어내지 마십시오. 원문에 있는 조항은 반드시 원문의 문구를 그대로 옮기고, 원문에 없는 세부 항목이 필요하다고 판단되면 지어내는 대신 "구체적인 하위 항목은 원문을 직접 확인하십시오"라고 안내하십시오.
 7. 🚨 **[질문의 전제 법률을 소관 법률로 단정 금지]**: 사용자가 특정 법률을 언급했다고 해서 그 법률이 질문 대상을 규율하는 법률이라고 단정하지 마십시오. 질문에 나온 업종·시설·제도(예: "테마파크업", "수영장업")는 사용자가 언급한 법률과 전혀 다른 법률(예: 관광진흥법상 유원시설업)의 용어일 수 있습니다. 답하기 전에 "이 용어를 정의·규율하는 법률이 사용자가 언급한 법률과 같은가?"를 먼저 점검하고, 아래 [법제처 API 실시간 RAG 검색 결과]에 그 소관 법률이 없다면 "이 사안은 ○○법도 관련될 수 있으나 제공된 자료에 원문이 없어 확인이 필요합니다"라고 명시하십시오. 사용자가 언급한 법률 하나만으로 결론("가능/불가능")을 확정하지 마십시오.
 8. 🚨 **[제공된 원문이 기억보다 우선]**: 법령은 개정되며 용어도 바뀝니다(예: 관광진흥법의 "유원시설업"은 현행 "테마파크업"으로 개명됨). 아래 [법제처 API 실시간 RAG 검색 결과]의 법령 원문이나 [용어 소재 확인] 결과가 당신이 기억하는 용어·조문 내용과 다르면, 반드시 제공된 원문을 따르십시오. 제공된 원문에 어떤 업종·용어가 실제로 있는데도 "현행법에 명시적으로 규정되어 있지 않다"고 단정하거나 옛 용어로 바꿔 쓰는 것은 금지입니다. 업종·용어가 법에 "있다/없다"를 말하기 전에 제공된 원문에서 그 용어가 나오는 조문을 직접 찾아 그 조문 번호와 함께 인용하십시오.
-9. 🚨 **[고시·지침 원문(조문·별표)은 번호와 시행일까지 그대로 인용]**: 아래 검색 결과에 `[행정규칙 원문 발췌: ○○]`가 있으면, 그 고시·지침의 수치·비율·인원·기준은 일반론으로 "일정 비율"이라고 뭉뚱그리지 말고 제공된 원문의 **조·항·별표 번호와 목(가. 나. …)까지 특정해서** 문구 그대로 인용하십시오. 인용할 때는 헤더에 적힌 **시행일과 현행 여부**를 함께 밝히고(예: "시행 2023-10-17 현행"), 헤더에 "시행 예정인 개정본이 있다"는 안내가 있으면 그 사실도 알리십시오. 제공된 발췌에 없는 조항 번호나 수치는 만들지 말고 "원문 확인 필요"로 적으십시오. 고시의 별표 인용은 `[행정규칙명 별표 2](https://www.law.go.kr/행정규칙/행정규칙명)` 형태로 쓰십시오.
+9. 🚨 **[고시·지침 원문(조문·별표)은 번호와 시행일까지 그대로 인용]**: 아래 검색 결과에 `[행정규칙 원문 발췌: ○○]`가 있으면, 그 고시·지침의 수치·비율·인원·기준은 일반론으로 "일정 비율"이라고 뭉뚱그리지 말고 제공된 원문의 **조·항·별표 번호와 목(가. 나. …)까지 특정해서** 문구 그대로 인용하십시오. 인용할 때는 헤더에 적힌 **시행일과 현행 여부**를 함께 밝히고(예: "시행 2023-10-17 현행"), 헤더에 "시행 예정인 개정본이 있다"는 안내가 있으면 그 사실도 알리십시오. 제공된 발췌에 없는 조항 번호나 수치는 만들지 말고 "원문 확인 필요"로 적으십시오. 원문이 질문의 경우(경계값, 예외, 공백 등)를 명시적으로 다루지 않으면 "해당 없음"이나 "의무 없음"으로 단정하지 말고 "원문이 이 경우를 명시하지 않아 확인이 필요하다"고 쓰십시오. 고시의 별표 인용은 `[행정규칙명 별표 2](https://www.law.go.kr/행정규칙/행정규칙명)` 형태로 쓰십시오.
 
 ### 1. 상황 요약 (Situation Summary)
 - 
@@ -2040,8 +2043,13 @@ def api_chat_other_review():
         if not new_message:
             return jsonify({"success": False, "message": "질문이 제공되지 않았습니다."}), 400
             
+        # 이번 질문과 관련된 법제처 원문(조문·별표)을 다시 골라 근거로 붙인다. 실패하면 근거 없이 예전처럼 답한다.
+        grounding = qa_grounding.build_grounding(initial_context, new_message)
+
         contents_payload = []
         first_user_parts = [initial_context]
+        if grounding["text"]:
+            first_user_parts.append(qa_grounding.GROUNDING_INSTRUCTION + grounding["text"])
         if file_name:
             try:
                 file_obj = gemini_client.get_file(file_name)
@@ -2062,13 +2070,20 @@ def api_chat_other_review():
             "parts": [new_message]
         })
         
+        # 근거 원문이 붙은 후속 질문은 원문이 답의 범위를 이미 정해 주므로 깊은 사고가 필요 없다. 이 요청은 gunicorn 기본
+        # 제한(30초) 안에 끝나야 하는데, 사고를 제한하지 않으면 생성만 17~23초(+근거 조회 3.5초 + 인용 판정 약 8초)라
+        # 제한을 넘는다. 예산 512는 8~9초이고 같은 질문들에서 답변 내용이 달라지지 않았다(측정은 gemini_client 참고).
+        chat_kwargs = {"thinking_budget": 512} if grounding["text"] else {}
         try:
             response, _ = gemini_client.generate_with_fallback(
-                contents_payload, temperature=LEGAL_GEN_CONFIG["temperature"], label="후속 질의")
+                contents_payload, temperature=LEGAL_GEN_CONFIG["temperature"], label="후속 질의", **chat_kwargs)
         except Exception as e:
             raise Exception(f"채팅 응답 생성 실패: {e}")
             
-        return jsonify({"success": True, "result": annotate_unverified_citations(linkify_law_citations(response.text))})
+        final_text = annotate_unverified_citations(linkify_law_citations(
+            response.text, extract_law_names_from_context(grounding["text"]), grounding["adm_infos"]))
+        final_text += admrul_footer(final_text, grounding["adm_infos"])
+        return jsonify({"success": True, "result": final_text})
         
     except Exception as e:
         print(f"Chat Review API Error: {e}")

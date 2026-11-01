@@ -89,6 +89,38 @@ class EndpointContractTests(unittest.TestCase):
         self.assertEqual(call["contents"][-1], {"role": "user", "parts": [{"text": "새 질문"}]})
         self.assertEqual(_cfg(call, "temperature"), 0.2)                        # LEGAL_GEN_CONFIG 그대로
 
+    def test_chat_other_review_passes_grounding_and_appends_effective_date_footer(self):
+        """후속 질의에 법제처 원문을 근거로 붙이고, 답변이 언급한 고시의 시행일을 서버가 덧붙인다."""
+        import qa_grounding
+        info = {"name": "건설엔지니어링 대가 등에 관한 기준", "org_kind": "국토교통부 고시", "ymd": "2023-10-17",
+                "status": "현행", "queried": "2026-11-01", "pending": "", "url": "https://www.law.go.kr/x"}
+        real = qa_grounding.build_grounding
+        qa_grounding.build_grounding = lambda ctx, msg: {"text": "[행정규칙 원문 발췌: 건설엔지니어링 대가 등에 관한 기준] 근거본문", "adm_infos": [info]}
+        self.fake.models.reply = "건설엔지니어링 대가 등에 관한 기준 별표 2 바목에 따라 10~20%입니다."
+        try:
+            r = self.http.post("/api/chat/other_review", json={"new_message": "비율?", "initial_context": "원래 질문"})
+        finally:
+            qa_grounding.build_grounding = real
+        body = r.get_json()
+        parts = self.fake.models.calls[0]["contents"][0]["parts"]
+        self.assertEqual(parts[0], {"text": "원래 질문"})
+        self.assertTrue(parts[1]["text"].startswith(qa_grounding.GROUNDING_INSTRUCTION))
+        self.assertIn("근거본문", parts[1]["text"])
+        self.assertIn("시행 2023-10-17, 현행", body["result"])                   # 푸터
+        self.assertIn("law.go.kr/행정규칙/", body["result"])                      # 고시명 자동 링크
+
+    def test_chat_other_review_without_grounding_behaves_as_before(self):
+        import qa_grounding
+        real = qa_grounding.build_grounding
+        qa_grounding.build_grounding = lambda ctx, msg: {"text": "", "adm_infos": []}
+        self.fake.models.reply = "그냥 답변"
+        try:
+            r = self.http.post("/api/chat/other_review", json={"new_message": "Q", "initial_context": "C"})
+        finally:
+            qa_grounding.build_grounding = real
+        self.assertEqual(r.get_json()["result"], "그냥 답변")                      # 푸터 없음
+        self.assertEqual(self.fake.models.calls[0]["contents"][0]["parts"], [{"text": "C"}])
+
     def test_chat_other_review_falls_back_to_flash(self):
         self.fake.models.fail_models = {"gemini-2.5-pro"}
         self.fake.models.reply = "flash 답변"

@@ -279,6 +279,123 @@ class GeminiClientTests(unittest.TestCase):
         self.assertIn("gemini-2.5-flash", str(cm.exception))
 
 
+class HintTests(unittest.TestCase):
+    """낱말 힌트로 붙는 고시: 어떤 질문에 어떤 고시가 붙는지, 이름이 법제처와 정확히 맞는지."""
+
+    def test_triggers_pick_the_expected_admruls(self):
+        h = s._hinted_admruls
+        self.assertEqual(h("건설사업관리 인원 산정에서 기술지원기술인을 빼도 되나?"),
+                         ["건설엔지니어링 대가 등에 관한 기준", "건설공사 사업관리방식 검토기준 및 업무수행지침"])
+        self.assertEqual(h("콘크리트 품질시험 횟수와 안전관리계획서 대상은?"),
+                         ["건설공사 안전관리 업무수행 지침", "건설공사 품질관리 업무지침"])
+        self.assertIn("건설업 산업안전보건관리비 계상 및 사용기준", h("산업안전보건관리비 사용 항목"))
+        self.assertIn("(계약예규) 공사계약일반조건", h("지체상금 산정 방법"))
+        self.assertIn("지방자치단체 입찰 및 계약 집행기준", h("수의계약 사유가 뭐야"))
+        self.assertIn("건설엔지니어링사업자 사업수행능력 세부평가기준", h("사업수행능력 평가 항목"))
+
+    def test_unrelated_or_generic_questions_get_no_hint(self):
+        self.assertEqual(s._hinted_admruls("토지보상 영업손실 평가"), [])
+        self.assertEqual(s._hinted_admruls(""), [])
+        # '낙찰자 결정'은 일반 공사 낙찰에도 쓰는 말이라 건설엔지니어링 전용 기준을 붙이지 않는다
+        self.assertNotIn("건설엔지니어링 적격심사 및 협상에 의한 낙찰자 결정기준", s._hinted_admruls("낙찰자 결정 방법"))
+
+    def test_hint_count_is_capped_and_ordered(self):
+        many = s._hinted_admruls("건설사업관리 안전관리계획 품질관리 산업안전보건관리비 지체상금 입찰 사업수행능력")
+        self.assertEqual(len(many), s._MAX_HINTED)
+        self.assertEqual(many[0], "건설엔지니어링 대가 등에 관한 기준")          # 목록 앞쪽 우선
+
+    def test_names_with_leading_parentheses_survive_cleaning(self):
+        self.assertEqual(s._clean_admrul_name("(계약예규) 공사계약일반조건"), "(계약예규) 공사계약일반조건")
+        self.assertEqual(s._clean_admrul_name("「건설공사 품질관리 업무지침」"), "건설공사 품질관리 업무지침")
+        self.assertEqual(s._clean_admrul_name("건설산업기본법"), "")
+
+    @needs_net
+    def test_every_hinted_name_exists_in_moleg_as_an_exact_current_match(self):
+        names = sorted({n for _t, ns in s._ADMRUL_HINTS for n in ns})
+        for name in names:
+            meta = m._lookup_admrul(name)
+            self.assertIsNotNone(meta, f"법제처에서 현행본을 찾지 못함(이름 변경·폐지?): {name}")
+            self.assertEqual(m._ad_key(meta["name"]), m._ad_key(name), f"정확히 일치하지 않음: {name} -> {meta['name']}")
+
+
+class QaGroundingTests(unittest.TestCase):
+    """후속 질의 채팅의 근거 원문: 이름 기억, 새 질문에 맞춘 재발췌, 실패해도 채팅은 계속."""
+
+    NL = chr(10)
+    CONTEXT = NL.join([
+        f"[행정규칙 원문 발췌: {CM_NAME}] (국토교통부 고시, 시행 2023-10-17, 현행, 법제처 조회 2026-10-21) (https://x/y)",
+        "본문", "",
+        "[법령 원문 발췌: 건설기술 진흥법] (https://x/law)", "본문", "",
+        "[법령 원문 발췌: 건설기술 진흥법 시행령] (https://x/law2)", "본문"])
+
+    def setUp(self):
+        import qa_grounding
+        self.qg = qa_grounding
+        self.qg._CACHE.clear()
+
+    def test_remember_stores_only_names_and_recall_finds_them_by_context(self):
+        self.qg.remember("처음 질문", self.CONTEXT)
+        entry = self.qg.recall("처음 질문")
+        self.assertEqual(entry["admruls"], [CM_NAME])
+        self.assertEqual(entry["laws"], ["건설기술 진흥법"])                      # 시행령은 기본 법령명으로 합쳐 중복 제거
+        self.assertIsNone(self.qg.recall("다른 질문"))
+
+    def test_cache_is_bounded(self):
+        for i in range(self.qg._MAX_ENTRIES + 20):
+            self.qg.remember(f"질문{i}", self.CONTEXT)
+        self.assertEqual(len(self.qg._CACHE), self.qg._MAX_ENTRIES)
+        self.assertIsNone(self.qg.recall("질문0"))                            # 오래된 것부터 밀려남
+        self.assertIsNotNone(self.qg.recall(f"질문{self.qg._MAX_ENTRIES + 19}"))
+
+    def test_build_grounding_never_raises_and_returns_empty_when_nothing_to_fetch(self):
+        self.assertEqual(self.qg.build_grounding("아무 관련 없는 질문", "안녕"), {"text": "", "adm_infos": []})
+
+    def test_build_grounding_survives_fetch_failures(self):
+        real = m.search_admrul_with_text
+
+        def boom(*a, **k):
+            raise RuntimeError("법제처 오류")
+
+        m.search_admrul_with_text = boom
+        try:
+            self.qg.remember("Q", self.CONTEXT)
+            out = self.qg.build_grounding("Q", "기술지원기술인 비율은?")
+        finally:
+            m.search_admrul_with_text = real
+        self.assertEqual(out["adm_infos"], [])                                 # 예외 없이 돌아온다(법령 쪽 결과만 있거나 빈 값)
+
+    @needs_net
+    def test_followup_gets_the_exact_clause_for_the_new_question(self):
+        """운영 재현: 후속 질문 '비율이 몇 %야?'에 별표 2 바목 원문이 근거로 붙어야 한다."""
+        self.qg.remember("건설사업관리 인원 산정 질의", m.search_admrul_with_text([CM_NAME], TOPIC))
+        out = self.qg.build_grounding("건설사업관리 인원 산정 질의", "기술지원기술인 비율은 몇 퍼센트로 산정해?")
+        self.assertIn(BP2_PHRASE, out["text"])
+        self.assertEqual([i["name"] for i in out["adm_infos"]][:1], [CM_NAME])
+
+    def test_terms_strip_particles_and_keep_late_words(self):
+        """운영 재현: 조사가 붙은 채('토목공사에서', '공종이')라 원문과 안 맞고, 6개로 잘려 '하천제방'이 빠졌다."""
+        terms = self.qg._terms("토목공사에서 공종이 단순한지 보통인지 복잡한지는 어떻게 구분해? 하천제방 공사는 어디에 해당해?")
+        for want in ("토목공사", "공종", "단순", "보통", "복잡", "하천제방"):
+            self.assertIn(want, terms)
+        for junk in ("어떻게", "어디", "해당해", "구분해"):
+            self.assertNotIn(junk, terms)
+        self.assertEqual(self.qg._terms("가 나"), [])                          # 한 글자 낱말은 버린다
+
+    @needs_net
+    def test_followup_finds_the_gongjong_classification_table(self):
+        """별표 2 사목의 공종 구분표(하천제방은 단순한 공종)가 근거에 들어와야 한다."""
+        self.qg.remember("건설사업관리 인원 산정 질의", m.search_admrul_with_text([CM_NAME], TOPIC))
+        out = self.qg.build_grounding("건설사업관리 인원 산정 질의",
+                                      "토목공사에서 공종이 단순한지 보통인지 복잡한지는 어떻게 구분해? 하천제방 공사는 어디에 해당해?")
+        self.assertIn("하천제방", out["text"])
+        self.assertIn("단순한 공종", out["text"])
+
+    @needs_net
+    def test_without_memory_hints_alone_still_ground_the_followup(self):
+        out = self.qg.build_grounding("처음 질문(기억 없음)", "건설사업관리 기술지원기술인 비율이 어떻게 돼?")
+        self.assertIn(BP2_PHRASE, out["text"])
+
+
 class VerifyPromptTests(unittest.TestCase):
     """구글 검색 검증 패스가 법제처 원문으로 확인된 고시 인용을 지우던 문제(운영 확인)."""
 
