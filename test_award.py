@@ -421,10 +421,22 @@ class ApiTests(unittest.TestCase):
         r = self.http.post('/api/award/evaluate', json={**body, 'spec_id': 'nope'})
         self.assertEqual(r.status_code, 404)
 
-    def test_page_and_links(self):
-        html = self.http.get('/award').get_data(as_text=True)
-        self.assertIn('적격심사', html)
-        self.assertIn('award.js', html)
+    def test_award_is_a_step_of_the_pq_page_not_a_separate_page(self):
+        html = self.http.get('/pq_score').get_data(as_text=True)
+        for needle in ('id="awardCard"', 'id="awardBody"', 'award_panel.js', 'pq_score.js'):
+            self.assertIn(needle, html, needle)
+        self.assertLess(html.index('award_panel.js'), html.index('pq_score.js'))      # pq_score.js가 AwardPanel을 부르므로 먼저 읽혀야 한다
+        r = self.http.get('/award')                                                   # 예전 주소는 PQ 화면으로 안내
+        self.assertEqual((r.status_code, r.headers['Location'].endswith('/pq_score#award')), (302, True))
+        home = self.http.get('/').get_data(as_text=True)
+        self.assertNotIn('href="/award"', home)                                       # 홈에 별도 카드는 없다
+
+    def test_pq_script_hands_results_to_the_award_step(self):
+        js = open('static/pq_score.js', encoding='utf-8').read()
+        self.assertIn('AwardPanel.onPqResult', js)
+        self.assertNotIn('sendToAward', js)                                           # 예전 '보내기' 버튼 방식은 없다
+        panel = open('static/award_panel.js', encoding='utf-8').read()
+        self.assertIn('window.AwardPanel', panel)
 
 
 if __name__ == '__main__':

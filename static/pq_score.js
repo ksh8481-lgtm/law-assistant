@@ -981,6 +981,7 @@
                 status.textContent = '';
                 S.resultShown = d.result;
                 renderResults(d.result);
+                if (window.AwardPanel) window.AwardPanel.onPqResult(d.result);   // 6단계(적격심사)가 이 PQ 점수를 이어받는다
             }).catch(function (e) {
                 status.textContent = '';
                 status.appendChild(el('span', { class: 'err', text: String(e.message || e) }));
@@ -1032,8 +1033,7 @@
 
         box.appendChild(el('div', { class: 'no-print', style: 'margin:0.8rem 0; display:flex; gap:0.6rem; flex-wrap:wrap;' }, [
             el('button', { type: 'button', class: 'btn btn-ghost btn-sm', text: 'CSV로 저장', onclick: function () { downloadCsv(res); } }),
-            el('button', { type: 'button', class: 'btn btn-ghost btn-sm', text: '인쇄 / PDF 저장', onclick: function () { window.print(); } }),
-            el('button', { type: 'button', class: 'btn btn-primary btn-sm', text: '➡ 적격심사(종합평점) 계산으로 보내기', onclick: function () { sendToAward(res); } })
+            el('button', { type: 'button', class: 'btn btn-ghost btn-sm', text: '인쇄 / PDF 저장', onclick: function () { window.print(); } })
         ]));
 
         // 입찰사별 상세
@@ -1076,18 +1076,6 @@
         });
         box.appendChild(el('p', { class: 'status', style: 'margin-top:1rem;', text: '본 결과는 입력된 값을 고시 [별표]의 구간표에 적용한 계산 결과이며, 입력값의 진위는 건설기술용역 실적관리시스템 등 공식 자료로 검증해야 합니다. 최종 평가 결과는 평가위원회·발주청의 판단에 따릅니다.' }));
         box.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-
-    // 입찰사 이름과 PQ 점수를 적격심사 화면(/award)으로 넘긴다. 실격한 입찰사는 심사 대상이 아니므로 뺀다.
-    // 이 PQ 점수에 사업자·참여기술인 벌점 감점이 들어 있으면 적격심사 화면에서 '벌점 감점'을 따로 입력해야 규정대로 환산된다.
-    function sendToAward(res) {
-        var list = res.results.filter(function (r) { return !r.disqualified && r.rank !== null; })
-            .map(function (r) { return { name: r.name, pq_score: r.total }; });
-        if (!list.length) { alert('넘길 입찰사가 없습니다(모두 실격).'); return; }
-        try {
-            localStorage.setItem('pq_to_award', JSON.stringify({ at: new Date().toISOString(), from: (spec && (spec.short || spec.name)) || '', bidders: list }));
-        } catch (e) { alert('이 브라우저에서는 결과를 넘길 수 없습니다. 적격심사 화면에서 PQ 점수를 직접 입력해 주세요.'); }
-        window.location.href = '/award';
     }
 
     function csvCell(v) {

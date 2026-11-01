@@ -3,7 +3,7 @@ import json
 import requests
 import xml.etree.ElementTree as ET
 import urllib.parse
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, redirect
 from flask_cors import CORS
 import random
 # dotenv removed
@@ -2712,7 +2712,8 @@ PQ_PLANNED = []
 # ---------------------------------------------------------------------------
 @app.route('/award')
 def award_page():
-    return render_template('award.html')
+    # 적격심사는 사업수행능력평가 점수 산정 화면의 6단계로 합쳐졌다. 예전 주소로 들어오면 그 화면으로 보낸다.
+    return redirect('/pq_score#award')
 
 
 @app.route('/api/award/spec/<spec_id>', methods=['GET'])

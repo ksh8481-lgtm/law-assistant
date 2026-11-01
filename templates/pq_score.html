@@ -100,6 +100,28 @@
         .warn-list { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 12px; padding: 0.8rem 1.1rem 0.8rem 2rem;
             font-size: 0.86rem; line-height: 1.6; margin-bottom: 1rem; }
         .rank1 { background: #ecfdf5; }
+        /* 6단계 적격심사 */
+        .band-box { margin-top: 1rem; border: 2px solid #99f6e4; background: var(--primary-soft); border-radius: 14px; padding: 0.9rem 1.2rem; font-size: 0.9rem; line-height: 1.7; }
+        .band-box b { color: var(--primary-dark); }
+        .weights { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.4rem; }
+        .weights span { background: #fff; border: 1px solid #99f6e4; border-radius: 999px; padding: 0.1rem 0.7rem; font-size: 0.82rem; }
+        table.bt th { white-space: nowrap; font-size: 0.82rem; }
+        .bt input[type=text] { min-width: 84px; }
+        .bt .w-price { min-width: 150px; }
+        .bt .sub-input { margin-top: 0.3rem; }
+        .bt td.c { text-align: center; }
+        .winner-box { border: 2px solid #34d399; background: #ecfdf5; border-radius: 14px; padding: 0.9rem 1.2rem; margin-bottom: 1rem; font-size: 1rem; line-height: 1.7; }
+        .winner-box.none { border-color: #fca5a5; background: #fef2f2; }
+        .winner-box.lottery { border-color: #fcd34d; background: #fffbeb; }
+        tr.s-winner { background: #ecfdf5; }
+        tr.s-fail td.total { color: #b91c1c; }
+        tr.s-after, tr.s-over { color: #94a3b8; }
+        .tag { display: inline-block; padding: 0.1rem 0.6rem; border-radius: 999px; font-size: 0.78rem; font-weight: 700; white-space: nowrap; }
+        .tag.winner { background: #10b981; color: #fff; }
+        .tag.lottery { background: #f59e0b; color: #fff; }
+        .tag.pass { background: #d1fae5; color: #065f46; }
+        .tag.fail { background: #fee2e2; color: #991b1b; }
+        .tag.after, .tag.over { background: #e2e8f0; color: #475569; }
         .score-big { font-weight: 800; font-size: 1.05rem; color: var(--primary-dark); }
         .basis { font-size: 0.78rem; color: #475569; line-height: 1.5; margin-top: 0.3rem; }
         .muted { color: #94a3b8; }
@@ -169,8 +191,15 @@
                 <span id="scoreStatus" class="status" style="margin-left:0.8rem;"></span></div>
             <div id="results"></div>
         </div>
+
+        <div class="card" id="awardCard" style="display:none;">
+            <h2><span><span class="step">6</span>적격심사 종합평점·낙찰자 결정 <small class="muted" style="font-weight:500;">(지방자치단체 입찰시 낙찰자 결정기준)</small></span>
+                <button class="btn btn-ghost btn-sm no-print" id="awardToggle" type="button">접기</button></h2>
+            <div id="awardBody"></div>
+        </div>
     </div>
 </div>
+<script src="{{ url_for('static', filename='award_panel.js') }}"></script>
 <script src="{{ url_for('static', filename='pq_score.js') }}"></script>
 </body>
 </html>
