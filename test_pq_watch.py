@@ -112,6 +112,76 @@ def test_main_writes_and_removes_report():
             os.remove(path)
 
 
+def _award_src():
+    import award_engine
+    return award_engine.load_spec('jibang_jeokgyeok_tech')['source']
+
+
+def test_award_spec_is_watched():
+    v = current_serials()
+    src = _award_src()
+    v[src['law_name']] = src['law_id']
+    res = pq_watch.check(fake(v))
+    check('적격심사 명세(낙찰자 결정기준)도 감시 대상', [r['status'] for r in res if r['spec_ids'] == ['award:jibang_jeokgyeok_tech']], ['ok'])
+
+
+def test_award_change_report_lists_changed_numbers():
+    v = current_serials()
+    v[_award_src()['law_name']] = '2100000999999'
+    res = pq_watch.check(fake(v))
+    summary = {'ok': 25, 'diff': [{'key': 'pass_ge_10', 'label': '적격통과점수(추정가격 10억원 이상)', 'expected': 92, 'found': 90, 'status': 'diff'}],
+               'unparsed': [], 'clean': False}
+    calls = []
+    pq_watch.attach_award_verification(res, lambda spec_id, serial: calls.append((spec_id, serial)) or summary)
+    md = pq_watch.report_markdown(res)
+    check('개정 시 새 일련번호로 숫자 대조 호출', calls, [('jibang_jeokgyeok_tech', '2100000999999')])
+    check('보고서에 바뀐 값(92 → 90)', '명세 92 → 원문 90' in md, True)
+    check('보고서에 명세 id', 'award:jibang_jeokgyeok_tech' in md, True)
+    check('다른 PQ 기준은 보고서에 없음', 'mlit_cm' in md, False)
+
+
+def test_award_clean_verification_says_numbers_unchanged():
+    v = current_serials()
+    v[_award_src()['law_name']] = '2100000999999'
+    res = pq_watch.check(fake(v))
+    pq_watch.attach_award_verification(res, lambda spec_id, serial: {'ok': 26, 'diff': [], 'unparsed': [], 'clean': True})
+    md = pq_watch.report_markdown(res)
+    check('숫자가 같으면 영향 없어 보인다고 알림', '모두 명세와 같습니다' in md, True)
+
+
+def test_award_verification_failure_still_reports_amendment():
+    v = current_serials()
+    v[_award_src()['law_name']] = '2100000999999'
+    res = pq_watch.check(fake(v))
+
+    def boom(spec_id, serial):
+        raise RuntimeError('다운로드 실패')
+    pq_watch.attach_award_verification(res, boom)
+    md = pq_watch.report_markdown(res)
+    check('대조가 실패해도 개정 알림은 나간다', 'award:jibang_jeokgyeok_tech' in md, True)
+    check('대조 실패 안내', '숫자 대조 실패' in md, True)
+
+
+def test_upcoming_amendment_is_detected_and_past_versions_are_ignored():
+    import urllib.parse
+    name = pq_engine.load_spec('mlit_cm')['source']['law_name']
+    base = fake(current_serials())
+
+    def with_upcoming(effective):
+        def f(url):
+            if 'nw=3' in url and urllib.parse.unquote(url.split('query=')[1].split('&')[0]) == name:
+                return xml((name, '2100000555555', '2099-5', '20990101', effective))
+            return base(url)
+        return f
+    res = pq_watch.check(with_upcoming('20991231'), today='20261101')
+    st = [r['status'] for r in res if 'mlit_cm' in r['spec_ids']]
+    check('시행 예정 개정 감지', st, ['upcoming'])
+    md = pq_watch.report_markdown(res)
+    check('보고서에 시행 예정 표시', '시행 예정 개정' in md and '2100000555555' in md, True)
+    res = pq_watch.check(with_upcoming('20200101'), today='20261101')
+    check('이미 지난 다른 버전은 무시', [r['status'] for r in res if 'mlit_cm' in r['spec_ids']], ['ok'])
+
+
 def test_spec_sources_have_names():
     for sid in ('bangjae', 'env_assess', 'mof_cm', 'mlit_design', 'mlit_cm', 'mlit_safe'):
         src = pq_engine.load_spec(sid)['source']

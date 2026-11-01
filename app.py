@@ -26,6 +26,7 @@ from law_linkify import (linkify_law_citations, extract_law_names_from_context,
 from citation_check import annotate_unverified_citations
 import pq_engine
 import pq_extract
+import award_engine
 from doc_extract import extract_text_from_file
 
 app = Flask(__name__)
@@ -2703,6 +2704,38 @@ def api_commencement_review():
 # 뽑아 화면에 채워줄 뿐이고, 사람이 확인·수정한 값만 계산에 들어간다.
 # ----------------------------------------------------------------------------
 PQ_PLANNED = []
+
+
+# ---------------------------------------------------------------------------
+# 적격심사(지방자치단체 입찰시 낙찰자 결정기준) - PQ 점수를 받아 종합평점을 계산하고 낙찰자를 정한다(award_engine.py).
+# PQ 점수와 마찬가지로 AI는 점수를 만들지 않는다. 규정 값은 award_specs/*.json에 조항 번호와 함께 있다.
+# ---------------------------------------------------------------------------
+@app.route('/award')
+def award_page():
+    return render_template('award.html')
+
+
+@app.route('/api/award/spec/<spec_id>', methods=['GET'])
+def api_award_spec(spec_id):
+    try:
+        return jsonify({"success": True, "spec": award_engine.load_spec(spec_id)})
+    except KeyError:
+        return jsonify({"success": False, "message": "존재하지 않는 평가기준입니다."}), 404
+
+
+@app.route('/api/award/evaluate', methods=['POST'])
+def api_award_evaluate():
+    try:
+        data = request.get_json(silent=True) or {}
+        result = award_engine.evaluate(data.get('spec_id', ''), data.get('project') or {}, data.get('bidders') or [])
+        return jsonify({"success": True, "result": result})
+    except award_engine.AwardInputError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+    except KeyError:
+        return jsonify({"success": False, "message": "존재하지 않는 평가기준입니다."}), 404
+    except Exception as e:
+        print(f"[award] evaluate error: {type(e).__name__}: {e}")
+        return jsonify({"success": False, "message": f"종합평점 계산 중 오류: {e}"}), 500
 
 
 @app.route('/pq_score')

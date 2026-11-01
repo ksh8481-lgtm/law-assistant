@@ -25,7 +25,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests
+          pip install requests pymupdf # pymupdf: 낙찰자 결정기준 PDF의 숫자 대조(award_check)용
 
       - name: Run Crawler
         run: python -u crawler.py # -u: 로그를 바로바로 출력(중간에 죽어도 어느 법령에서 죽었는지 남도록)
