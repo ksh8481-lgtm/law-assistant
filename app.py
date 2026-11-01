@@ -662,9 +662,12 @@ def api_open_bids_base_amount():
         if err:
             return jsonify({"success": False, "message": err})
 
+        import bid_rules
         return jsonify({
             "success": True,
             "bssamt": match.get("bssamt"),
+            # 적격심사 낙찰하한을 좌우하는 A값(보험료·안전관리비·품질관리비 합산액). 낙찰가 예측 화면이 이 값을 그대로 채워 쓴다.
+            "aAmount": round(bid_rules.a_amount(match)),
             "rsrvtnPrceRngBgnRate": match.get("rsrvtnPrceRngBgnRate"),
             "rsrvtnPrceRngEndRate": match.get("rsrvtnPrceRngEndRate"),
         })
@@ -770,7 +773,8 @@ def api_bid_predict():
             try:
                 import bid_service
                 model, model_error = bid_service.analyze(
-                    items, base_amount, floor_rate=data.get('floorRate'), participants=(data.get('participants') or None))
+                    items, base_amount, a_amount=data.get('aAmount'), presumed_price=data.get('presumedPrice'),
+                    others=data.get('othersScore'), participants=(data.get('participants') or None))
             except Exception as me:
                 print("Bid model error:", type(me).__name__, me)
                 model_error = f"투찰 확률 계산 중 오류: {me}"
@@ -843,7 +847,7 @@ def api_bid_backtest():
         test_items, e1 = _fetch_rate_group(ranges[:test_months], dminstt_nm, keyword, region, price_min, price_max)
         train_items, e2 = _fetch_rate_group(ranges[test_months:], dminstt_nm, keyword, region, price_min, price_max)
         result, err = bid_service.backtest(
-            train_items, test_items, floor_rate=data.get('floorRate'), participants=(data.get('participants') or None))
+            train_items, test_items, presumed_price=data.get('presumedPrice'), participants=(data.get('participants') or None))
         if err:
             return jsonify({"success": False, "message": err})
         result.update(train_months=len(ranges) - test_months, test_months=test_months, errors=e1 + e2)

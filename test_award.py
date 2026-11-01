@@ -515,6 +515,91 @@ class AwardCheckOnlineTests(unittest.TestCase):
         self.assertTrue(summary['clean'], ac.report_lines(summary))
 
 
+FLOOR_SPEC = 'jibang_gongsa_floor'
+
+
+def _floor_fixture(**over):
+    """시설공사 [별표 1]~[별표 7] 입찰가격 평가 부분을 PDF 텍스트 모양(줄·쪽 바꿈, 빠진 '-')으로 흉내 낸 원문."""
+    v = dict(pass_lt='95', pass_ge='92', f1='30', f2='502', f3='70-4', f4='70-4', f5='80-20', f6='90-20', f7='90-20',
+             c1='98', s1='22', c2='92.5', s2='45', c3='91.25', s3='65', c4='91.25', s4='65', c5='90.25', s5='75', c6='90.25', s6='85', c7='90.25', s7='85',
+             rnd='소수점 다섯째 자리에서 반올림', mn='2')
+    v.update(over)
+    out = ['제6절 낙찰자 결정 계약담당자는 최저가 입찰자부터 순서대로 심사한 결과 제5절에 따른 종합평점이 추정가격이 100억원 미만인 공사는 %s점(이하 “적격통과점수”라 한다),\n'
+           '100억원 이상 300억원 미만인 공사는 %s점 이상인 자를 낙찰자로 결정한다.' % (v['pass_lt'], v['pass_ge'])]
+    heads = {1: '300억 원 미만 100억 원 이상', 2: '100억 원 미만 50억 원 이상', 3: '50억 원 미만 30억 원 이상', 4: '30억 원 미만 10억 원 이상',
+             5: '10억 원 미만 4억 원 이상', 6: '4억 원 미만 2억 원 이상', 7: '2억 원 미만'}
+    for no in range(1, 8):
+        out.append('=====PAGE %d=====\n■ 지방자치단체 입찰시 낙찰자 결정기준 제2장의1 시설공사 적격심사 세부기준 [별표 %d]\n추정가격이 %s인 입찰공사 평가기준\n'
+                   '2.입찰가격 평가\n가. 입찰가격 평점 산식\n평점(점)= %s\n(90-(입찰가격-A))×100\n100\n(예정가격-A)\n'
+                   '※ (입찰가격-A)을 (예정가격-A)으로 나눈 결과 소수점 이하는 %s하여 평가한다.\n'
+                   '다. (입찰가격-A)이 (예정가격-A)이하로서 (예정가격-A)의 100분의 %s이상인 경우의 평점은 %s점으로 한다.\n라. 최저평점은 %s점으로 한다.'
+                   % (100 + no, no, heads[no], v['f%d' % no], v['rnd'], v['c%d' % no], v['s%d' % no], v['mn']))
+    out.append('=====PAGE 130=====\n■ 지방자치단체 입찰시 낙찰자 결정기준 제2장의1 시설공사 적격심사 세부기준 [별표 8]\n추정가격이 70억원 미만 재난복구공사')
+    return '\n'.join(out)
+
+
+class FloorCheckTests(unittest.TestCase):
+    """award_check의 시설공사 낙찰하한 값 대조(jibang_gongsa_floor): bid_rules가 쓰는 숫자가 예규 원문과 같은지."""
+
+    def setUp(self):
+        import award_check as ac
+        self.ac = ac
+        self.spec = ae.load_spec(FLOOR_SPEC)
+
+    def test_identical_values_are_all_ok(self):
+        rows = self.ac.compare(self.spec, _floor_fixture())
+        s = self.ac.summarize(rows)
+        self.assertTrue(s['clean'], [r for r in rows if r['status'] != 'ok'])
+        self.assertEqual(s['ok'], len(self.ac.FLOOR_LABELS))
+        self.assertEqual(len(rows), 5 + 7 * 4)
+
+    def test_formula_shapes_with_missing_minus_are_read(self):
+        got = self.ac.extract_floor(_floor_fixture())
+        self.assertEqual((got['top_b1'], got['slope_b1']), (30, 1))             # '30(90-…' 계수 없음 = 1
+        self.assertEqual((got['top_b2'], got['slope_b2']), (50, 2))             # '502×(90-…' 빠진 '-'
+        self.assertEqual((got['top_b4'], got['slope_b4']), (70, 4))
+        self.assertEqual((got['cap_from_b1'], got['cap_score_b1'], got['cap_from_b2'], got['cap_from_b5']), (98, 22, 92.5, 90.25))
+        self.assertEqual((got['pass_lt_100'], got['pass_ge_100'], got['center_pct'], got['min_price_score']), (95, 92, 90, 2))
+
+    def test_changed_values_are_reported(self):
+        rows = self.ac.compare(self.spec, _floor_fixture(pass_lt='96', c5='90.5', f4='70-5', mn='3'))
+        diff = {r['key']: (r['expected'], r['found']) for r in rows if r['status'] == 'diff'}
+        self.assertEqual(diff, {'pass_lt_100': (95, 96), 'cap_from_b5': (90.25, 90.5), 'slope_b4': (4, 5), 'min_price_score': (2, 3)})
+
+    def test_missing_sentence_or_heading_is_unparsed_not_ok(self):
+        s = self.ac.summarize(self.ac.compare(self.spec, _floor_fixture().replace('100억원 이상 300억원 미만인 공사는', '100억원 이상인 공사는')))
+        self.assertEqual({r['key'] for r in s['unparsed']}, {'pass_lt_100', 'pass_ge_100'})        # 적격통과점수 문장 모양이 바뀐 경우
+        text = _floor_fixture().replace('[별표 3]\n추정가격이', '[별표 3]\n새 이름이')
+        s = self.ac.summarize(self.ac.compare(self.spec, text))
+        self.assertFalse(s['clean'])
+        self.assertTrue({'top_b3', 'cap_from_b3', 'cap_score_b3'} <= {r['key'] for r in s['unparsed']})
+
+    def test_rounding_sentence_changed_is_unparsed(self):
+        s = self.ac.summarize(self.ac.compare(self.spec, _floor_fixture(rnd='소수점 넷째 자리에서 반올림')))
+        self.assertIn('rounding_5th', {r['key'] for r in s['unparsed']})
+
+    def test_spec_values_agree_with_bid_rules(self):
+        import bid_rules
+        self.assertEqual(self.ac.expected_floor(self.spec)['pass_lt_100'], 95)
+        self.assertAlmostEqual(float(bid_rules.min_ratio(bid_rules.band_for(300_000_000))) * 100, 89.745, places=3)
+
+    def test_other_spec_is_not_affected(self):
+        rows = self.ac.compare(ae.load_spec(SPEC), _fixture())
+        self.assertEqual(len(rows), len(self.ac.LABELS))
+
+
+@unittest.skipIf(__import__('os').environ.get('SKIP_ONLINE_TESTS'), 'SKIP_ONLINE_TESTS')
+class FloorCheckOnlineTests(unittest.TestCase):
+    def test_current_official_text_matches_floor_spec(self):
+        """현행 예규 PDF에서 [별표 1]~[별표 7] 입찰가격 식·고정점수·적격통과점수를 읽어 명세와 대조한다(PDF는 한 번만 받는다)."""
+        import award_check as ac
+        try:
+            summary = ac.verify_online(FLOOR_SPEC)
+        except Exception as e:
+            self.skipTest(f'법제처에서 예규 PDF를 받지 못함: {e}')
+        self.assertTrue(summary['clean'], ac.report_lines(summary))
+
+
 class ApiTests(unittest.TestCase):
     def setUp(self):
         import app as appmod

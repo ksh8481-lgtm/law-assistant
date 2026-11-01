@@ -13,7 +13,7 @@ PDF 텍스트에서 공백을 모두 없앤 뒤(쪽·줄 바꿈이 숫자 사이
   못 찾은 것을 조용히 통과시키지 않는다.
 - 경영상태 신용평가 점수표(2.0/1.8/1.6/1.4/1.0)는 표 모양이 PDF 텍스트에서 안정적이지 않아 자동 대조하지 않는다(개정 알림 때 사람이 확인).
 
-사용: python award_check.py [--pdf 파일.pdf | --text 파일.txt] [--spec jibang_jeokgyeok_tech]
+사용: python award_check.py [--pdf 파일.pdf | --text 파일.txt] [--spec jibang_jeokgyeok_tech | jibang_gongsa_floor]
   인자가 없으면 법제처의 현행 첨부 PDF를 받아 대조한다. 바뀐 값이나 확인하지 못한 값이 있으면 종료 코드 1.
 """
 import re
@@ -117,14 +117,18 @@ LABELS = {
 
 
 def compare(spec: dict, text: str) -> list:
-    """[{key, label, expected, found, status: ok|diff|unparsed}]"""
-    want = expected(spec)
-    got = extract(text)
+    """[{key, label, expected, found, status: ok|diff|unparsed}]. 명세 id에 따라 기술용역 적격심사 또는 시설공사 낙찰하한 값을 대조한다."""
+    if spec.get('id') == FLOOR_SPEC_ID:
+        want, got, labels = expected_floor(spec), extract_floor(text), FLOOR_LABELS
+    else:
+        want, got, labels = expected(spec), extract(text), LABELS
     rows = []
-    for key, label in LABELS.items():
+    for key, label in labels.items():
         f = got.get(key)
         if f is None:
             status = 'unparsed'
+        elif want[key] is None:
+            status = 'diff'              # 명세에는 고정점수가 없는데 원문에는 있다(또는 반대)
         else:
             status = 'ok' if abs(float(f) - float(want[key])) < 1e-9 else 'diff'
         rows.append({'key': key, 'label': label, 'expected': want[key], 'found': f, 'status': status})
@@ -135,6 +139,78 @@ def summarize(rows: list) -> dict:
     d = [r for r in rows if r['status'] == 'diff']
     u = [r for r in rows if r['status'] == 'unparsed']
     return {'ok': len(rows) - len(d) - len(u), 'diff': d, 'unparsed': u, 'clean': not d and not u}
+
+
+# ---------------------------------------------------------------- 시설공사 낙찰하한(jibang_gongsa_floor)
+FLOOR_SPEC_ID = 'jibang_gongsa_floor'
+_FLOOR_BANDS = ('b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7')         # 별표 번호와 같다(b1 = [별표 1], 추정가격 100억원 이상 300억원 미만)
+
+
+def _floor_sections(n: str) -> dict:
+    """시설공사 적격심사 세부기준 [별표 1]~[별표 7] 본문. 다른 곳에서 별표를 언급한 문장과 섞이지 않게 '추정가격이'로 이어지는 머리글만 쓴다."""
+    heads = [(m.start(), int(m.group(1))) for m in re.finditer(r'시설공사적격심사세부기준\[별표(\d)\]추정가격이', n)]
+    out = {}
+    for i, (pos, no) in enumerate(heads):
+        end = heads[i + 1][0] if i + 1 < len(heads) else len(n)
+        if 1 <= no <= 7 and no not in out:
+            out[no] = n[pos:end]
+    return out
+
+
+def extract_floor(text: str) -> dict:
+    """원문에서 시설공사 낙찰하한을 정하는 값(입찰가격 평점 식·고정점수·적격통과점수)을 뽑는다. 못 찾은 항목은 None."""
+    n = _norm(text)
+    out = {}
+    m = re.search(r'종합평점이?추정가격이100억원미만인공사는(\d+(?:\.\d+)?)점.{0,40}?100억원이상300억원미만인공사는(\d+(?:\.\d+)?)점이상', n)
+    out['pass_lt_100'] = _num(m.group(1)) if m else None
+    out['pass_ge_100'] = _num(m.group(2)) if m else None
+    sections = _floor_sections(n)
+    centers, rounds, mins = set(), set(), set()
+    for no in range(1, 8):
+        sec = sections.get(no, '')
+        key = f'b{no}'
+        # 평점(점)=30(90-…) / 502×(90-… / 70-4×(90-… : PDF에서 '-'가 빠지기도 해서 앞 두 자리를 만점, 나머지를 계수로 읽는다(만점은 모두 두 자리, 계수가 없으면 1)
+        m = re.search(r'입찰가격평점산식평점\(점\)=(\d+)(?:-(\d+))?×?\((\d+)-\(입찰가격-A\)\)', sec)
+        if m:
+            digits = m.group(1) + (m.group(2) or '')
+            out['top_' + key] = int(digits[:2])
+            out['slope_' + key] = int(digits[2:]) if digits[2:] else 1
+            centers.add(int(m.group(3)))
+        else:
+            out['top_' + key] = out['slope_' + key] = None
+        m = re.search(r'예정가격-A\)의100분의(\d+(?:\.\d+)?)이상(?:인|일)경우의평점은(\d+(?:\.\d+)?)점', sec)
+        out['cap_from_' + key] = _num(m.group(1)) if m else None
+        out['cap_score_' + key] = _num(m.group(2)) if m else None
+        if sec:
+            rounds.add('소수점다섯째자리에서반올림' in sec)
+            m = re.search(r'최저평점은(\d+(?:\.\d+)?)점', sec)
+            mins.add(_num(m.group(1)) if m else None)
+    out['center_pct'] = centers.pop() if len(centers) == 1 else None
+    out['rounding_5th'] = 1 if rounds == {True} else None
+    out['min_price_score'] = mins.pop() if len(mins) == 1 else None
+    return out
+
+
+def expected_floor(spec: dict) -> dict:
+    """명세(jibang_gongsa_floor)가 말하는 값(extract_floor와 같은 키)."""
+    bands = {b['id']: b for b in spec['bands']}
+    e = {'pass_lt_100': bands['b5']['pass_score'], 'pass_ge_100': bands['b1']['pass_score'],
+         'center_pct': spec['center'] * 100, 'rounding_5th': 1 if spec['rounding_digits'] == 4 else 0, 'min_price_score': spec['min_price_score']}
+    for key in _FLOOR_BANDS:
+        p = bands[key]['price']
+        e['top_' + key], e['slope_' + key] = p['top'], p['slope']
+        e['cap_from_' + key] = round(p['cap_from'] * 100, 6) if p['cap_from'] is not None else None
+        e['cap_score_' + key] = p['cap_score']
+    return {k: (_num(v) if v is not None else None) for k, v in e.items()}
+
+
+_FLOOR_NAMES = {'b1': '[별표 1] 100억~300억원', 'b2': '[별표 2] 50억~100억원', 'b3': '[별표 3] 30억~50억원', 'b4': '[별표 4] 10억~30억원',
+                'b5': '[별표 5] 4억~10억원', 'b6': '[별표 6] 2억~4억원', 'b7': '[별표 7] 2억원 미만'}
+FLOOR_LABELS = {'pass_lt_100': '적격통과점수(추정가격 100억원 미만)', 'pass_ge_100': '적격통과점수(100억원 이상 300억원 미만)',
+                'center_pct': '입찰가격 평점 식의 기준 비율 %', 'rounding_5th': '비율 소수점 다섯째 자리 반올림(1 = 있음)', 'min_price_score': '입찰가격 최저평점'}
+for _k in _FLOOR_BANDS:
+    FLOOR_LABELS.update({f'top_{_k}': f'입찰가격 만점 {_FLOOR_NAMES[_k]}', f'slope_{_k}': f'입찰가격 산식 계수 {_FLOOR_NAMES[_k]}',
+                         f'cap_from_{_k}': f'입찰가격 고정점수 시작 비율 % {_FLOOR_NAMES[_k]}', f'cap_score_{_k}': f'입찰가격 고정점수 {_FLOOR_NAMES[_k]}'})
 
 
 # ---------------------------------------------------------------- 원문 가져오기
@@ -168,11 +244,16 @@ def download_current_pdf(admrul_id: str, timeout: int = 120) -> bytes:
     raise ValueError('현행 첨부파일 목록에서 PDF를 찾지 못했습니다')
 
 
+_TEXT_CACHE = {}
+
+
 def verify_online(spec_id: str = 'jibang_jeokgyeok_tech', admrul_id: str = None) -> dict:
     """현행(또는 admrul_id) 예규 PDF를 받아 명세와 대조한다. summarize() 결과에 rows를 덧붙여 돌려준다."""
     spec = award_engine.load_spec(spec_id)
-    pdf = download_current_pdf(admrul_id or spec['source']['law_id'])
-    rows = compare(spec, pdf_to_text(pdf))
+    law_id = str(admrul_id or spec['source']['law_id'])
+    if law_id not in _TEXT_CACHE:                                   # 같은 예규를 쓰는 명세가 여럿이라(기술용역·시설공사) 486쪽 PDF를 한 번만 받는다
+        _TEXT_CACHE[law_id] = pdf_to_text(download_current_pdf(law_id))
+    rows = compare(spec, _TEXT_CACHE[law_id])
     out = summarize(rows)
     out['rows'] = rows
     return out
