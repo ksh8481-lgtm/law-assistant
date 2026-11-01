@@ -19,6 +19,7 @@ import unittest
 
 import app as appmod
 import gemini_client as gc
+import qa_grounding
 
 
 class _Resp:
@@ -83,7 +84,7 @@ class EndpointContractTests(unittest.TestCase):
         call = self.fake.models.calls[0]
         self.assertEqual(call["model"], "gemini-2.5-pro")                       # 본 모델 우선
         self.assertEqual(call["contents"][0], {"role": "user", "parts": [
-            {"text": "원래 질문"},
+            {"text": qa_grounding.PRIOR_QUESTION_NOTE + "원래 질문"},
             {"file_data": {"file_uri": "https://files.test/files/abc", "mime_type": "application/pdf"}}]})
         self.assertEqual(call["contents"][1], {"role": "model", "parts": [{"text": "이전 답변"}]})
         self.assertEqual(call["contents"][-1], {"role": "user", "parts": [{"text": "새 질문"}]})
@@ -103,7 +104,7 @@ class EndpointContractTests(unittest.TestCase):
             qa_grounding.build_grounding = real
         body = r.get_json()
         parts = self.fake.models.calls[0]["contents"][0]["parts"]
-        self.assertEqual(parts[0], {"text": "원래 질문"})
+        self.assertEqual(parts[0], {"text": qa_grounding.PRIOR_QUESTION_NOTE + "원래 질문"})
         self.assertTrue(parts[1]["text"].startswith(qa_grounding.GROUNDING_INSTRUCTION))
         self.assertIn("근거본문", parts[1]["text"])
         self.assertIn("시행 2023-10-17, 현행", body["result"])                   # 푸터
@@ -119,7 +120,7 @@ class EndpointContractTests(unittest.TestCase):
         finally:
             qa_grounding.build_grounding = real
         self.assertEqual(r.get_json()["result"], "그냥 답변")                      # 푸터 없음
-        self.assertEqual(self.fake.models.calls[0]["contents"][0]["parts"], [{"text": "C"}])
+        self.assertEqual(self.fake.models.calls[0]["contents"][0]["parts"], [{"text": qa_grounding.PRIOR_QUESTION_NOTE + "C"}])
 
     def test_chat_other_review_falls_back_to_flash(self):
         self.fake.models.fail_models = {"gemini-2.5-pro"}

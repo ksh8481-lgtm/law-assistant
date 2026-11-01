@@ -2047,7 +2047,7 @@ def api_chat_other_review():
         grounding = qa_grounding.build_grounding(initial_context, new_message)
 
         contents_payload = []
-        first_user_parts = [initial_context]
+        first_user_parts = [qa_grounding.PRIOR_QUESTION_NOTE + initial_context]
         if grounding["text"]:
             first_user_parts.append(qa_grounding.GROUNDING_INSTRUCTION + grounding["text"])
         if file_name:

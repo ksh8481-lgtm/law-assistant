@@ -347,6 +347,14 @@ class QaGroundingTests(unittest.TestCase):
         self.assertIsNone(self.qg.recall("질문0"))                            # 오래된 것부터 밀려남
         self.assertIsNotNone(self.qg.recall(f"질문{self.qg._MAX_ENTRIES + 19}"))
 
+    def test_prior_question_note_tells_the_model_not_to_answer_it_again(self):
+        """후속 질문 요청의 첫 턴(최초 질문)을 새 질문으로 보고 다시 답해 답변이 길어지던 문제(6개 중 3개)."""
+        note = self.qg.PRIOR_QUESTION_NOTE
+        self.assertIn("이미 답변이 끝난", note)
+        self.assertIn("다시 답하지 말고", note)
+        self.assertIn("후속 질문에만", note)
+        self.assertTrue(note.endswith(chr(10)))          # 최초 질문 본문 바로 앞에 붙으므로 줄바꿈으로 끝나야 한다
+
     def test_build_grounding_never_raises_and_returns_empty_when_nothing_to_fetch(self):
         self.assertEqual(self.qg.build_grounding("아무 관련 없는 질문", "안녕"), {"text": "", "adm_infos": []})
 

@@ -36,6 +36,11 @@ GROUNDING_INSTRUCTION = (
     "나뉘어 있으면 정확히 60%는 원문이 다루지 않는 경우입니다.)\n\n")
 
 
+# 후속 질문 요청의 첫 턴은 최초 질문이다. 아무 표시가 없으면 모델이 그것도 새 질문으로 보고 다시 답해서 답변이 길어지고 후속 질문이
+# 묻힌다(운영 확인; 측정: 표시 전 6개 중 3개가 최초 질문을 재답변, 평균 858자 -> 표시 후 0개, 평균 488자).
+PRIOR_QUESTION_NOTE = "[이미 답변이 끝난 최초 질문입니다. 맥락 참고용이며 다시 답하지 말고, 마지막의 후속 질문에만 답하세요.]\n"
+
+
 def context_key(initial_context: str) -> str:
     return hashlib.sha1((initial_context or "").encode("utf-8", "ignore")).hexdigest()
 
