@@ -425,6 +425,8 @@ class ApiTests(unittest.TestCase):
         html = self.http.get('/pq_score').get_data(as_text=True)
         for needle in ('id="awardCard"', 'id="awardBody"', 'award_panel.js', 'pq_score.js'):
             self.assertIn(needle, html, needle)
+        self.assertNotIn('id="awardCard" style="display:none', html)                  # 처음부터 보여야 한다(PQ 계산 뒤에야 나타나면 못 찾는다)
+        self.assertIn("6단계", html)
         self.assertLess(html.index('award_panel.js'), html.index('pq_score.js'))      # pq_score.js가 AwardPanel을 부르므로 먼저 읽혀야 한다
         r = self.http.get('/award')                                                   # 예전 주소는 PQ 화면으로 안내
         self.assertEqual((r.status_code, r.headers['Location'].endswith('/pq_score#award')), (302, True))

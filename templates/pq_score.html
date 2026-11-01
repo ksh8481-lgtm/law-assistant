@@ -188,14 +188,16 @@
         <div class="card">
             <h2><span><span class="step">5</span>점수 산정 결과</span></h2>
             <div class="no-print" style="margin-bottom:1rem;"><button class="btn btn-primary" id="scoreBtn">점수 계산하기</button>
-                <span id="scoreStatus" class="status" style="margin-left:0.8rem;"></span></div>
+                <span id="scoreStatus" class="status" style="margin-left:0.8rem;"></span>
+                <span class="status" style="margin-left:0.8rem;">→ 계산 후 아래 <b>6단계</b>에서 적격심사 종합평점·낙찰자를 이어서 계산합니다.</span></div>
             <div id="results"></div>
         </div>
 
-        <div class="card" id="awardCard" style="display:none;">
+        <div class="card" id="awardCard">
             <h2><span><span class="step">6</span>적격심사 종합평점·낙찰자 결정 <small class="muted" style="font-weight:500;">(지방자치단체 입찰시 낙찰자 결정기준)</small></span>
                 <button class="btn btn-ghost btn-sm no-print" id="awardToggle" type="button">접기</button></h2>
-            <div id="awardBody"></div>
+            <div id="awardBody"><p class="status" style="line-height:1.7;">5단계에서 <b>'점수 계산하기'</b>를 누르면 입찰사 이름과 PQ 점수가 이곳으로 자동으로 들어옵니다.
+                그 뒤 추정가격·예정가격과 입찰사별 입찰가격 등을 입력하면 <b>적격심사 종합평점</b>과 <b>낙찰자</b>가 계산됩니다.</p></div>
         </div>
     </div>
 </div>
