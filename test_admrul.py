@@ -12,6 +12,7 @@
    있으니, 그때는 고시 원문을 확인하고 기대 문구를 갱신할 것)
 Gemini 키가 없으면 LLM 부분은 실패하고 결정적 검사만 돌아간다(설계상 원문 유지).
 """
+import os
 import unittest
 
 import moleg_mcp as m
@@ -32,8 +33,9 @@ def _online() -> bool:
         return False
 
 
-ONLINE = _online()
-needs_net = unittest.skipUnless(ONLINE, "법제처 API에 연결할 수 없어 건너뜀")
+# 법제처 API에 접속하는 테스트를 강제로 건너뛰려면 SKIP_ONLINE_TESTS=1 (정기 의존성 점검처럼 외부 사정으로 흔들리면 안 되는 곳용)
+ONLINE = (not os.environ.get("SKIP_ONLINE_TESTS")) and _online()
+needs_net = unittest.skipUnless(ONLINE, "법제처 API에 연결할 수 없거나 SKIP_ONLINE_TESTS가 설정돼 건너뜀")
 
 
 class OfflineTests(unittest.TestCase):

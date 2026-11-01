@@ -76,21 +76,13 @@ LAW_KEY = os.environ.get('LAW_API_KEY', '') or base64.b64decode(_L).decode('utf-
 def upload_file_for_gemini(path, display_name=None, timeout_seconds=90, poll_interval=2):
     """
     파일을 Gemini에 업로드한다. 반환된 객체는 .name/.uri/.mime_type을 갖고 있어서,
-    - generate_content()에 바로 넣으려면: gemini_file_part(gfile) 로 dict로 변환해서 사용
-    - 나중에(다른 요청에서) 다시 불러오려면: genai.get_file(gfile.name) (구버전 SDK로도 조회 가능)
+    - 호출에 바로 넣으려면: gemini_file_part(gfile) 로 dict로 변환해서 사용
+    - 나중에(다른 요청에서) 다시 불러오려면: gemini_client.get_file(gfile.name)
 
-    ⚠️ 예전엔 여기서 구버전(EOL 예정) `google.generativeai`의 genai.upload_file()을 썼는데,
-    이 프로젝트의 GEMINI_API_KEY 형식이 그 구버전 업로드 경로(레거시 Google API Discovery
-    클라이언트)와 호환이 안 돼서 "API key not valid" 에러로 조용히 실패하고 있었다. 문제는
-    generate_content() 자체는 다른(더 최신) 경로를 타서 멀쩡히 동작했다는 것 - 그래서 텍스트
-    분석은 잘 되는데 "파일 첨부"만 매번 조용히 실패하는 상황이 한동안 발견되지 않았다.
-    특히 스캔본(이미지 전용) PDF처럼 로컬 텍스트 추출(fitz/PyPDF2)도 안 되는 파일은 업로드
-    실패 시 대체 수단이 전혀 없어서 "파일을 통째로 못 읽는다"는 증상으로 드러났다.
-
-    신버전 `google-genai` SDK(google.genai.Client)로 업로드하면 이 API 키로도 정상 동작하고,
-    그 결과(file_uri/mime_type)를 구버전 SDK의 generate_content()에 {"file_data": {...}}
-    형태로 그대로 넣어도 잘 읽는다는 걸 실제로 확인했다. 그래서 모델 폴백 루프 등 나머지
-    코드는 손대지 않고 "업로드" 부분만 신버전 SDK로 교체한다.
+    업로드는 gemini_client와 같은 신버전 `google-genai` SDK로 한다.
+    (이력: 예전에 쓰던 구버전 SDK의 업로드 경로는 이 프로젝트의 GEMINI_API_KEY 형식과 호환이 안 돼 "API key not valid"로
+    조용히 실패했다. 텍스트 분석은 되는데 "파일 첨부"만 매번 실패하는 증상이 한동안 발견되지 않았고, 스캔본 PDF처럼
+    로컬 텍스트 추출도 안 되는 파일은 대체 수단이 없어 "파일을 통째로 못 읽는다"로 드러났다. 구버전 SDK는 이제 완전히 제거했다.)
     """
     import time
     from google import genai as google_genai_client
@@ -125,21 +117,12 @@ LEGAL_GEN_CONFIG = {"temperature": 0.2}
 
 def generate_with_search_grounding(prompt, model_name, temperature=0.2):
     """
-    구글 실시간 검색(Google Search Grounding)을 사용해 generate_content를 실행한다.
+    구글 실시간 검색(Google Search Grounding)을 붙여 Gemini를 호출한다(gemini_client.generate에 위임).
+    반환값은 .text를 가진 응답 객체다.
 
-    ⚠️ 예전엔 구버전(EOL 예정) google.generativeai에서 tools='google_search_retrieval'로
-    검색 도구를 붙였는데, 그 도구 이름이 서버에서 이미 폐기돼서 실제 호출 시 매번
-    "google_search_retrieval is not supported. Please use google_search tool instead."
-    라는 400 에러가 100% 발생하고 있었다. run_analysis의 try/except가 이 실패를 조용히
-    삼키고 검색 없이 일반 모델로만 폴백해서, law_review 기능은 지금까지 한 번도 실제
-    구글 검색 그라운딩을 쓴 적이 없었다 (프롬프트는 "구글 검색 도구를 활용하라"고
-    지시하고 있었지만 실제로는 매번 무시됐음).
-
-    구버전 SDK는 최신 tools='google_search' 문법 자체를 모른다(SDK가 그 이후에 추가된
-    기능이라 클라이언트 코드에 정의돼 있지 않음). 신버전 `google-genai` SDK로는 실제로
-    검색 그라운딩이 정상 동작하는 걸 확인해서, 파일 업로드 때와 같은 방식으로 이 호출만
-    신버전 SDK로 옮긴다. 반환값은 신버전 SDK의 응답 객체인데 .text 프로퍼티가 동일하게
-    있어서, 이 함수를 호출하는 쪽 코드(response.text 사용)는 그대로 쓸 수 있다.
+    (이력: 예전에는 구버전 SDK의 tools='google_search_retrieval'로 붙였는데 그 도구 이름이 서버에서 폐기돼 호출마다
+    400 에러가 났다. 호출부의 try/except가 이를 삼켜서 검색 그라운딩이 한 번도 실제로 쓰인 적이 없었다.
+    지금은 신버전 SDK의 google_search 도구를 쓴다.)
     """
     # 인용 검증은 검색 결과를 대조해 고치는 작업이라 사고가 필요 없다(flash는 끌 수 있다, pro는 항상 사고하므로 무시됨).
     return gemini_client.generate(prompt, model=model_name, temperature=temperature, search=True,
@@ -213,18 +196,16 @@ def verify_law_citations_via_search(ai_result: str, model_name: str = 'gemini-2.
                                     source_context: str = "") -> str:
     """법조항 인용을 구글 검색으로 검증/교정하는 공용 2차 패스.
 
-    파일(도면 이미지 등)을 첨부해야 하는 1차 생성은 구글 검색 그라운딩을 못 붙이는
-    구버전 SDK(genai.GenerativeModel)로 실행되기 때문에, 법조항 번호를 AI가 학습 당시
-    기억에만 의존해 답한다(실사용 중 발견: 설계도서 검토에서 "건설기술진흥법 시행령
+    1차 생성(파일 첨부 포함)은 구글 검색 없이 답하므로, 법조항 번호를 AI가 학습 당시
+    기억에만 의존해 답할 수 있다(실사용 중 발견: 설계도서 검토에서 "건설기술진흥법 시행령
     제75조(설계도서의 작성)"라고 인용했는데 실제 제75조는 "설계의 경제성등 검토"로
     완전히 다른 조항이었음). 1차 결과(표·수치 등)는 그대로 두고, 텍스트만 다루는 이
-    2차 패스에서 신버전 SDK(generate_with_search_grounding)로 실제 조문을 검색해
-    검증/수정한다.
+    2차 패스에서 구글 검색 그라운딩(generate_with_search_grounding)으로 실제 조문을
+    검색해 검증/수정한다.
 
-    파일 첨부가 필요 없는 다른 호출자(예: run_other_review)도 법조항을 인용하는 이상
-    똑같은 구버전 SDK 한계에 노출되므로, 이 함수를 공용 헬퍼로 두고 여러 곳에서
-    재사용한다(한 곳에만 붙이면 다른 호출자는 똑같은 할루시네이션 위험을 그대로
-    안고 있게 된다)."""
+    법조항을 인용하는 다른 호출자(예: run_other_review)도 똑같은 기억 의존 위험이
+    있으므로 이 함수를 공용 헬퍼로 두고 여러 곳에서 재사용한다. 단 질의응답 경로는
+    서버가 법제처 원문으로 직접 대조하므로 기본값이 off다(gemini_client.citation_verify_model 참고)."""
     if not ai_result:
         return ai_result
     verify_prompt = _build_citation_verify_prompt(ai_result, source_context)
@@ -1807,7 +1788,7 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
             try:
                 uploaded_file = upload_file_for_gemini(temp_path, display_name=filename)
             except Exception as e:
-                print(f"genai.upload_file failed: {e}")
+                print(f"파일 업로드 실패(본문 텍스트로 대체): {e}")
                 uploaded_file = None
                 
             # 항상 로컬 파이썬 환경에서도 텍스트를 추출 (RAG 및 정규식 스캔용)
@@ -1834,7 +1815,7 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
                     except:
                         pass
             
-            # genai.upload_file이 실패했을 때만 프롬프트에 직접 텍스트 첨부
+            # 파일 업로드가 실패했을 때만 프롬프트에 직접 텍스트 첨부
             if not uploaded_file and file_text:
                 text_content += f"\n\n[첨부 문서 내용]\n{file_text[:30000]}"
 
@@ -1932,9 +1913,9 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
         except Exception as e:
             raise Exception(f"모든 AI 모델이 요청 한도 초과 또는 오류로 실패했습니다. 마지막 오류: {e}")
 
-        # 🚨 법조항 인용 검증 패스(공용 헬퍼: verify_law_citations_via_search 참고). 이
-        # 함수도 파일 첨부 시 구버전 SDK로 실행돼 설계도서 검토와 똑같은 "법조항 번호를
-        # 기억에만 의존해 답함" 위험에 노출되므로 같은 검증을 적용한다.
+        # 🚨 법조항 인용 검증 패스(공용 헬퍼: verify_law_citations_via_search 참고). 설계도서 검토와
+        # 똑같이 "법조항 번호를 기억에만 의존해 답함" 위험이 있어 같은 검증을 적용하되, 질의응답
+        # 경로는 서버의 법제처 원문 대조(citation_check)가 있어 기본값이 off다(CITATION_VERIFY_MODE).
         _t = _mark("본 답변 생성", _t)
         # 서버가 법제처에서 직접 가져온 원문을 근거로 넘겨, 원문으로 확인된 인용을 검색 실패를 이유로 지우지 못하게 한다.
         _verify_model = gemini_client.citation_verify_model()      # CITATION_VERIFY_MODE: off(기본) | pro | flash
