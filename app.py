@@ -20,6 +20,7 @@ except Exception as e:
     kcsc_engine = None
 import gemini_client
 import qa_grounding
+import duty_text
 from law_linkify import (linkify_law_citations, extract_law_names_from_context,
                          extract_admrul_info_from_context, admrul_footer)
 from citation_check import annotate_unverified_citations
@@ -462,68 +463,47 @@ def search_law_list():
         return jsonify({"success": False, "message": f"법령 목록 검색 오류: {str(e)}"})
 
 
-LAW_TEXT_CACHE = {}
-
 @app.route('/api/search_duties_chunk', methods=['POST'])
 def search_duties_chunk():
+    """법령 한 조각(조문 경계로 묶음)에서 의무사항을 뽑는다. 프론트가 조각 번호를 바꿔 가며 여러 번 부른다.
+    조 번호는 서버가 그 조각의 실제 조문과 대조해 article_verified로 표시한다(duty_text.verify_duties)."""
     try:
         data = request.get_json(silent=True) or {}
         lsi_seq = data.get('lsi_seq', '')
         exact_law_name = data.get('law_name', '')
-        chunk_index = int(data.get('chunk_index', 0))
-        
+        try:
+            chunk_index = int(data.get('chunk_index', 0))
+        except (TypeError, ValueError):
+            chunk_index = 0
+
         if isinstance(lsi_seq, str): lsi_seq = lsi_seq.strip()
         if isinstance(exact_law_name, str): exact_law_name = exact_law_name.strip()
-        
+
         if not lsi_seq or not exact_law_name:
             return jsonify({"success": False, "message": "법령일련번호 또는 법률명이 누락되었습니다."})
-        
-        # 1. Fetch XML (with memory cache to prevent rate limits)
-        global LAW_TEXT_CACHE
-        full_text = LAW_TEXT_CACHE.get(lsi_seq)
-        
-        if not full_text:
-            doc_res = requests.get(f"https://www.law.go.kr/DRF/lawService.do?OC={LAW_KEY}&target=law&type=XML&MST={lsi_seq}", timeout=10)
-            doc_root = ET.fromstring(doc_res.text)
-            
-            articles = doc_root.findall('.//조문단위')
-            full_text = ""
-            for art in articles:
-                art_title = art.findtext('조문내용') or ""
-                full_text += art_title + "\\n"
-                for hang in art.findall('.//항내용'):
-                    full_text += hang.text + "\\n"
-                for ho in art.findall('.//호내용'):
-                    full_text += ho.text + "\\n"
-            
-            LAW_TEXT_CACHE[lsi_seq] = full_text
-                
-        # 2. Split into chunks (1,500 chars per chunk to ensure < 40s even with detailed JSON)
-        CHUNK_SIZE = 1500
-        chunks = [full_text[i:i+CHUNK_SIZE] for i in range(0, len(full_text), CHUNK_SIZE)]
-        if not chunks:
-            chunks = [""]
-            
-        if chunk_index >= len(chunks):
-            return jsonify({"success": True, "data": {"duties": [], "has_more": False, "total_chunks": len(chunks)}})
-            
-        current_chunk = chunks[chunk_index]
-            
+
+        law = duty_text.fetch_law(lsi_seq, LAW_KEY)
+        chunks = law["chunks"]
+        law_meta = {"enforce_date": law["enforce_date"]}
+        if chunk_index < 0 or chunk_index >= len(chunks):
+            return jsonify({"success": True, "data": {"duties": [], "has_more": False, "total_chunks": len(chunks), **law_meta}})
+
         if not GEMINI_KEY:
             return jsonify({"success": False, "message": "Gemini API 키가 설정되지 않았습니다."})
-            
-        
-        # 4. Prompt without 7-item limit but allowing detailed output
+
+        chunk = chunks[chunk_index]
         prompt = f"""
-다음은 '{exact_law_name}' 법령의 일부 조문입니다 (파트 {chunk_index + 1}/{len(chunks)}):
-{current_chunk}
+다음은 '{exact_law_name}' 법령의 일부 조문입니다 (파트 {chunk_index + 1}/{len(chunks)}). 이 파트에 들어 있는 조: {', '.join(chunk['labels'])}
+{chunk['text']}
 
 이 법령 내용 중에서 '행정/건설 관리기관, 사업주, 지자체 등이 의무적으로 이행해야 하는 사항'(예: 정기 안전점검, 교육 실시, 계획 수립, 결과 통보 등)만 모두 추출하세요.
 (발견되는 모든 의무사항을 남김없이 전부 추출하되, 각 의무의 내용을 충분히 구체적이고 상세하게 설명하세요.)
 
 🚨 [조문번호 관련 필수 규칙]: "article" 값은 위 조문 텍스트에 실제로 적힌 조 번호(예: "제3조", "제5조제3항")를 그대로 옮기십시오.
+이 파트에 들어 있는 조 목록은 위에 적은 것뿐이며, 의무가 다른 조를 인용하고 있더라도 그 의무가 적힌 조의 번호를 쓰십시오.
 아래 JSON 형식 예시의 "제O조"는 형식을 보여주기 위한 자리표시자일 뿐, 실제 조문 번호가 아닙니다.
 텍스트에서 해당 의무가 몇 조에 있는지 정확히 찾을 수 없으면 "제O조"라고 쓰지 말고 "조 번호 확인 필요"라고 쓰십시오.
+'〔제N조 계속〕'은 앞 파트에서 이어지는 같은 조라는 표시입니다.
 
 결과는 오직 아래의 순수 JSON 배열 포맷으로만 반환하세요(마크다운 없이). 의무사항이 없으면 빈 배열 []을 반환하세요.
 [
@@ -536,25 +516,30 @@ def search_duties_chunk():
   }}
 ]
 """
-        response = gemini_client.generate(prompt, model=gemini_client.fast_model(), label="의무 추출(조각)")
-        resp_text = response.text.strip()
-        if resp_text.startswith("```json"): resp_text = resp_text[7:]
-        if resp_text.startswith("```"): resp_text = resp_text[3:]
-        if resp_text.endswith("```"): resp_text = resp_text[:-3]
-        
-        try:
-            duties = json.loads(resp_text.strip())
-        except json.JSONDecodeError:
-            print("JSON Decode Error. Raw resp:", resp_text)
-            duties = []
-            
+        duties, parse_failed = None, False
+        for attempt in range(2):              # JSON이 깨져 오면 한 번 더 시도한다(조용히 빈 결과로 넘기지 않는다)
+            response = gemini_client.generate(prompt, model=gemini_client.fast_model(), json_mode=True,
+                                              label="의무 추출(조각)")
+            resp_text = (response.text or "").strip()
+            if resp_text.startswith("```json"): resp_text = resp_text[7:]
+            if resp_text.startswith("```"): resp_text = resp_text[3:]
+            if resp_text.endswith("```"): resp_text = resp_text[:-3]
+            try:
+                duties = json.loads(resp_text.strip())
+                break
+            except json.JSONDecodeError:
+                print(f"[의무 추출] JSON 해석 실패(시도 {attempt + 1}/2). 응답 앞부분: {resp_text[:200]!r}")
+        if duties is None:
+            parse_failed, duties = True, []
+
         result_data = {
             "law_name": exact_law_name,
-            "duties": duties,
+            "duties": duty_text.verify_duties(duties, chunk["labels"]),
             "has_more": chunk_index < len(chunks) - 1,
-            "total_chunks": len(chunks)
+            "total_chunks": len(chunks),
+            "parse_failed": parse_failed,
+            **law_meta,
         }
-        
         return jsonify({"success": True, "data": result_data})
 
     except Exception as e:
@@ -816,73 +801,6 @@ def api_bid_backtest():
         print("Bid Backtest Error:", e)
         return jsonify({"success": False, "message": f"서버 오류: {str(e)}"}), 500
 
-
-@app.route('/api/search_duties', methods=['POST'])
-def search_duties():
-    try:
-        data = request.get_json(silent=True) or {}
-        lsi_seq = data.get('lsi_seq', '')
-        exact_law_name = data.get('law_name', '')
-        if isinstance(lsi_seq, str): lsi_seq = lsi_seq.strip()
-        if isinstance(exact_law_name, str): exact_law_name = exact_law_name.strip()
-        
-        if not lsi_seq or not exact_law_name:
-            return jsonify({"success": False, "message": "법령일련번호 또는 법률명이 누락되었습니다."})
-        
-        doc_res = requests.get(f"https://www.law.go.kr/DRF/lawService.do?OC={LAW_KEY}&target=law&type=XML&MST={lsi_seq}", timeout=10)
-        doc_root = ET.fromstring(doc_res.text)
-        
-        articles = doc_root.findall('.//조문단위')
-        full_text = ""
-        for art in articles:
-            art_title = art.findtext('조문내용') or ""
-            full_text += art_title + "\n"
-            for hang in art.findall('.//항내용'):
-                full_text += hang.text + "\n"
-            for ho in art.findall('.//호내용'):
-                full_text += ho.text + "\n"
-                
-        if len(full_text) > 8000:
-            full_text = full_text[:8000]
-            
-        if not GEMINI_KEY:
-            return jsonify({"success": False, "message": "Gemini API 키가 설정되지 않았습니다."})
-            
-        prompt = f"""
-다음은 '{exact_law_name}' 법령의 일부 조문입니다:
-{full_text}
-
-이 법령 내용 중에서 '행정/건설 관리기관, 사업주, 지자체 등이 의무적으로 이행해야 하는 사항'(예: 정기 안전점검, 교육 실시, 계획 수립, 결과 통보 등)만 추출하세요.
-(응답 시간 최적화를 위해 가장 중요하고 핵심적인 의무 사항 최대 7개까지만 추출하세요.)
-결과는 오직 아래의 순수 JSON 배열 포맷으로만 반환하세요(마크다운 없이). 의무사항이 없으면 빈 배열 []을 반환하세요.
-[
-  {{
-    "article": "제O조",
-    "duty_title": "핵심 의무 제목",
-    "description": "구체적인 의무 내용 요약",
-    "frequency": "수시 / 연 1회 등 기한",
-    "target": "의무 이행 주체"
-  }}
-]
-"""
-        response = gemini_client.generate(prompt, model=gemini_client.fast_model(), label="의무 추출")
-        resp_text = response.text.strip()
-        if resp_text.startswith("```json"): resp_text = resp_text[7:]
-        if resp_text.startswith("```"): resp_text = resp_text[3:]
-        if resp_text.endswith("```"): resp_text = resp_text[:-3]
-        
-        duties = json.loads(resp_text.strip())
-        
-        result_data = {
-            "law_name": exact_law_name,
-            "duties": duties
-        }
-        
-        return jsonify({"success": True, "data": result_data})
-        
-    except Exception as e:
-        print("Duty Search Error:", e)
-        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"})
 
 @app.route('/api/debug')
 def debug_env():
@@ -2091,36 +2009,24 @@ def api_chat_duty_list():
         if not GEMINI_KEY:
             return jsonify({"success": False, "message": "Gemini API 키가 설정되지 않았습니다."}), 500
 
-        # 체크리스트 분석 때 이미 캐시된 법령 원문이 있으면 재사용, 없으면 새로 조회
-        global LAW_TEXT_CACHE
-        law_text = LAW_TEXT_CACHE.get(lsi_seq, '') if lsi_seq else ''
-        if not law_text and lsi_seq:
+        # 체크리스트 분석 때 이미 가져온 법령이 있으면 재사용, 없으면 새로 조회(duty_text 캐시)
+        law_text, excerpted = "", False
+        if lsi_seq:
             try:
-                doc_res = requests.get(f"https://www.law.go.kr/DRF/lawService.do?OC={LAW_KEY}&target=law&type=XML&MST={lsi_seq}", timeout=10)
-                doc_root = ET.fromstring(doc_res.text)
-                articles = doc_root.findall('.//조문단위')
-                fetched_text = ""
-                for art in articles:
-                    art_title = art.findtext('조문내용') or ""
-                    fetched_text += art_title + "\n"
-                    for hang in art.findall('.//항내용'):
-                        if hang.text:
-                            fetched_text += hang.text + "\n"
-                    for ho in art.findall('.//호내용'):
-                        if ho.text:
-                            fetched_text += ho.text + "\n"
-                law_text = fetched_text
-                LAW_TEXT_CACHE[lsi_seq] = law_text
+                law = duty_text.fetch_law(lsi_seq, LAW_KEY)
+                law_text, excerpted = duty_text.select_for_question(law["articles"], new_message, 30000)
             except Exception as e:
                 print(f"chat_duty_list law fetch failed: {e}")
 
         if law_text:
+            excerpt_note = ("※ 법령이 길어서 이번 질문과 관련 있어 보이는 조문만 발췌했습니다. 발췌에 없는 조문이 필요하면 "
+                            "'해당 조문이 발췌에 없어 확인하지 못했습니다'라고 답하세요.") if excerpted else ""
             system_context = f"""당신은 '{law_name}' 법령 전문 상담 AI입니다. 아래 [법령 원문]만을 근거로 사용자의 질문에 답변하세요.
 원문에 없는 내용은 절대 추측하거나 지어내지 말고 "법령 원문에서 해당 내용을 확인할 수 없습니다"라고 답하세요.
 답변 시 관련 조 번호를 반드시 함께 밝히세요.
-
+{excerpt_note}
 [법령 원문]
-{law_text[:30000]}"""
+{law_text}"""
         else:
             system_context = f"""당신은 '{law_name}' 법령 전문 상담 AI입니다. 법령 원문을 불러오지 못했으니, 확실하지 않은 조문 번호나 세부 수치는
 절대 단정하지 말고 "정확한 조항은 법제처 원문을 직접 확인하시기 바랍니다"라고 안내하며 답변하세요."""

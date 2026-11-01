@@ -51,6 +51,7 @@ jobs:
         run: |
           python test_admrul.py
           python test_gemini_endpoints.py
+          python test_duty_text.py
           for f in test_pq_cm test_pq_design test_pq_engine test_pq_env test_pq_mlit test_pq_mof test_pq_safe test_pq_watch test_injection; do
             echo "--- $f"
             python $f.py
