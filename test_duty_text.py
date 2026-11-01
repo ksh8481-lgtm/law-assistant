@@ -316,6 +316,16 @@ class EndpointTests(unittest.TestCase):
         self.assertNotIn("발췌", first)                             # 작은 법령은 전부 넣으므로 발췌 안내가 없다
 
 
+class PageTests(unittest.TestCase):
+    def test_duty_list_page_has_my_document_feature_and_no_old_print_checkbox(self):
+        html = appmod.app.test_client().get("/duty_list").get_data(as_text=True)
+        for needle in ('id="doc-fab"', 'id="doc-modal"', 'class="doc-checkbox"', "dutyKey(", "docItems", "printing-doc",
+                       'id="doc-print"', 'id="doc-copy"', 'id="doc-csv"', 'id="doc-word"', 'id="add-visible-btn"'):
+            self.assertIn(needle, html, needle)
+        for gone in ("handleSelectivePrint", "print-checkbox", "selective-print"):
+            self.assertNotIn(gone, html, gone)
+
+
 class OnlineTests(unittest.TestCase):
     @unittest.skipIf(os.environ.get("SKIP_ONLINE_TESTS"), "SKIP_ONLINE_TESTS")
     def test_real_law_parses_into_numbered_articles(self):
