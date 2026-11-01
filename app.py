@@ -27,6 +27,7 @@ from citation_check import annotate_unverified_citations
 import pq_engine
 import pq_extract
 import award_engine
+import award_reverse
 from doc_extract import extract_text_from_file
 
 app = Flask(__name__)
@@ -2737,6 +2738,22 @@ def api_award_evaluate():
     except Exception as e:
         print(f"[award] evaluate error: {type(e).__name__}: {e}")
         return jsonify({"success": False, "message": f"종합평점 계산 중 오류: {e}"}), 500
+
+
+@app.route('/api/award/required_price', methods=['POST'])
+def api_award_required_price():
+    """용역비(추정가격·예정가격)와 PQ 점수 등을 알 때 입찰가격을 얼마로 써야 적격심사를 통과하는지 거꾸로 계산한다."""
+    try:
+        data = request.get_json(silent=True) or {}
+        result = award_reverse.required_price(data.get('spec_id', ''), data.get('project') or {}, data.get('bidders') or [])
+        return jsonify({"success": True, "result": result})
+    except award_engine.AwardInputError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+    except KeyError:
+        return jsonify({"success": False, "message": "존재하지 않는 평가기준입니다."}), 404
+    except Exception as e:
+        print(f"[award] required_price error: {type(e).__name__}: {e}")
+        return jsonify({"success": False, "message": f"입찰가격 계산 중 오류: {e}"}), 500
 
 
 @app.route('/pq_score')

@@ -260,6 +260,122 @@ class InputValidationTests(unittest.TestCase):
         self.assertEqual(res['results'][0]['name'], '입찰사 1')
 
 
+class RequiredPriceTests(unittest.TestCase):
+    """award_reverse: 용역비와 PQ 점수로 '얼마에 입찰해야 통과하나'를 거꾸로 구한다. 결과는 evaluate()(정방향)와 어긋나면 안 된다."""
+
+    def setUp(self):
+        import award_reverse
+        self.rev = award_reverse
+        self.sched = 1_000_000_000
+
+    def run_one(self, pq=90, est=2_000_000_000, sched='default', **kw):
+        sched = self.sched if sched == 'default' else sched
+        proj = {'estimated_price': est}
+        if sched is not None:
+            proj['planned_price'] = sched
+        return self.rev.required_price(SPEC, proj, [dict({'name': 'A', 'pq_score': pq}, **kw)])
+
+    def forward(self, price, pq=90, est=2_000_000_000, **kw):
+        b = {'name': 'A', 'pq_score': pq, 'bid_price': price, 'career_ratio': 35, 'local_ratio': 30, 'mgmt_mode': 'full'}
+        b.update(kw)
+        return ae.evaluate(SPEC, {'estimated_price': est, 'planned_price': self.sched}, [b])['results'][0]
+
+    def test_hand_calculated_range(self):
+        # PQ 90: 57.6 + 경력 1 + 지역 3 + 경영 2 = 63.6 -> 92 - 63.6 = 28.4점의 가격 평점이 필요.
+        # 30 - |0.88 - r|×100 >= 28.4  ->  86.4% <= r <= 89.6%  (r은 소수점 다섯째 자리 반올림)
+        r = self.run_one()['results'][0]
+        self.assertTrue(r['possible'])
+        self.assertEqual((r['subtotal'], r['need_price_score'], r['price_score_max']), (63.6, 28.4, 30.0))
+        # 86.395%부터 반올림하면 86.40%가 되어 통과, 89.605% 미만까지 89.60%로 반올림되어 통과
+        self.assertEqual((r['min_price'], r['max_price']), (863_950_000, 896_049_999))
+        self.assertAlmostEqual(r['min_ratio_pct'], 86.395, places=6)
+
+    def test_boundaries_agree_with_the_forward_engine_to_the_won(self):
+        r = self.run_one()['results'][0]
+        self.assertTrue(self.forward(r['min_price'])['pass'])
+        self.assertFalse(self.forward(r['min_price'] - 1)['pass'])
+        self.assertTrue(self.forward(r['max_price'])['pass'])
+        self.assertFalse(self.forward(r['max_price'] + 1)['pass'])
+
+    def test_impossible_even_at_the_best_price_reports_needed_pq(self):
+        r = self.run_one(pq=60)['results'][0]
+        self.assertFalse(r['possible'])
+        self.assertEqual(r['pq_needed'], 87.5)                       # 87.5 × 0.64 + 36 = 92 (가격 88% 만점일 때)
+        self.assertFalse(self.forward(int(self.sched * 0.88), pq=60)['pass'])
+        self.assertTrue(self.forward(int(self.sched * 0.88), pq=87.5)['pass'])
+        self.assertFalse(self.forward(int(self.sched * 0.88), pq=87.49)['pass'])
+
+    def test_high_pq_passes_up_to_the_planned_price(self):
+        r = self.run_one(pq=100)['results'][0]                      # 70점 + 가격 22점(예정가격 96%~ 고정) = 92
+        self.assertEqual(r['max_price'], self.sched)
+        self.assertEqual(r['max_ratio_pct'], 100.0)
+        self.assertEqual(r['min_price'], 799_950_000)
+        self.assertTrue(self.forward(self.sched, pq=100)['pass'])
+        self.assertFalse(self.forward(r['min_price'] - 1, pq=100)['pass'])
+
+    def test_blank_career_and_local_are_assumed_full_and_say_so(self):
+        r = self.run_one()['results'][0]
+        self.assertEqual(len(r['assumptions']), 2)
+        self.assertTrue(any('경력' in a for a in r['assumptions']) and any('지역업체' in a for a in r['assumptions']))
+        r2 = self.run_one(career_ratio=25, local_ratio=15)['results'][0]       # 0.5 + 0 -> 60.1점, 필요 31.9점 > 30
+        self.assertEqual(r2['assumptions'], [])
+        self.assertFalse(r2['possible'])
+        self.assertEqual(r2['pq_needed'], 92.97)
+
+    def test_other_bands(self):
+        # 5~10억: PQ 환산 44, 가격 50(계수 2), 통과 95점. PQ 90 -> 39.6 + 6 = 45.6 -> 가격 49.4점 이상 필요.
+        # 50 - 2×|0.88 - r|×100 >= 49.4 -> 87.7% <= r <= 88.3%
+        res = self.run_one(est=700_000_000)
+        r = res['results'][0]
+        self.assertEqual((r['need_price_score'], r['possible']), (49.4, True))
+        self.assertAlmostEqual(r['min_ratio_pct'], 87.695, places=6)        # 반올림 경계
+        self.assertEqual(res['band']['pass_score'], 95)
+
+    def test_without_planned_price_only_ratios(self):
+        res = self.run_one(sched=None)
+        r = res['results'][0]
+        self.assertIsNone(r['min_price'])
+        self.assertAlmostEqual(r['min_ratio_pct'], 86.395, places=6)
+        self.assertAlmostEqual(r['max_ratio_pct'], 89.604, places=6)
+        self.assertTrue(any('예정가격을 입력하지 않아' in n for n in res['notes']))
+
+    def test_ladder_matches_pass_flags(self):
+        r = self.run_one()['results'][0]
+        by = {x['ratio_pct']: x for x in r['ladder']}
+        self.assertTrue(by[88]['pass'] and by[88]['total'] == 93.6)
+        self.assertTrue(by[87]['pass'] and by[90]['pass'] is False and by[86]['pass'] is False)
+        self.assertEqual(len(r['ladder']), 31)
+
+    def test_deduction_and_local_not_applied(self):
+        r = self.run_one(tech_shortage=True)['results'][0]                  # -10점이면 가격을 최고로 써도 부족
+        self.assertFalse(r['possible'])
+        res = self.rev.required_price(
+            SPEC, {'estimated_price': 2_000_000_000, 'planned_price': self.sched, 'local_applied': False}, [{'name': 'A', 'pq_score': 90}])
+        r = res['results'][0]
+        self.assertEqual(r['parts']['pq'], 60.3)                           # 90 × 67/100
+        self.assertEqual(r['parts']['local'], 0)
+
+    def test_input_errors(self):
+        with self.assertRaises(ae.AwardInputError):
+            self.rev.required_price(SPEC, {}, [{'name': 'A', 'pq_score': 90}])                  # 용역비 없음
+        with self.assertRaises(ae.AwardInputError):
+            self.rev.required_price(SPEC, {'estimated_price': 1e9}, [])
+        with self.assertRaises(ae.AwardInputError):
+            self.rev.required_price(SPEC, {'estimated_price': 1e9}, [{'name': 'A'}])            # PQ 점수 없음
+
+    def test_api(self):
+        import app as appmod
+        http = appmod.app.test_client()
+        body = {'spec_id': SPEC, 'project': {'estimated_price': '2,000,000,000', 'planned_price': '1,000,000,000'},
+                'bidders': [{'name': 'A', 'pq_score': 90}]}
+        d = http.post('/api/award/required_price', json=body).get_json()
+        self.assertTrue(d['success'])
+        self.assertEqual(d['result']['results'][0]['min_price'], 863_950_000)
+        r = http.post('/api/award/required_price', json={**body, 'bidders': []})
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(http.post('/api/award/required_price', json={**body, 'spec_id': 'nope'}).status_code, 404)
+
+
 # 실제 예규 PDF 텍스트의 줄 모양(쪽 머리, 줄 바꿈이 숫자·낱말 사이를 가르는 것)을 그대로 흉내 낸 조각. 숫자만 바꿔 끼운다.
 def _fixture(**over):
     v = dict(p10=92, p5=95, w1=64, w2=44, w3=34, t1=30, t2=50, t3=60, k2=2, k3=4, c1=96, c2=90.5, c3=89.25, s1=22, s2=45, s3=55,
@@ -427,6 +543,7 @@ class ApiTests(unittest.TestCase):
             self.assertIn(needle, html, needle)
         self.assertNotIn('id="awardCard" style="display:none', html)                  # 처음부터 보여야 한다(PQ 계산 뒤에야 나타나면 못 찾는다)
         self.assertIn("6단계", html)
+        self.assertIn("얼마에 입찰해야", html)                                          # 6단계는 '통과 기준(필요한 입찰가격)'을 알려 주는 화면이다
         self.assertLess(html.index('award_panel.js'), html.index('pq_score.js'))      # pq_score.js가 AwardPanel을 부르므로 먼저 읽혀야 한다
         r = self.http.get('/award')                                                   # 예전 주소는 PQ 화면으로 안내
         self.assertEqual((r.status_code, r.headers['Location'].endswith('/pq_score#award')), (302, True))
@@ -439,6 +556,7 @@ class ApiTests(unittest.TestCase):
         self.assertNotIn('sendToAward', js)                                           # 예전 '보내기' 버튼 방식은 없다
         panel = open('static/award_panel.js', encoding='utf-8').read()
         self.assertIn('window.AwardPanel', panel)
+        self.assertIn('/api/award/required_price', panel)                             # 거꾸로 계산(필요한 입찰가격)을 먼저 보여 준다
 
 
 if __name__ == '__main__':
