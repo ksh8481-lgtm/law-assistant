@@ -2,6 +2,7 @@
 낙찰가 예측 - 화면(API)용 조립 계층. 계산은 bid_model.py, 낙찰하한 규정은 bid_rules.py, 기초금액·A값 표본 조회는 bid_sampling.py가 한다.
 """
 import statistics
+import time
 
 import bid_model as bm
 import bid_rules
@@ -19,7 +20,14 @@ def _num(v):
     return x if x == x and x > 0 else None
 
 
-def analyze(items, base_amount, a_amount=None, presumed_price=None, others=None, participants=None, sample_size=120):
+def _incomplete_note(st):
+    """기초금액 조회가 끝까지 되지 않은 사례가 있을 때의 안내(결과가 일부 사례를 뺀 것임을 숨기지 않는다)."""
+    why = ('공공데이터포털의 일일 호출 한도를 넘어 조회가 막혔습니다(한국시간 자정 이후 다시 시도).' if st.get('quota')
+           else '여러 번 다시 시도했지만 가져오지 못했습니다(나라장터 응답 지연·오류). 같은 조건으로 다시 분석하면 가져온 값은 보관되어 있어 이어서 조회합니다.')
+    return f"⚠️ 표본 {st['requested']}건 중 {st['failed']}건의 기초금액을 가져오지 못해 그 사례를 뺀 결과입니다(불완전). {why}"
+
+
+def analyze(items, base_amount, a_amount=None, presumed_price=None, others=None, participants=None, sample_size=120, progress=None, budget_s=25):
     """낙찰 이력(items)으로 이번 공고(기초금액·A값)의 투찰 추천을 만든다. 계산할 수 없으면 (None, 이유)."""
     base = _num(base_amount)
     if base is None:
@@ -38,11 +46,12 @@ def analyze(items, base_amount, a_amount=None, presumed_price=None, others=None,
     r_min = float(r_min)
 
     sample_size = max(30, min(int(sample_size or 120), 200))
-    info_map, sstats = bs.fetch_base_info(items, limit=sample_size)
+    info_map, sstats = bs.fetch_base_info(items, limit=sample_size, budget_s=budget_s, progress=progress)
     cases_all = bm.build_cases(items, info_map)
     if len(cases_all) < bm.MIN_CASES:
-        return None, (f'기초금액을 확인할 수 있는 낙찰 사례가 {len(cases_all)}건뿐입니다(최소 {bm.MIN_CASES}건 필요). '
-                      '조회 기간을 늘리거나 검색 조건을 넓혀 주세요.')
+        msg = (f'기초금액을 확인할 수 있는 낙찰 사례가 {len(cases_all)}건뿐입니다(최소 {bm.MIN_CASES}건 필요). '
+               '조회 기간을 늘리거나 검색 조건을 넓혀 주세요.')
+        return None, (msg + ' ' + _incomplete_note(sstats)) if sstats['failed'] else msg
     cases, notes = bm.filter_cases(cases_all, band_id=band['id'], participants=participants)
     desc = bm.describe(cases)
     sg = bm.sajung_guess(cases)
@@ -89,7 +98,7 @@ def analyze(items, base_amount, a_amount=None, presumed_price=None, others=None,
     if est_in is None:
         notes.append('추정가격을 입력하지 않아 기초금액÷1.1로 구간을 정했습니다.')
     if sstats['failed']:
-        notes.append(f"기초금액 조회가 {sstats['failed']}건 실패(오류·시간 초과)해 그 사례는 뺐습니다.")
+        notes.append(_incomplete_note(sstats))
     n_med = statistics.median(c['n'] for c in cases if c['n']) if any(c['n'] for c in cases) else None
     if peak['p'] < 0.2:
         notes.append(f"가격만으로는 낙찰 확률이 낮은 공사입니다(최고 {peak['p'] * 100:.1f}%). 낙찰자는 낙찰하한가 바로 위(하한 대비 +{(desc['r_w']['median'] - r_min * 100):.2f}%p 안팎)에 몰려 있는데, "
@@ -104,16 +113,21 @@ def analyze(items, base_amount, a_amount=None, presumed_price=None, others=None,
         'target': {'base': base, 'a': round(a_t), 'a_estimated': a_in is None, 'estimated_price': round(est), 'sajung_guess': round(sg, 3),
                    'plan_guess': int(round(plan_guess)), 'floor_price_guess': int(round(floor_guess)), 'floor_x_pct': round(floor_x, 4),
                    'floor_price_range': [int(round(f_lo)), int(round(f_hi))]},
-        'sample': sstats, 'cases_total': len(cases_all), 'cases_used': len(cases), 'describe': desc,
+        'sample': dict(sstats, complete=not sstats['failed']), 'cases_total': len(cases_all), 'cases_used': len(cases), 'describe': desc,
         'recommend': {'peak': peak, 'targets': [target_row(t) for t in rec['targets']], 'risk_targets': [risk_row(t) for t in rec['risk_targets']]},
         'curve': grid, 'segments': bm.segment_table(cases, r_min), 'notes': notes,
     }, None
 
 
-def backtest(train_items, test_items, presumed_price=None, participants=None, train_limit=100, test_limit=70):
+def backtest(train_items, test_items, presumed_price=None, participants=None, train_limit=100, test_limit=70, progress=None, budget_s=25):
     """학습(예전)·검증(최근) 낙찰 이력으로 사후 검증. 사례마다 그 사례 추정가격 구간의 규정 하한(가격 외 점수 만점)을 쓴다. 계산할 수 없으면 (None, 이유)."""
-    tr_map, s1 = bs.fetch_base_info(train_items, limit=train_limit)
-    te_map, s2 = bs.fetch_base_info(test_items, limit=test_limit)
+    n_tr = min(train_limit, sum(1 for it in train_items if it.get('bidNtceNo')))
+    n_te = min(test_limit, sum(1 for it in test_items if it.get('bidNtceNo')))
+    both = (lambda d, t: progress(d, n_tr + n_te)) if progress else None
+    after = (lambda d, t: progress(n_tr + d, n_tr + n_te)) if progress else None
+    t0 = time.time()
+    tr_map, s1 = bs.fetch_base_info(train_items, limit=train_limit, budget_s=budget_s / 2.0, progress=both)       # 학습·검증 각각 예산의 절반
+    te_map, s2 = bs.fetch_base_info(test_items, limit=test_limit, budget_s=max(budget_s - (time.time() - t0), budget_s / 2.0), progress=after)
     tr, te = bm.build_cases(train_items, tr_map), bm.build_cases(test_items, te_map)
     est_in = _num(presumed_price)
     if est_in:
@@ -138,5 +152,6 @@ def backtest(train_items, test_items, presumed_price=None, participants=None, tr
     if res is None:
         return None, (f'기초금액을 확인한 사례가 학습 {len(tr)}건·검증 {len(te)}건뿐이라 사후 검증이 어렵습니다'
                       f'(학습 {bm.MIN_CASES}건, 검증 5건 이상 필요). 조회 기간을 늘리거나 검색 조건을 넓혀 주세요.')
-    res['train_sample'], res['test_sample'] = s1, s2
+    res['train_sample'], res['test_sample'] = dict(s1, complete=not s1['failed']), dict(s2, complete=not s2['failed'])
+    res['incomplete'] = [_incomplete_note(st) for st in (s1, s2) if st['failed']]
     return res, None

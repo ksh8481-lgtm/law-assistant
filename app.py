@@ -675,8 +675,7 @@ def api_open_bids_base_amount():
         return jsonify({"success": False, "message": str(e)})
 
 
-@app.route('/api/analyze/bid_predict', methods=['POST'])
-def api_bid_predict():
+def _bid_predict_run(data, progress=None, budget_s=25):
     """'낙찰가 예측' - 조달청 나라장터 과거 공사 낙찰 이력을 통계 내어, 이번 입찰에서
     경쟁력 있는 낙찰률(%) 구간을 확률적으로 가늠할 수 있게 돕는다.
 
@@ -688,7 +687,6 @@ def api_bid_predict():
     try:
         from pps_bid import fetch_bid_history, compute_rate_stats, percentile_of_value
 
-        data = request.json or {}
         dminstt_nm = (data.get('dminsttNm') or '').strip() or None
         keyword = (data.get('keyword') or '').strip() or None
         region = (data.get('region') or '').strip() or None
@@ -710,7 +708,7 @@ def api_bid_predict():
                 pass
 
         if not dminstt_nm and not keyword and not region:
-            return jsonify({"success": False, "message": "발주기관명, 공고 키워드, 참가제한지역 중 최소 하나는 입력해 주세요. (전체 조회는 데이터가 너무 많아 지원하지 않습니다.)"}), 400
+            return ({"success": False, "message": "발주기관명, 공고 키워드, 참가제한지역 중 최소 하나는 입력해 주세요. (전체 조회는 데이터가 너무 많아 지원하지 않습니다.)"}), 400
 
         items, errors = fetch_bid_history(
             months=months, dminstt_nm=dminstt_nm, keyword=keyword, region=region,
@@ -719,7 +717,7 @@ def api_bid_predict():
 
         stats = compute_rate_stats(items)
         if not stats:
-            return jsonify({
+            return ({
                 "success": False,
                 "message": "조건에 맞는 낙찰 이력을 찾을 수 없습니다. 조회 기간을 늘리거나 검색 조건(발주기관/키워드/지역)을 넓혀서 다시 시도해 주세요.",
                 "errors": errors,
@@ -774,12 +772,13 @@ def api_bid_predict():
                 import bid_service
                 model, model_error = bid_service.analyze(
                     items, base_amount, a_amount=data.get('aAmount'), presumed_price=data.get('presumedPrice'),
-                    others=data.get('othersScore'), participants=(data.get('participants') or None))
+                    others=data.get('othersScore'), participants=(data.get('participants') or None),
+                    progress=progress, budget_s=budget_s)
             except Exception as me:
                 print("Bid model error:", type(me).__name__, me)
                 model_error = f"투찰 확률 계산 중 오류: {me}"
 
-        return jsonify({
+        return ({
             "success": True,
             "stats": stats,
             "histogram": _build_bid_histogram(rates),
@@ -794,11 +793,10 @@ def api_bid_predict():
         })
     except Exception as e:
         print("Bid Predict Error:", e)
-        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"}), 500
+        return ({"success": False, "message": f"서버 오류: {str(e)}"}), 500
 
 
-@app.route('/api/analyze/bid_backtest', methods=['POST'])
-def api_bid_backtest():
+def _bid_backtest_run(data, progress=None, budget_s=25):
     """'전략 백테스트' - 조회 기간을 학습 구간(예전)/검증 구간(최근)으로 나눠서,
     학습 구간에서 뽑은 추천 낙찰률(백분위)을 검증 구간의 실제 낙찰 결과에 그대로
     대입했다면 몇 %나 이겼을지 사후 검증한다. "낙찰가 예측" 화면의 추천이 순환논리에
@@ -807,7 +805,6 @@ def api_bid_backtest():
     try:
         from pps_bid import backtest_bid_strategy
 
-        data = request.json or {}
         dminstt_nm = (data.get('dminsttNm') or '').strip() or None
         keyword = (data.get('keyword') or '').strip() or None
         region = (data.get('region') or '').strip() or None
@@ -835,26 +832,108 @@ def api_bid_backtest():
                 pass
 
         if not dminstt_nm and not keyword and not region:
-            return jsonify({"success": False, "message": "발주기관명, 공고 키워드, 참가제한지역 중 최소 하나는 입력해 주세요."}), 400
+            return ({"success": False, "message": "발주기관명, 공고 키워드, 참가제한지역 중 최소 하나는 입력해 주세요."}), 400
 
         # 예전 backtest_bid_strategy는 "추천 낙찰률이 실제 낙찰률보다 낮거나 같으면 이긴다"고만 봐서 낮게 쓸수록 승률이 높게 나왔다
         # (낙찰하한 아래는 탈락인데 반영하지 않음). 새 방식은 기초금액 기준 + 낙찰하한을 반영한다(bid_model.backtest).
         import bid_service
         from pps_bid import _month_ranges, _fetch_rate_group
         if test_months >= months:
-            return jsonify({"success": False, "message": "검증 기간은 전체 조회 기간보다 짧아야 합니다."})
+            return ({"success": False, "message": "검증 기간은 전체 조회 기간보다 짧아야 합니다."})
         ranges = _month_ranges(months)
         test_items, e1 = _fetch_rate_group(ranges[:test_months], dminstt_nm, keyword, region, price_min, price_max)
         train_items, e2 = _fetch_rate_group(ranges[test_months:], dminstt_nm, keyword, region, price_min, price_max)
         result, err = bid_service.backtest(
-            train_items, test_items, presumed_price=data.get('presumedPrice'), participants=(data.get('participants') or None))
+            train_items, test_items, presumed_price=data.get('presumedPrice'), participants=(data.get('participants') or None),
+            progress=progress, budget_s=budget_s)
         if err:
-            return jsonify({"success": False, "message": err})
+            return ({"success": False, "message": err})
         result.update(train_months=len(ranges) - test_months, test_months=test_months, errors=e1 + e2)
-        return jsonify({"success": True, **result})
+        return ({"success": True, **result})
     except Exception as e:
         print("Bid Backtest Error:", e)
-        return jsonify({"success": False, "message": f"서버 오류: {str(e)}"}), 500
+        return ({"success": False, "message": f"서버 오류: {str(e)}"}), 500
+
+
+def _run_result(out):
+    """_bid_*_run이 돌려준 dict 또는 (dict, 상태코드)를 (dict, 상태코드)로 맞춘다."""
+    return out if isinstance(out, tuple) else (out, 200)
+
+
+@app.route('/api/analyze/bid_predict', methods=['POST'])
+def api_bid_predict():
+    """낙찰가 예측(동기). 기초금액 조회 시간을 25초로 제한해 게이트웨이 60초 안에 끝내는 판이라 일부 사례가 빠질 수 있다.
+    화면은 누락 없이 끝까지 조회하는 /api/analyze/bid_predict/start(백그라운드 작업)를 쓴다."""
+    payload, code = _run_result(_bid_predict_run(request.json or {}))
+    return jsonify(payload), code
+
+
+@app.route('/api/analyze/bid_backtest', methods=['POST'])
+def api_bid_backtest():
+    """전략 백테스트(동기). 위와 같은 이유로 화면은 /api/analyze/bid_backtest/start를 쓴다."""
+    payload, code = _run_result(_bid_backtest_run(request.json or {}))
+    return jsonify(payload), code
+
+
+# 낙찰가 예측·백테스트는 과거 공고마다 기초금액을 조회해야 해서 한 번에 100건 넘게 나라장터를 호출한다(운영 서버에서는 건당 수 초).
+# 한 요청 안에서 끝내면 게이트웨이 60초 제한 때문에 일부 사례를 빼야 하므로, 백그라운드 작업으로 돌리고 화면은 진행률을 조회한다.
+BID_JOB_BUDGET_S = 200
+
+
+def _bid_job(job_id, runner, data):
+    import time as _t
+    last = [0.0]
+
+    def progress(done, total):
+        now = _t.time()
+        if done < total and now - last[0] < 1.0:         # 작업 저장소(SQLite)에는 초당 한 번만 쓴다
+            return
+        last[0] = now
+        JOBS[job_id] = {"status": "processing", "progress": {"done": done, "total": total}}
+
+    try:
+        payload, code = _run_result(runner(data, progress=progress, budget_s=BID_JOB_BUDGET_S))
+        if payload.get("success"):
+            JOBS[job_id] = {"status": "completed", "result": payload}
+        else:
+            JOBS[job_id] = {"status": "error", "message": payload.get("message") or "분석에 실패했습니다."}
+    except Exception as e:
+        print("Bid job error:", type(e).__name__, e)
+        JOBS[job_id] = {"status": "error", "message": f"서버 오류: {e}"}
+
+
+def _start_bid_job(runner):
+    data = request.json or {}
+    job_id = str(uuid.uuid4())
+    JOBS[job_id] = {"status": "processing"}
+    thread = threading.Thread(target=_bid_job, args=(job_id, runner, data))
+    thread.daemon = True
+    thread.start()
+    return jsonify({"success": True, "jobId": job_id})
+
+
+@app.route('/api/analyze/bid_predict/start', methods=['POST'])
+def api_bid_predict_start():
+    return _start_bid_job(_bid_predict_run)
+
+
+@app.route('/api/analyze/bid_backtest/start', methods=['POST'])
+def api_bid_backtest_start():
+    return _start_bid_job(_bid_backtest_run)
+
+
+@app.route('/api/analyze/bid_job/<job_id>', methods=['GET'])
+def api_bid_job_status(job_id):
+    if job_id not in JOBS:
+        return jsonify({"status": "error", "message": "존재하지 않는 작업입니다(서버가 재시작됐을 수 있습니다). 다시 실행해 주세요."}), 404
+    info = JOBS[job_id]
+    if info.get("status") == "completed":
+        del JOBS[job_id]
+        return jsonify({"status": "completed", "result": info.get("result")})
+    if info.get("status") == "error":
+        del JOBS[job_id]
+        return jsonify({"status": "error", "message": info.get("message", "알 수 없는 오류")})
+    return jsonify({"status": "processing", "progress": info.get("progress")})
 
 
 @app.route('/api/debug')

@@ -25,3 +25,5 @@ Thumbs.db
 jobs.db
 jobs.db-wal
 jobs.db-shm
+bid_base_cache.json
+bid_base_cache.json.tmp

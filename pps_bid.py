@@ -86,7 +86,7 @@ def _fetch_month(year: int, month: int, dminstt_nm=None, keyword=None, region=No
     if body is None:
         # resultCode != 00 인 에러 응답 형태(nkoneps.com.response.ResponseError 등)
         err_key = next(iter(data.keys()), "")
-        msg = data.get(err_key, {}).get("header", {}).get("resultMsg", "알 수 없는 오류")
+        msg = _api_error_msg(data, err_key)
         return [], f"{year}-{month:02d}: {msg}"
 
     return body.get("items", []) or [], None
@@ -306,7 +306,7 @@ def fetch_open_bids(days=30, dminstt_nm=None, keyword=None, region=None):
     body = data.get("response", {}).get("body")
     if body is None:
         err_key = next(iter(data.keys()), "")
-        msg = data.get(err_key, {}).get("header", {}).get("resultMsg", "알 수 없는 오류")
+        msg = _api_error_msg(data, err_key)
         return [], msg
 
     total_count = body.get("totalCount", 0) or 0
@@ -347,6 +347,16 @@ def fetch_open_bids(days=30, dminstt_nm=None, keyword=None, region=None):
     return open_items, None
 
 
+def _api_error_msg(data, err_key):
+    """오류 응답에서 사람이 읽을 사유를 뽑는다. 호출 한도 초과 등 게이트웨이 오류(OpenAPI_ServiceResponse)는 header가 아니라 cmmMsgHeader에 사유가 있다."""
+    top = data.get(err_key, {}) if isinstance(data, dict) else {}
+    msg = (top.get("header") or {}).get("resultMsg")
+    if not msg:
+        cmm = top.get("cmmMsgHeader") or {}
+        msg = cmm.get("returnAuthMsg") or cmm.get("errMsg")
+    return msg or "알 수 없는 오류"
+
+
 def fetch_bid_base_amount(bid_ntce_no: str, bid_ntce_ord: str = "000"):
     """특정 공고의 기초금액(bssamt)을 조회한다. 없으면 None."""
     if not bid_ntce_no:
@@ -371,7 +381,7 @@ def fetch_bid_base_amount(bid_ntce_no: str, bid_ntce_ord: str = "000"):
     body = data.get("response", {}).get("body")
     if body is None:
         err_key = next(iter(data.keys()), "")
-        msg = data.get(err_key, {}).get("header", {}).get("resultMsg", "알 수 없는 오류")
+        msg = _api_error_msg(data, err_key)
         return None, msg
 
     items = body.get("items", []) or []

@@ -15,6 +15,7 @@ import bid_rules
 import bid_sampling as bs
 
 BASE = 100_000_000
+bs._CACHE_PATH = None                      # 이 시험 파일에서는 기초금액 캐시를 디스크에 저장·읽지 않는다
 
 
 def make_item(i, base=BASE, a_frac=0.05, sajung=100.0, r_w=0.9, n=50, date=None):
@@ -227,13 +228,93 @@ class SamplingTests(unittest.TestCase):
         self.assertEqual(got, got2)
 
     def test_missing_is_cached_but_transient_failure_is_not(self):
-        got, st = bs.fetch_base_info(self.items(), limit=7)
+        got, st = bs.fetch_base_info(self.items(), limit=7, budget_s=4)
         self.assertEqual((st['missing'], st['failed'], st['fetched']), (1, 1, 5))
+        self.assertGreaterEqual(st['passes'], 2)                                 # 일시 오류는 한 번으로 포기하지 않고 다시 시도한다
         self.assertIsNone(got[('N002', '000')])                                  # 없음은 None으로 기억
         self.assertNotIn(('N003', '000'), got)                                   # 일시 오류는 결과에 없다
         self.calls.clear()
-        bs.fetch_base_info(self.items(), limit=7)
-        self.assertEqual(self.calls, ['N003'])                                   # 일시 오류만 다시 시도
+        bs.fetch_base_info(self.items(), limit=7, budget_s=1)
+        self.assertEqual(set(self.calls), {'N003'})                              # 일시 오류만 다시 시도(보관된 값은 다시 조회하지 않음)
+
+
+class SamplingCompletenessTests(unittest.TestCase):
+    """분석이 일부 사례를 빼고 나오지 않도록: 일시 오류는 다시 시도하고, 한도 초과는 멈추고 알리고, 진행률을 알리고, 값을 보관한다."""
+
+    def setUp(self):
+        import pps_bid
+        self.pps = pps_bid
+        self._orig = pps_bid.fetch_bid_base_amount
+        self._path = bs._CACHE_PATH
+        bs._CACHE_PATH = None
+        bs.clear_cache()
+        self.calls = {}
+
+    def tearDown(self):
+        self.pps.fetch_bid_base_amount = self._orig
+        bs._CACHE_PATH = self._path
+        bs.clear_cache()
+
+    def items(self, n=6):
+        return [make_item(i, date=f'2026-10-{i:02d} 10:00:00') for i in range(1, n + 1)]
+
+    def test_transient_errors_are_retried_until_every_case_is_fetched(self):
+        def flaky(no, ord_='000'):
+            self.calls[no] = self.calls.get(no, 0) + 1
+            if self.calls[no] < 3:                                               # 처음 두 번은 시간 초과 같은 일시 오류
+                return None, '조회 실패: timeout'
+            return {'bssamt': '100000000', 'sftyMngcst': '1000000'}, None
+        self.pps.fetch_bid_base_amount = flaky
+        got, st = bs.fetch_base_info(self.items(), limit=6, budget_s=30)
+        self.assertEqual((st['fetched'], st['failed'], st['quota'], st['passes']), (6, 0, False, 3))
+        self.assertEqual(len(got), 6)
+
+    def test_quota_exceeded_stops_retrying_and_is_reported(self):
+        def limited(no, ord_='000'):
+            self.calls[no] = self.calls.get(no, 0) + 1
+            return None, '일일 서비스 요청제한 횟수 초과 에러'
+        self.pps.fetch_bid_base_amount = limited
+        got, st = bs.fetch_base_info(self.items(), limit=6, budget_s=30)
+        self.assertTrue(st['quota'])
+        self.assertEqual((st['fetched'], st['failed'], st['passes']), (0, 6, 1))   # 한도 초과는 다시 시도해도 소용없어 한 번에 멈춘다
+        self.assertLessEqual(sum(self.calls.values()), 8)                          # 6건 + 이미 제출된 몇 건 정도만 호출
+
+    def test_progress_counts_cached_and_fetched(self):
+        self.pps.fetch_bid_base_amount = lambda no, ord_='000': ({'bssamt': '100000000'}, None)
+        seen = []
+        bs.fetch_base_info(self.items(), limit=6, budget_s=10, progress=lambda d, t: seen.append((d, t)))
+        self.assertEqual(seen[0], (0, 6))
+        self.assertEqual(seen[-1], (6, 6))
+        self.assertEqual([d for d, _ in seen], sorted(d for d, _ in seen))
+        seen.clear()
+        bs.fetch_base_info(self.items(), limit=6, budget_s=10, progress=lambda d, t: seen.append((d, t)))
+        self.assertEqual(seen, [(6, 6)])                                           # 보관된 값은 한 번에 처리 완료로 알린다
+
+    def test_values_survive_a_restart_via_disk_cache(self):
+        import tempfile
+        path = tempfile.NamedTemporaryFile(suffix='.json', delete=False).name
+        try:
+            bs._CACHE_PATH = path
+            bs._LOADED = False
+            self.pps.fetch_bid_base_amount = lambda no, ord_='000': ({'bssamt': '100000000', 'sftyMngcst': '2000000'}, None)
+            bs.fetch_base_info(self.items(), limit=6, budget_s=10)
+            bs._CACHE.clear()                                                      # 서버 재시작 흉내: 메모리만 비우고 파일은 남긴다
+            bs._LOADED = False
+            self.pps.fetch_bid_base_amount = lambda no, ord_='000': (None, '조회 실패: down')   # 이제 API가 죽어 있어도
+            got, st = bs.fetch_base_info(self.items(), limit=6, budget_s=2)
+            self.assertEqual((st['cached'], st['failed']), (6, 0))
+            self.assertEqual(got[('N001', '000')], {'base': 100_000_000.0, 'a': 2_000_000.0})
+        finally:
+            bs._CACHE_PATH = None
+            import os
+            os.remove(path)
+
+    def test_error_message_of_gateway_errors_is_readable(self):
+        import pps_bid
+        self.assertEqual(pps_bid._api_error_msg({'OpenAPI_ServiceResponse': {'cmmMsgHeader': {'returnAuthMsg': '일일 서비스 요청제한 횟수 초과 에러', 'errMsg': 'LIMITED'}}},
+                                                'OpenAPI_ServiceResponse'), '일일 서비스 요청제한 횟수 초과 에러')
+        self.assertEqual(pps_bid._api_error_msg({'x': {'header': {'resultMsg': 'oops'}}}, 'x'), 'oops')
+        self.assertEqual(pps_bid._api_error_msg({}, ''), '알 수 없는 오류')
 
 
 class PageTests(unittest.TestCase):
@@ -334,6 +415,49 @@ class ServiceAndApiTests(unittest.TestCase):
         d = self.http.get('/api/open_bids/base_amount?bidNtceNo=R26BK01764059&bidNtceOrd=000').get_json()
         self.assertTrue(d['success'], d)
         self.assertEqual(d['aAmount'], 9_113_864)
+
+    def _wait_job(self, job_id, tries=200):
+        import time
+        for _ in range(tries):
+            d = self.http.get(f'/api/analyze/bid_job/{job_id}').get_json()
+            if d['status'] != 'processing':
+                return d
+            time.sleep(0.05)
+        self.fail('작업이 끝나지 않음')
+
+    def test_background_job_returns_same_model_and_reports_progress(self):
+        started = self.http.post('/api/analyze/bid_predict/start', json={'keyword': '공사', 'months': 6, 'baseAmount': '120000000', 'aAmount': '6000000'}).get_json()
+        self.assertTrue(started['success'])
+        d = self._wait_job(started['jobId'])
+        self.assertEqual(d['status'], 'completed', d)
+        self.assertTrue(d['result']['success'])
+        m = d['result']['model']
+        self.assertEqual((m['sample']['failed'], m['sample']['complete']), (0, True))
+        self.assertAlmostEqual(m['band']['r_min_pct'], 89.745, places=3)
+        self.assertEqual(self.http.get(f"/api/analyze/bid_job/{started['jobId']}").status_code, 404)    # 결과를 받아 가면 작업은 지워진다
+
+    def test_background_job_reports_validation_errors(self):
+        started = self.http.post('/api/analyze/bid_predict/start', json={'months': 6}).get_json()       # 조회 조건이 없음
+        d = self._wait_job(started['jobId'])
+        self.assertEqual(d['status'], 'error')
+        self.assertIn('최소 하나', d['message'])
+        self.assertEqual(self.http.get('/api/analyze/bid_job/nope').status_code, 404)
+
+    def test_missing_base_amounts_are_flagged_as_incomplete_not_hidden(self):
+        bad = {'N000', 'N001', 'N002', 'N003', 'N004', 'N005', 'N006', 'N007', 'N008', 'N009'}
+        good = lambda no, ord_='000': ({'bssamt': str(self.bases[no]), 'sftyMngcst': str(int(self.bases[no] * 0.05))}, None)
+        self.pps.fetch_bid_base_amount = lambda no, ord_='000': ((None, '조회 실패: down') if no in bad else good(no))
+        d = self._wait_job(self.http.post('/api/analyze/bid_predict/start', json={'keyword': '공사', 'baseAmount': '120000000'}).get_json()['jobId'])
+        m = d['result']['model']
+        self.assertGreater(m['sample']['failed'], 0)
+        self.assertFalse(m['sample']['complete'])
+        self.assertTrue(any('불완전' in n for n in m['notes']))
+
+    def test_backtest_job_and_quota_note(self):
+        d = self._wait_job(self.http.post('/api/analyze/bid_backtest/start', json={'keyword': '공사', 'months': 6, 'testMonths': 2}).get_json()['jobId'])
+        self.assertEqual(d['status'], 'completed', d)
+        self.assertEqual(d['result']['incomplete'], [])
+        self.assertTrue(d['result']['train_sample']['complete'])
 
     def test_backtest_endpoint_uses_floor_aware_model(self):
         d = self.http.post('/api/analyze/bid_backtest', json={'keyword': '공사', 'months': 6, 'testMonths': 2}).get_json()
