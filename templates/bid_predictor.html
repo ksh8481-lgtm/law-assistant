@@ -755,7 +755,7 @@
             const seg = model.segments;
             const segHtml = seg.participants.length ? `
                 <div class="section-title" style="font-size:0.95rem; margin-top:1.4rem;">경쟁 규모(참가업체 수)별로 보면</div>
-                <p class="hint" style="margin-bottom:0.5rem;">사례가 8건 이상인 구간만 표시합니다. 위 추천을 특정 경쟁 규모로 좁히려면 "예상 경쟁 규모"를 고르고 다시 분석하세요.</p>
+                <p class="hint" style="margin-bottom:0.5rem;">사례가 8건 이상인 구간만 표시합니다. 구간마다 사례가 적어 확률 차이는 우연일 수 있습니다(조사 결과 참가업체 수는 낙찰 확률에 거의 영향이 없었습니다). 위 추천을 특정 경쟁 규모로 좁히려면 "예상 경쟁 규모"를 고르고 다시 분석하세요.</p>
                 <div style="overflow-x:auto;"><table class="percentile-table">
                     <tr><th>참가업체</th><th>사례</th><th>낙찰자 비율 중앙값</th><th>하위10%~90%</th><th>확률 최고 비율</th><th>그때 낙찰 확률</th></tr>${segRows(seg.participants)}
                 </table></div>` : '';
