@@ -312,14 +312,54 @@ class StrictJudgeCallTests(unittest.TestCase):
         self.assertIn('항목: 착공신고', seen['prompt'])
         self.assertEqual((seen['kw'].get('temperature'), seen['kw'].get('json_mode')), (0, True))
 
-    def test_failures_return_empty_so_nothing_is_flagged(self):
-        self.fake('이건 JSON이 아님')
-        self.assertEqual(lrv.strict_judge(self.chunk), {})
+    def test_failures_are_retried_once_then_raised(self):
+        import unittest.mock
+        calls = []
 
         def boom(*a, **k):
+            calls.append(1)
             raise RuntimeError('api down')
         self.gc.generate = boom
-        self.assertEqual(lrv.strict_judge(self.chunk), {})
+        with unittest.mock.patch('time.sleep'):
+            with self.assertRaises(RuntimeError):
+                lrv.strict_judge(self.chunk)
+        self.assertEqual(len(calls), 2)                        # 한 번 다시 시도했다
+        self.fake('이건 JSON이 아님')
+        with unittest.mock.patch('time.sleep'):
+            with self.assertRaises(Exception):
+                lrv.strict_judge(self.chunk)
+
+    def test_a_transient_failure_is_recovered_by_the_retry(self):
+        import unittest.mock
+        state = {'n': 0}
+
+        class R:
+            text = '[{"id":0,"verdict":"weak","reason":"x"}]'
+
+        def flaky(*a, **k):
+            state['n'] += 1
+            if state['n'] == 1:
+                raise RuntimeError('429')
+            return R()
+        self.gc.generate = flaky
+        with unittest.mock.patch('time.sleep'):
+            self.assertEqual(lrv.strict_judge(self.chunk)[0]['verdict'], 'weak')
+
+    def test_judge_failure_is_recorded_and_warned_not_hidden(self):
+        laws = {(False, '도로법'): {'art': {(23, 0): ('도로관리청', '제23조(도로관리청) ...')}}}
+
+        def broken(_chunk):
+            raise RuntimeError('quota')
+        r = {'phases': {'maintenance': [{'task': 'x', 'law_name': '도로법', 'article': '제23조', 'desc': 'd'}]}}
+        errors = []
+        counts = lrv.verify_citations(r, lambda k: laws.get(k), broken, errors)
+        self.assertEqual(counts['ok'], 1)                      # 판정이 없으면 일치로 두되
+        self.assertEqual(len(errors), 1)                       # 실패는 기록된다
+        r = {'phases': {'maintenance': [{'task': 'x', 'law_name': '도로법', 'article': '제23조', 'desc': 'd'}]}}
+        lrv.postprocess(r, '토목공사', [], loader=lambda k: laws.get(k), judge=broken)
+        warn = ' '.join(r['verification']['warnings'])
+        self.assertIn('AI 내용 대조', warn)
+        self.assertIn('원문 확인', warn)                        # "원문 확인"이 내용이 맞다는 뜻이 아님을 알린다
 
     def test_postprocess_uses_strict_judge_by_default(self):
         self.fake('[{"id":0,"verdict":"weak","reason":"다른 행위"}]')
@@ -328,6 +368,23 @@ class StrictJudgeCallTests(unittest.TestCase):
         lrv.postprocess(r, '토목공사', [], loader=lambda k: laws.get(k))
         self.assertEqual(r['phases']['maintenance'][0]['verify']['status'], 'weak')
         self.assertEqual(r['verification']['counts']['weak'], 1)
+
+
+class ParseLawReviewJsonTests(unittest.TestCase):
+    """주 AI 응답 해석(app.parse_law_review_json): 운영에서 두 번 중 한 번 해석 실패로 분석이 끝났다."""
+
+    def setUp(self):
+        import app as appmod
+        self.parse = appmod.parse_law_review_json
+
+    def test_plain_fenced_and_wrapped_json(self):
+        self.assertEqual(self.parse('{"permits": [], "phases": {}}'), {'permits': [], 'phases': {}})
+        self.assertEqual(self.parse('```json\n{"a": 1}\n```'), {'a': 1})
+        self.assertEqual(self.parse('아래는 결과입니다.\n{"a": {"b": 2}}\n이상입니다.'), {'a': {'b': 2}})
+
+    def test_garbage_returns_none(self):
+        for bad in ('', None, '결과 없음', '{"a": ', '[1, 2]', '{"a": 1} {"b": 2}'):
+            self.assertIsNone(self.parse(bad), bad)
 
 
 if __name__ == '__main__':

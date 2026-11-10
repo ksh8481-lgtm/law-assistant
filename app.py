@@ -1512,6 +1512,26 @@ def verify_parcel():
         "zoning": zoning_list
     })
 
+def parse_law_review_json(text):
+    """AI 응답에서 JSON 객체를 꺼낸다. 코드 블록 표시나 앞뒤 설명 글이 있어도 첫 '{'부터 마지막 '}'까지를 해석하고, 실패하면 None."""
+    t = (text or '').strip()
+    for fence in ('```json', '```'):
+        if t.startswith(fence):
+            t = t[len(fence):]
+    if t.endswith('```'):
+        t = t[:-3]
+    for cand in (t.strip(), t[t.find('{'):t.rfind('}') + 1] if '{' in t and '}' in t else ''):
+        if not cand:
+            continue
+        try:
+            obj = json.loads(cand)
+        except ValueError:
+            continue
+        if isinstance(obj, dict):
+            return obj
+    return None
+
+
 LR_ZONING_ERROR_HINTS = ('API 에러', '통신 에러', 'API 도메인 인증 오류', 'VWorld API', '지역지구 데이터 없음')
 LR_FARM_JIMOK = ('전', '답', '과수원')
 LR_FARM_ZONES = ('농업진흥구역', '농업보호구역', '절대농지')
@@ -1717,23 +1737,21 @@ def run_analysis(job_id, data):
         }}
         """
         
-        try:
-            response = generate_with_search_grounding(prompt, pro_model_name)
-        except Exception as e:
-            print(f"Search grounding failed, falling back to standard: {e}")
-            response = gemini_client.generate(prompt, model=pro_model_name, label="법령 검토(검색 없이)")
-            
-        text_resp = response.text.strip()
-        
-        if text_resp.startswith("```json"):
-            text_resp = text_resp[7:]
-        if text_resp.startswith("```"):
-            text_resp = text_resp[3:]
-        if text_resp.endswith("```"):
-            text_resp = text_resp[:-3]
-            
-        result = json.loads(text_resp.strip())
-        
+        # 운영에서 두 번 중 한 번 "AI가 반환한 데이터를 파싱할 수 없습니다"로 끝난 적이 있다. JSON 앞뒤의 설명 글을 걷어 내고, 그래도 안 되면 한 번 더 생성한다.
+        result = None
+        for attempt in (1, 2):
+            try:
+                response = generate_with_search_grounding(prompt, pro_model_name)
+            except Exception as e:
+                print(f"Search grounding failed, falling back to standard: {e}")
+                response = gemini_client.generate(prompt, model=pro_model_name, label="법령 검토(검색 없이)")
+            result = parse_law_review_json(response.text)
+            if result is not None:
+                break
+            print(f"[법규 검토] AI 응답을 JSON으로 해석하지 못했습니다(시도 {attempt}/2). 앞부분: {(response.text or '')[:120]!r}")
+        if result is None:
+            raise json.JSONDecodeError("AI 응답을 JSON으로 해석하지 못했습니다", "", 0)
+
         # 100% Guaranteed Link Injection
         base_dir = os.path.dirname(os.path.abspath(__file__))
         law_urls_path = os.path.join(base_dir, 'data', 'law_urls.json')

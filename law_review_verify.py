@@ -151,9 +151,9 @@ def _label(law_name, no, br):
     return f"{law_name} 제{no}조" + (f"의{br}" if br else '')
 
 
-def verify_citations(result, loader, judge):
+def verify_citations(result, loader, judge, errors=None):
     """항목마다 item['verify'] = {status, title, note}를 붙인다. loader(key)->{'art':{(조,가지):(제목,본문)}}|None, judge(list)->{idx:{verdict,reason}}.
-    상태 개수를 돌려준다."""
+    errors(목록)를 주면 판정 호출 실패 사유를 거기에 쌓는다. 상태 개수를 돌려준다."""
     todo = []        # 판정 대상
     laws = {}        # (is_adm, nospace name) -> 법령 또는 None
     keys = set()
@@ -205,7 +205,7 @@ def verify_citations(result, loader, judge):
 
     chunks = [todo[i:i + JUDGE_CHUNK] for i in range(0, len(todo), JUDGE_CHUNK)]
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
-        verdicts = list(ex.map(lambda ch: _safe(judge, [x for _i, x in ch]) or {}, chunks))
+        verdicts = list(ex.map(lambda ch: _safe(judge, [x for _i, x in ch], errors) or {}, chunks))
     votes = {}       # id(item) -> [(판정, 이유)]
     for ch, vd in zip(chunks, verdicts):
         for idx, (it, _x) in enumerate(ch):
@@ -236,40 +236,48 @@ ARTICLE_TEXT_LEN = 700
 
 
 def strict_judge(chunk):
-    """(항목, 실제 조문) 쌍마다 그 조문이 항목의 직접 근거인지 세 단계로 판정한다. 실패하면 {} (그러면 의심 없이 일치로 둔다).
+    """(항목, 실제 조문) 쌍마다 그 조문이 항목의 직접 근거인지 세 단계로 판정한다. 일시 오류는 한 번 다시 시도하고, 그래도 실패하면 예외를 올린다(호출한 쪽이 실패를 기록한다).
     기존 citation_check._judge는 "주제가 명백히 다른 분야일 때만" 의심해서 제목이 어긋난 인용(착공신고 -> 시공자의 제한 등)을 놓쳤다."""
-    try:
-        import gemini_client
-        blocks = []
-        for i, it in enumerate(chunk):
-            blocks.append(f"[{i}]\n항목: {it['claim']}\n인용: {it['label']}\n실제 조문 제목: {it['title'] or '(제목 없음)'}\n실제 조문 본문: {(it['body'] or '')[:ARTICLE_TEXT_LEN]}\n")
-        prompt = (
-            "너는 공공 건설사업 법규 검토서의 인용 검수자다. 각 항목은 검토서가 어떤 점검 항목(인허가·의무)의 법적 근거로 든 조문과, 그 조문의 실제 제목·본문이다. "
-            "그 조문이 그 항목을 요구하거나 규정하는 직접 근거인지만 판정해라.\n"
-            "- fit: 조문 제목·본문이 항목의 행위(허가, 신고, 계획 수립, 심의, 검사 등)와 대상을 직접 다룬다. 시행령·시행규칙이 법 조문을 구체화하는 경우도 fit.\n"
-            "- weak: 같은 법이거나 비슷한 분야이지만, 이 조문은 그 항목의 직접 근거가 아니다. 제목이 항목과 다른 행위를 다루거나(예: 항목은 '착공신고'인데 조문은 '시공자의 제한'), "
-            "정의·목적·원칙 조항이거나, 항목보다 훨씬 넓거나 좁은 일반 규정이다.\n"
-            "- off: 전혀 다른 분야의 조문이다.\n"
-            "조문 제목이 항목의 이름과 사실상 같거나(예: 항목 '우수유출저감대책 수립' - 조문 '우수유출저감대책의 수립 등') 항목의 핵심 행위를 그대로 제목으로 삼으면 fit이다. 조문이 다룰 수 있는 사업 범위가 항목과 조금 달라도 그것만으로 weak로 내리지 마라.\n"
-            "판단은 조문 제목과 본문에 근거하고, 항목 설명에 적힌 조문 설명(괄호 안 설명 등)은 믿지 마라. 확실히 fit일 때만 fit을 써라. 이유는 25자 이내 한 줄.\n"
-            "오직 JSON 배열만 출력해라. 형식: [{\"id\":0,\"verdict\":\"fit\",\"reason\":\"...\"}, ...]\n\n" + "\n".join(blocks))
-        resp = gemini_client.generate(prompt, temperature=0, json_mode=True, label="법규 검토 인용 판정")
-        raw = (resp.text or '').strip()
+    import gemini_client
+    import time
+    blocks = []
+    for i, it in enumerate(chunk):
+        blocks.append(f"[{i}]\n항목: {it['claim']}\n인용: {it['label']}\n실제 조문 제목: {it['title'] or '(제목 없음)'}\n실제 조문 본문: {(it['body'] or '')[:ARTICLE_TEXT_LEN]}\n")
+    prompt = (
+        "너는 공공 건설사업 법규 검토서의 인용 검수자다. 각 항목은 검토서가 어떤 점검 항목(인허가·의무)의 법적 근거로 든 조문과, 그 조문의 실제 제목·본문이다. "
+        "그 조문이 그 항목을 요구하거나 규정하는 직접 근거인지만 판정해라.\n"
+        "- fit: 조문 제목·본문이 항목의 행위(허가, 신고, 계획 수립, 심의, 검사 등)와 대상을 직접 다룬다. 시행령·시행규칙이 법 조문을 구체화하는 경우도 fit.\n"
+        "- weak: 같은 법이거나 비슷한 분야이지만, 이 조문은 그 항목의 직접 근거가 아니다. 제목이 항목과 다른 행위를 다루거나(예: 항목은 '착공신고'인데 조문은 '시공자의 제한'), "
+        "정의·목적·원칙 조항이거나, 항목보다 훨씬 넓거나 좁은 일반 규정이다.\n"
+        "- off: 전혀 다른 분야의 조문이다.\n"
+        "조문 제목이 항목의 이름과 사실상 같거나(예: 항목 '우수유출저감대책 수립' - 조문 '우수유출저감대책의 수립 등') 항목의 핵심 행위를 그대로 제목으로 삼으면 fit이다. 조문이 다룰 수 있는 사업 범위가 항목과 조금 달라도 그것만으로 weak로 내리지 마라.\n"
+        "판단은 조문 제목과 본문에 근거하고, 항목 설명에 적힌 조문 설명(괄호 안 설명 등)은 믿지 마라. 확실히 fit일 때만 fit을 써라. 이유는 25자 이내 한 줄.\n"
+        "오직 JSON 배열만 출력해라. 형식: [{\"id\":0,\"verdict\":\"fit\",\"reason\":\"...\"}, ...]\n\n" + "\n".join(blocks))
+    last = None
+    for attempt in (1, 2):
         try:
-            data = json.loads(raw)
-        except Exception:
-            data = json.loads(re.search(r'\[.*\]', raw, re.S).group(0))
-        return {int(d['id']): d for d in data if isinstance(d, dict) and 'id' in d}
-    except Exception as e:
-        print(f"[law_review_verify] 엄격 판정 호출 실패(일치로 둠): {type(e).__name__}: {e}")
-        return {}
+            resp = gemini_client.generate(prompt, temperature=0, json_mode=True, label="법규 검토 인용 판정")
+            raw = (resp.text or '').strip()
+            try:
+                data = json.loads(raw)
+            except Exception:
+                data = json.loads(re.search(r'\[.*\]', raw, re.S).group(0))
+            return {int(d['id']): d for d in data if isinstance(d, dict) and 'id' in d}
+        except Exception as e:
+            last = e
+            print(f"[law_review_verify] 엄격 판정 호출 실패(시도 {attempt}/2): {type(e).__name__}: {str(e)[:200]}")
+            if attempt == 1:
+                time.sleep(2)
+    raise last
 
 
-def _safe(fn, arg):
+def _safe(fn, arg, errors=None):
     try:
         return fn(arg)
     except Exception as e:                      # 검증 한 건이 실패해도 분석 전체는 계속한다
         print(f"[law_review_verify] 조회·판정 실패: {type(e).__name__}: {e}")
+        if errors is not None:
+            errors.append(f"{type(e).__name__}: {str(e)[:120]}")
         return None
 
 
@@ -281,6 +289,13 @@ def postprocess(result, project_type, rules, loader=None, judge=None, warnings=N
         loader = citation_check._load_any
     judge = judge or strict_judge
     info = {'excluded': [], 'added': [], 'counts': {}, 'warnings': list(warnings or []), 'steps_failed': []}
+    def cite_step():
+        errors = []
+        info['counts'] = verify_citations(result, loader, judge, errors)
+        if errors:
+            info['warnings'].append(f"AI 내용 대조(조문 제목과 항목이 맞는지 판정)가 {len(errors)}회 실패해({errors[0]}), 일부 항목은 조문 존재 여부만 확인되었습니다. "
+                                    "이 경우 \"원문 확인\"은 내용이 맞다는 뜻이 아닙니다.")
+
     def merge_step():
         usable, skipped = split_rules_by_trade(rules, project_type)
         info['added'] = merge_rule_items(result, usable)
@@ -289,7 +304,7 @@ def postprocess(result, project_type, rules, loader=None, judge=None, warnings=N
     for step, fn in (
         ('공종 점검', lambda: info.__setitem__('excluded', exclude_mismatched_trade(result, project_type))),
         ('필수 항목 보완', merge_step),
-        ('조문 대조', lambda: info.__setitem__('counts', verify_citations(result, loader, judge))),
+        ('조문 대조', cite_step),
     ):
         try:
             fn()
