@@ -563,6 +563,7 @@
                         const VERIFY_STYLE = {
                             ok:        {label: '✓ 원문 확인', color: '#15803d', bg: '#f0fdf4'},
                             mismatch:  {label: '⚠ 내용 불일치 의심', color: '#b45309', bg: '#fffbeb'},
+                            weak:      {label: '? 확인 필요', color: '#a16207', bg: '#fefce8'},
                             missing:   {label: '✕ 조문 없음', color: '#b91c1c', bg: '#fef2f2'},
                             deleted:   {label: '✕ 삭제된 조문', color: '#b91c1c', bg: '#fef2f2'},
                             unchecked: {label: '· 원문 대조 불가', color: '#64748b', bg: '#f8fafc'},
@@ -574,7 +575,7 @@
                             const title = v.title ? ` · ${escH(v.title)}` : '';
                             return `<div style="margin-top:0.35rem; font-size:0.78rem; color:${st.color}; background:${st.bg}; border-radius:4px; padding:0.15rem 0.4rem; display:inline-block; text-align:left;">${st.label}${title}</div>`;
                         };
-                        const verifyNote = (v) => (v && v.note && ['mismatch', 'missing', 'deleted', 'rule'].includes(v.status))
+                        const verifyNote = (v) => (v && v.note && ['mismatch', 'weak', 'missing', 'deleted', 'rule'].includes(v.status))
                             ? `<div style="margin-top:0.4rem; padding:0.45rem 0.6rem; border-left:3px solid ${VERIFY_STYLE[v.status].color}; background:${VERIFY_STYLE[v.status].bg}; font-size:0.85rem; color:${VERIFY_STYLE[v.status].color};">${escH(v.note)}</div>` : '';
 
                         const renderAITasks = (items, isPermit = false) => {
@@ -612,6 +613,7 @@
                             const c = vf.counts || {};
                             const parts = [];
                             if (c.ok) parts.push(`<span style="color:#15803d;">✓ 원문 확인 ${c.ok}건</span>`);
+                            if (c.weak) parts.push(`<span style="color:#a16207; font-weight:700;">? 확인 필요 ${c.weak}건</span>`);
                             if (c.mismatch) parts.push(`<span style="color:#b45309; font-weight:700;">⚠ 내용 불일치 의심 ${c.mismatch}건</span>`);
                             const bad = (c.missing || 0) + (c.deleted || 0);
                             if (bad) parts.push(`<span style="color:#b91c1c; font-weight:700;">✕ 조문 없음·삭제 ${bad}건</span>`);
@@ -620,7 +622,7 @@
                             let html = '<div style="margin:0 0 1.5rem; padding:1rem 1.2rem; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc; font-size:0.92rem;">';
                             html += '<div style="font-weight:700; margin-bottom:0.4rem;">📋 법령 원문 대조 결과</div>';
                             html += `<div style="display:flex; gap:1rem; flex-wrap:wrap;">${parts.join('') || '<span style="color:#64748b;">대조 결과가 없습니다.</span>'}</div>`;
-                            html += '<div style="margin-top:0.5rem; color:#64748b; font-size:0.82rem; line-height:1.5;">AI가 작성한 목록을 법제처 법령 원문과 항목마다 대조한 결과입니다. "내용 불일치 의심"은 조문 번호는 있으나 실제 조문의 주제가 항목 내용과 달라 보인다는 뜻이며, 자동으로 지우지 않으니 원문(법적 근거 링크)을 직접 확인하십시오. "룰 엔진 보완"은 서버의 필수 항목 기준에 해당하는데 AI가 빠뜨려 덧붙인 항목입니다.</div>';
+                            html += '<div style="margin-top:0.5rem; color:#64748b; font-size:0.82rem; line-height:1.5;">AI가 작성한 목록을 법제처 법령 원문과 항목마다 대조한 결과입니다. "확인 필요"는 조문은 있으나 그 조문이 이 항목의 직접 근거인지 불확실하다는 뜻(예: 조문 제목이 항목과 다른 행위를 다룸), "내용 불일치 의심"은 주제가 다른 분야로 보인다는 뜻입니다. 둘 다 자동으로 지우지 않으니 원문(법적 근거 링크)을 직접 확인하십시오. 확인 필요에는 맞는 인용이 섞일 수 있습니다. "룰 엔진 보완"은 서버의 필수 항목 기준에 해당하는데 AI가 빠뜨려 덧붙인 항목입니다.</div>';
                             (vf.warnings || []).forEach(w => { html += `<div style="margin-top:0.5rem; padding:0.4rem 0.6rem; background:#fef2f2; border-left:3px solid #b91c1c; color:#b91c1c;">⚠ ${escH(w)}</div>`; });
                             if ((vf.steps_failed || []).length) html += `<div style="margin-top:0.5rem; color:#b91c1c;">⚠ 일부 점검 단계(${escH(vf.steps_failed.join(', '))})가 실패해 그 부분은 확인되지 않았습니다.</div>`;
                             if ((vf.excluded || []).length) {

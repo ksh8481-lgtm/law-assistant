@@ -14,6 +14,7 @@ AI 한 번의 답을 그대로 쓰면 아래 문제가 실제로 확인됐다(�
    내용이 다르다고 자동으로 지우지는 않고 "내용 불일치 의심"으로 눈에 띄게 표시해 사람이 판단하게 한다(맞는 인용을 지우는 부작용이 더 크다).
 """
 import concurrent.futures
+import json
 import re
 
 CIVIL_TYPES = ('토목공사', '조경공사')
@@ -25,7 +26,7 @@ _ADM_SUFFIXES = ('지침', '고시', '예규', '훈령', '요령', '기준', '�
 _ART = re.compile(r'제\s*(\d+)\s*조(?:\s*의\s*(\d+))?')
 
 STATUS_LABEL = {
-    'ok': '원문 확인', 'mismatch': '내용 불일치 의심', 'missing': '조문 없음', 'deleted': '삭제된 조문',
+    'ok': '원문 확인', 'weak': '확인 필요', 'mismatch': '내용 불일치 의심', 'missing': '조문 없음', 'deleted': '삭제된 조문',
     'unchecked': '원문 대조 불가', 'rule': '룰 엔진 보완',
 }
 
@@ -211,14 +212,57 @@ def verify_citations(result, loader, judge):
             d = vd.get(idx) or {}
             votes.setdefault(id(it), (it, []))[1].append((d.get('verdict'), d.get('reason', '')))
     for it, vs in votes.values():
-        if vs and all(v == 'unsupported' for v, _r in vs):         # 인용한 조문이 전부 다른 분야일 때만 의심으로 표시한다
-            it['verify'] = {'status': 'mismatch', 'title': it['verify']['title'],
-                            'note': f"실제 조문은 「{it['verify']['title'] or '제목 없음'}」에 관한 것으로, 이 항목의 내용과 다른 분야로 보입니다. {vs[0][1]}".strip()}
+        grades = [_GRADE.get(v, 'ok') for v, _r in vs]        # 판정이 없거나(실패) 모르겠다는 답은 일치로 둔다 - 근거 없이 의심하지 않는다
+        title = it['verify']['title']
+        reason = next((r for (v, r), g in zip(vs, grades) if g != 'ok' and r), '')
+        if 'ok' in grades:
+            continue                                          # 인용한 조문 중 하나라도 항목의 근거로 맞으면 일치(제17조(검사)·제18조(대가의 지급)처럼 합쳐서 뒷받침)
+        if all(g == 'off' for g in grades):
+            it['verify'] = {'status': 'mismatch', 'title': title,
+                            'note': f"실제 조문은 「{title or '제목 없음'}」에 관한 것으로, 이 항목의 내용과 다른 분야로 보입니다. {reason}".strip()}
+        else:
+            it['verify'] = {'status': 'weak', 'title': title,
+                            'note': f"조문 제목은 「{title or '제목 없음'}」입니다. 이 항목의 직접 근거인지 법적 근거 링크로 확인하십시오. {reason}".strip()}
 
     counts = {k: 0 for k in STATUS_LABEL}
     for _ph, it in _items(result):
         counts[(it.get('verify') or {}).get('status', 'unchecked')] = counts.get((it.get('verify') or {}).get('status', 'unchecked'), 0) + 1
     return counts
+
+
+# 판정기가 돌려주는 말 -> 내부 등급. 기존 판정기(citation_check)는 supported/unsure/unsupported, 엄격 판정기는 fit/weak/off.
+_GRADE = {'fit': 'ok', 'supported': 'ok', 'unsure': 'ok', 'weak': 'weak', 'off': 'off', 'unsupported': 'off'}
+ARTICLE_TEXT_LEN = 700
+
+
+def strict_judge(chunk):
+    """(항목, 실제 조문) 쌍마다 그 조문이 항목의 직접 근거인지 세 단계로 판정한다. 실패하면 {} (그러면 의심 없이 일치로 둔다).
+    기존 citation_check._judge는 "주제가 명백히 다른 분야일 때만" 의심해서 제목이 어긋난 인용(착공신고 -> 시공자의 제한 등)을 놓쳤다."""
+    try:
+        import gemini_client
+        blocks = []
+        for i, it in enumerate(chunk):
+            blocks.append(f"[{i}]\n항목: {it['claim']}\n인용: {it['label']}\n실제 조문 제목: {it['title'] or '(제목 없음)'}\n실제 조문 본문: {(it['body'] or '')[:ARTICLE_TEXT_LEN]}\n")
+        prompt = (
+            "너는 공공 건설사업 법규 검토서의 인용 검수자다. 각 항목은 검토서가 어떤 점검 항목(인허가·의무)의 법적 근거로 든 조문과, 그 조문의 실제 제목·본문이다. "
+            "그 조문이 그 항목을 요구하거나 규정하는 직접 근거인지만 판정해라.\n"
+            "- fit: 조문 제목·본문이 항목의 행위(허가, 신고, 계획 수립, 심의, 검사 등)와 대상을 직접 다룬다. 시행령·시행규칙이 법 조문을 구체화하는 경우도 fit.\n"
+            "- weak: 같은 법이거나 비슷한 분야이지만, 이 조문은 그 항목의 직접 근거가 아니다. 제목이 항목과 다른 행위를 다루거나(예: 항목은 '착공신고'인데 조문은 '시공자의 제한'), "
+            "정의·목적·원칙 조항이거나, 항목보다 훨씬 넓거나 좁은 일반 규정이다.\n"
+            "- off: 전혀 다른 분야의 조문이다.\n"
+            "조문 제목이 항목의 이름과 사실상 같거나(예: 항목 '우수유출저감대책 수립' - 조문 '우수유출저감대책의 수립 등') 항목의 핵심 행위를 그대로 제목으로 삼으면 fit이다. 조문이 다룰 수 있는 사업 범위가 항목과 조금 달라도 그것만으로 weak로 내리지 마라.\n"
+            "판단은 조문 제목과 본문에 근거하고, 항목 설명에 적힌 조문 설명(괄호 안 설명 등)은 믿지 마라. 확실히 fit일 때만 fit을 써라. 이유는 25자 이내 한 줄.\n"
+            "오직 JSON 배열만 출력해라. 형식: [{\"id\":0,\"verdict\":\"fit\",\"reason\":\"...\"}, ...]\n\n" + "\n".join(blocks))
+        resp = gemini_client.generate(prompt, temperature=0, json_mode=True, label="법규 검토 인용 판정")
+        raw = (resp.text or '').strip()
+        try:
+            data = json.loads(raw)
+        except Exception:
+            data = json.loads(re.search(r'\[.*\]', raw, re.S).group(0))
+        return {int(d['id']): d for d in data if isinstance(d, dict) and 'id' in d}
+    except Exception as e:
+        print(f"[law_review_verify] 엄격 판정 호출 실패(일치로 둠): {type(e).__name__}: {e}")
+        return {}
 
 
 def _safe(fn, arg):
@@ -232,10 +276,10 @@ def _safe(fn, arg):
 # ---------------------------------------------------------------- 묶음
 def postprocess(result, project_type, rules, loader=None, judge=None, warnings=None):
     """결과(dict)를 제자리에서 점검해 result['verification']을 붙인다. 어떤 단계가 실패해도 원래 결과는 그대로 돌려준다."""
-    if loader is None or judge is None:
+    if loader is None:
         import citation_check
-        loader = loader or citation_check._load_any
-        judge = judge or citation_check._judge
+        loader = citation_check._load_any
+    judge = judge or strict_judge
     info = {'excluded': [], 'added': [], 'counts': {}, 'warnings': list(warnings or []), 'steps_failed': []}
     def merge_step():
         usable, skipped = split_rules_by_trade(rules, project_type)

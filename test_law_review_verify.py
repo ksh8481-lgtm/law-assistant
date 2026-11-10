@@ -232,5 +232,103 @@ class PostprocessTests(unittest.TestCase):
             self.assertIn(s, lrv.STATUS_LABEL)
 
 
+class ThreeGradeTests(unittest.TestCase):
+    """판정을 일치(fit) / 확인 필요(weak) / 불일치 의심(off)으로 나눈다. 판정이 없거나 모르겠다는 답은 일치로 둔다(근거 없이 의심하지 않는다)."""
+
+    ART = {(False, '계약법'): {'art': {(17, 0): ('검사', '제17조(검사) ...'), (18, 0): ('대가의 지급', '제18조(대가의 지급) ...')}}}
+
+    def status_for(self, article, verdicts):
+        """verdicts: 조문 번호(문자열) -> 판정 말."""
+        def judge(chunk):
+            return {i: {'verdict': verdicts[x['no']], 'reason': '이유'} for i, x in enumerate(chunk)}
+        r = {'phases': {'construction': [{'task': '항목', 'law_name': '계약법', 'article': article, 'desc': '설명'}]}}
+        lrv.verify_citations(r, lambda k: self.ART.get(k), judge)
+        return r['phases']['construction'][0]['verify']
+
+    def test_single_article_grades(self):
+        self.assertEqual(self.status_for('제17조', {'17': 'fit'})['status'], 'ok')
+        v = self.status_for('제17조', {'17': 'weak'})
+        self.assertEqual(v['status'], 'weak')
+        self.assertIn('검사', v['note'])                       # 실제 조문 제목을 보여 준다
+        self.assertEqual(self.status_for('제17조', {'17': 'off'})['status'], 'mismatch')
+
+    def test_old_judge_vocabulary_still_works(self):
+        self.assertEqual(self.status_for('제17조', {'17': 'supported'})['status'], 'ok')
+        self.assertEqual(self.status_for('제17조', {'17': 'unsure'})['status'], 'ok')
+        self.assertEqual(self.status_for('제17조', {'17': 'unsupported'})['status'], 'mismatch')
+        self.assertEqual(self.status_for('제17조', {'17': '???'})['status'], 'ok')           # 알 수 없는 답은 일치
+
+    def test_multi_article_citations(self):
+        self.assertEqual(self.status_for('제17조, 제18조', {'17': 'weak', '18': 'fit'})['status'], 'ok')       # 하나라도 맞으면 일치
+        self.assertEqual(self.status_for('제17조, 제18조', {'17': 'off', '18': 'off'})['status'], 'mismatch')   # 전부 다른 분야일 때만 의심
+        self.assertEqual(self.status_for('제17조, 제18조', {'17': 'off', '18': 'weak'})['status'], 'weak')      # 섞이면 확인 필요
+
+    def test_counts_include_weak(self):
+        r = {'phases': {'design': [{'task': 'a', 'law_name': '계약법', 'article': '제17조', 'desc': 'x'}]}}
+        counts = lrv.verify_citations(r, lambda k: self.ART.get(k), lambda chunk: {0: {'verdict': 'weak', 'reason': ''}})
+        self.assertEqual((counts['weak'], counts['ok']), (1, 0))
+        self.assertIn('weak', lrv.STATUS_LABEL)
+
+
+class StrictJudgeCallTests(unittest.TestCase):
+    """strict_judge의 AI 호출(가짜 gemini_client): 응답 해석과 실패 처리."""
+
+    def setUp(self):
+        import gemini_client
+        self.gc = gemini_client
+        self._orig = gemini_client.generate
+        self.chunk = [{'claim': '착공신고: 착공 전 신고', 'label': '건설산업기본법 제41조', 'title': '건설공사 시공자의 제한', 'body': '제41조 ...'},
+                      {'claim': '안전관리계획 수립: ...', 'label': '건설기술 진흥법 제62조', 'title': '건설공사의 안전관리', 'body': '제62조 ...'}]
+
+    def tearDown(self):
+        self.gc.generate = self._orig
+
+    def fake(self, text):
+        class R:
+            pass
+        r = R()
+        r.text = text
+        self.gc.generate = lambda *a, **k: r
+
+    def test_parses_json_and_wrapped_json(self):
+        self.fake('[{"id":0,"verdict":"weak","reason":"다른 행위"},{"id":1,"verdict":"fit","reason":""}]')
+        out = lrv.strict_judge(self.chunk)
+        self.assertEqual((out[0]['verdict'], out[1]['verdict']), ('weak', 'fit'))
+        self.fake('결과입니다 [{"id":0,"verdict":"off","reason":"x"}] 끝')
+        self.assertEqual(lrv.strict_judge(self.chunk)[0]['verdict'], 'off')
+
+    def test_prompt_carries_item_and_real_article(self):
+        seen = {}
+
+        class R:
+            text = '[]'
+
+        def gen(prompt, **kw):
+            seen['prompt'], seen['kw'] = prompt, kw
+            return R()
+        self.gc.generate = gen
+        lrv.strict_judge(self.chunk)
+        self.assertIn('실제 조문 제목: 건설공사 시공자의 제한', seen['prompt'])
+        self.assertIn('항목: 착공신고', seen['prompt'])
+        self.assertEqual((seen['kw'].get('temperature'), seen['kw'].get('json_mode')), (0, True))
+
+    def test_failures_return_empty_so_nothing_is_flagged(self):
+        self.fake('이건 JSON이 아님')
+        self.assertEqual(lrv.strict_judge(self.chunk), {})
+
+        def boom(*a, **k):
+            raise RuntimeError('api down')
+        self.gc.generate = boom
+        self.assertEqual(lrv.strict_judge(self.chunk), {})
+
+    def test_postprocess_uses_strict_judge_by_default(self):
+        self.fake('[{"id":0,"verdict":"weak","reason":"다른 행위"}]')
+        laws = {(False, '도로법'): {'art': {(23, 0): ('도로관리청', '제23조(도로관리청) ...')}}}
+        r = {'phases': {'maintenance': [{'task': '도로시설물 관리대장 등재', 'law_name': '도로법', 'article': '제23조', 'desc': '대장 등재'}]}}
+        lrv.postprocess(r, '토목공사', [], loader=lambda k: laws.get(k))
+        self.assertEqual(r['phases']['maintenance'][0]['verify']['status'], 'weak')
+        self.assertEqual(r['verification']['counts']['weak'], 1)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
