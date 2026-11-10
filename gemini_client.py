@@ -19,6 +19,7 @@ import os
 import threading
 import time
 
+API_VERSION = os.environ.get("GEMINI_API_VERSION", "v1beta")   # JSON 모드·검색 그라운딩·사고 설정이 모두 되는 버전
 _client = None
 _client_lock = threading.Lock()
 
@@ -63,7 +64,13 @@ def get_client():
         with _client_lock:
             if _client is None:
                 from google import genai
-                _client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY", ""))
+                from google.genai import types
+                # API 버전을 직접 정한다. SDK는 버전이 오르면 기본값이 바뀔 수 있고(requirements가 고정되지 않아 재배포 때 최신이 설치된다),
+                # v1에서는 JSON 모드(response_mime_type)가 거부된다("JSON mode is not enabled for api version v1" 400):
+                # 2026-11-10 재배포 직후 법정 의무 마스터·PQ 서류 추출·법규 검토 인용 판정이 모두 실패했다.
+                _client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY", ""),
+                                       http_options=types.HttpOptions(api_version=API_VERSION))
+                print(f"[gemini] google-genai {getattr(genai, '__version__', '?')}, API 버전 {API_VERSION}")
     return _client
 
 
