@@ -80,10 +80,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 
                 if (addedCount > 0) {
-                    alert(`총 ${addedCount}개의 주소를 성공적으로 불러왔습니다.`);
+                    say(`총 ${addedCount}개의 주소를 불러왔습니다. [일괄 검증]을 눌러 지목·지역지구를 조회하세요.`, 'ok');
                     bulkVerifyBtn.style.display = 'block'; // 일괄 검증 버튼 표시
                 } else {
-                    alert('엑셀에서 "주소" 열을 찾을 수 없거나 데이터가 없습니다. (첫 줄에 "주소"라고 적혀 있어야 합니다)');
+                    say('엑셀에서 "주소" 열을 찾을 수 없거나 데이터가 없습니다. 첫 줄에 "주소"라고 적혀 있어야 합니다. [엑셀 양식]을 내려받아 쓰시면 됩니다.', 'error');
                 }
             };
             reader.readAsArrayBuffer(file);
@@ -136,21 +136,84 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 
                 if (addedCount > 0) {
-                    alert(`AI가 도면에서 총 ${addedCount}개의 편입 지번을 성공적으로 추출했습니다!\\n이제 [✅ 일괄 검증] 버튼을 눌러 토지이음 정보를 매칭하세요.`);
+                    say(`AI가 도면에서 편입 지번 ${addedCount}개를 추출했습니다. 도면 글자를 잘못 읽었을 수 있으니 주소를 확인한 뒤 [일괄 검증]을 눌러 주세요.`, 'ok');
                     bulkVerifyBtn.style.display = 'block';
                 } else {
-                    alert('도면에서 식별 가능한 주소/지번 정보를 찾지 못했습니다.');
+                    say('도면에서 식별 가능한 주소·지번을 찾지 못했습니다. 해상도가 더 높은 파일을 쓰거나 [주소 붙여넣기]로 직접 입력해 주세요.', 'error');
                 }
                 
             } catch (error) {
                 console.error(error);
-                alert('도면 AI 분석 중 오류가 발생했습니다: ' + error.message);
+                say('도면 AI 분석 중 오류가 발생했습니다: ' + error.message + ' (잠시 후 다시 시도하거나 [주소 붙여넣기]로 직접 입력해 주세요.)', 'error');
             } finally {
                 uploadDrawingBtn.textContent = originalText;
                 uploadDrawingBtn.disabled = false;
                 drawingUploadInput.value = ''; // Reset
             }
         });
+    }
+
+    // 화면 아래 메시지·진행 표시는 law_review_input.js(LRInput)가 맡는다. 없으면 alert로 대신한다.
+    const ui = () => window.LRInput || null;
+    const say = (msg, kind) => { const u = ui(); if (u) u.notify(msg, kind); else alert(msg); };
+
+    /** 검증이 끝난 필지(분석에 넘길 값)를 모은다. */
+    function collectParcels() {
+        const parcels = [];
+        document.querySelectorAll('.parcel-row').forEach(row => {
+            if (row.dataset.verified !== 'true') return;
+            const isExcel = !!row.dataset.excelAddress;
+            let address = row.dataset.fullAddr;
+            if (!isExcel) {
+                const sanStr = row.querySelector('.p-san').value === '2' ? '산 ' : '';
+                const bonbeon = row.querySelector('.p-bonbeon').value;
+                const bubeon = row.querySelector('.p-bubeon').value || '0';
+                const jibun = bubeon === '0' ? bonbeon : `${bonbeon}-${bubeon}`;
+                address = `${address} ${sanStr}${jibun}`;
+            }
+            parcels.push({ pnu: row.dataset.pnu, area: row.dataset.actualArea, zoning: row.dataset.zoning, jimok: row.dataset.jimok || '', address: address });
+        });
+        return parcels;
+    }
+
+    /** 검증된 필지를 다시 검증할 수 있게 되돌린다(면적 합계에서 뺀다). */
+    function unverifyRow(row) {
+        if (row.dataset.verified === 'true') {
+            const area = parseFloat(String(row.dataset.actualArea || '0').replace(/,/g, '')) || 0;
+            totalVerifiedArea -= area;
+            updateTotalArea();
+        }
+        row.dataset.verified = '';
+        row.dataset.zoningError = '';
+        const badge = row.querySelector('.status-badge');
+        if (badge) { badge.textContent = '대기중'; badge.className = 'status-badge'; badge.style.color = '#94a3b8'; }
+    }
+
+    function resetParcels() {
+        parcelContainer.innerHTML = '';
+        totalVerifiedArea = 0;
+        updateTotalArea();
+        checkBulkVerifyButton();
+    }
+
+    /** 저장된 필지(주소·면적·지목·지역지구)를 조회 없이 검증 완료 상태로 복원한다. */
+    function restoreParcel(p) {
+        addParcelRow(p.address, p.area || '');
+        const row = parcelContainer.lastElementChild;
+        row.dataset.verified = 'true';
+        row.dataset.actualArea = p.area || '';
+        row.dataset.pnu = p.pnu || '';
+        row.dataset.zoning = p.zoning || '';
+        row.dataset.jimok = p.jimok || '';
+        row.dataset.zoningError = '';
+        row.dataset.fullAddr = p.address;
+        const badge = row.querySelector('.status-badge');
+        if (badge) { badge.textContent = '검증 완료'; badge.className = 'status-badge verified-tag'; badge.style.color = ''; }
+        const cell = row.querySelector('.zoning-result');
+        if (cell) cell.innerHTML = `<strong>지목:</strong> ${p.jimok || '-'}<br><strong>지역지구:</strong> ${p.zoning || '-'} <span style="color:#64748b;">(저장된 값)</span>`;
+        totalVerifiedArea += parseFloat(String(p.area || '0').replace(/,/g, '')) || 0;
+        updateTotalArea();
+        return row;
     }
 
     function addParcelRow(initAddr = null, initArea = '') {
@@ -243,7 +306,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             if (pendingRows.length === 0) {
-                alert("모든 필지가 이미 검증되었습니다.");
+                say('모든 필지가 이미 검증되었습니다.', 'info');
                 return;
             }
 
@@ -257,7 +320,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             bulkVerifyBtn.textContent = originalText;
             bulkVerifyBtn.disabled = false;
-            alert("일괄 검증이 완료되었습니다!");
+            if (ui()) ui().refreshParcelSummary(true); else alert('일괄 검증이 완료되었습니다!');
         });
     }
 
@@ -476,53 +539,100 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    /** 분석을 시작하고 끝날 때까지 실제 서버 진행 단계를 보여 준다. 실패하면 입력은 그대로 두고 원인과 대처를 알린다. */
+    async function runAnalysis(requestData) {
+        const u = ui();
+        analyzeBtn.disabled = true;
+        spinner.classList.remove('hidden');
+        btnText.textContent = '법규 분석 및 법령 원문 대조 중... (약 3~4분)';
+        const startedAt = Date.now();
+        let stage = '분석 요청을 보내는 중';
+        const tick = () => { if (u) u.showProgress(stage, Math.round((Date.now() - startedAt) / 1000)); };
+        tick();
+        const timer = setInterval(tick, 1000);
+        try {
+            const startResponse = await fetch('/api/analyze/start', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(requestData)
+            });
+            if (!startResponse.ok) {
+                const errorText = await startResponse.text();
+                let msg = errorText;
+                try { msg = JSON.parse(errorText).error || JSON.parse(errorText).message || errorText; } catch (e) {}
+                throw new Error(msg);
+            }
+            const jobId = (await startResponse.json()).job_id;
+
+            // 3초 간격으로 확인(최대 8분 = 160회)
+            const MAX_POLL_ATTEMPTS = 160;
+            for (let attempt = 1; ; attempt++) {
+                await new Promise(r => setTimeout(r, 3000));
+                if (attempt > MAX_POLL_ATTEMPTS) throw new Error('응답 시간이 너무 오래 걸립니다(8분 초과). 서버가 지연 중일 수 있으니 잠시 후 다시 시도해 주세요.');
+                const statusResponse = await fetch(`/api/analyze/status/${jobId}`);
+                if (!statusResponse.ok) throw new Error(await statusResponse.text());
+                const statusData = await statusResponse.json();
+                if (statusData.stage) stage = statusData.stage;
+                if (statusData.status === 'completed') {
+                    const store = window.LawReviewStore;
+                    const id = store ? store.save(requestData, statusData.result) : null;
+                    sessionStorage.setItem('aiResult', JSON.stringify(statusData.result));
+                    sessionStorage.setItem('projectData', JSON.stringify(requestData));
+                    if (id) sessionStorage.setItem('reportId', id); else sessionStorage.removeItem('reportId');
+                    const reportUrl = id ? '/report?rec=' + id : '/report';
+                    const w = window.open(reportUrl, '_blank');
+                    if (u) { u.showDone(reportUrl, !!w, !!id); u.refreshSaved(); u.clearDraft(); }
+                    break;
+                } else if (statusData.status === 'error') {
+                    throw new Error(statusData.message || '알 수 없는 서버 오류');
+                }
+            }
+        } catch (error) {
+            console.error(error);
+            if (u) u.showError(error.message, () => runAnalysis(requestData)); else alert('오류 발생: ' + error.message);
+        } finally {
+            clearInterval(timer);
+            btnText.textContent = 'AI 기반 법규 및 지역지구 분석 시작';
+            spinner.classList.add('hidden');
+            analyzeBtn.disabled = false;
+        }
+    }
+
     if (form) {
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
-            
-            const parcels = [];
-            document.querySelectorAll('.parcel-row').forEach(row => {
-                if (row.dataset.verified === 'true') {
-                    const isExcel = !!row.dataset.excelAddress;
-                    let address = row.dataset.fullAddr;
-                    if (!isExcel) {
-                        const sanStr = row.querySelector('.p-san').value === '2' ? '산 ' : '';
-                        const bonbeon = row.querySelector('.p-bonbeon').value;
-                        const bubeon = row.querySelector('.p-bubeon').value || '0';
-                        const jibun = bubeon === '0' ? bonbeon : `${bonbeon}-${bubeon}`;
-                        address = `${address} ${sanStr}${jibun}`;
-                    }
-                    
-                    parcels.push({
-                        pnu: row.dataset.pnu,
-                        area: row.dataset.actualArea,
-                        zoning: row.dataset.zoning,
-                        jimok: row.dataset.jimok || '',
-                        address: address
-                    });
-                }
-            });
 
+            // 지역지구 조회에 실패한 필지는 오류 문구가 지역지구로 분석에 들어가 결과가 틀어지므로 막는다
             const failedRows = Array.from(document.querySelectorAll('.parcel-row')).filter(row => row.dataset.verified === 'true' && row.dataset.zoningError === '1');
             if (failedRows.length > 0) {
-                alert(`지역지구 조회에 실패한 필지가 ${failedRows.length}개 있습니다(표의 [API 오류] 표시). 오류 문구가 지역지구로 분석에 들어가 결과가 틀어지므로, 해당 필지를 다시 검증한 뒤 분석해 주세요.`);
+                failedRows.forEach(r => { r.style.outline = '2px solid #ef4444'; });
+                say(`지역지구 조회에 실패한 필지가 ${failedRows.length}개 있습니다(표에서 빨간 테두리). 오류 문구가 지역지구로 분석에 들어가 결과가 틀어지므로, 필지 아래 [실패·오류 필지만 다시 검증]을 누른 뒤 분석해 주세요.`, 'error');
+                failedRows[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
                 return;
             }
 
+            const parcels = collectParcels();
             const pubArea = parseFloat(publicWaterInput ? publicWaterInput.value : 0) || 0;
-            
             if (parcels.length === 0 && pubArea <= 0) {
-                alert("검증이 완료된 편입 필지 또는 공유수면 면적이 하나 이상 있어야 합니다.");
+                const pending = document.querySelectorAll('.parcel-row').length;
+                say(pending > 0
+                    ? '입력한 필지가 아직 검증되지 않았습니다. 필지 아래 [일괄 검증]을 먼저 눌러 주세요.'
+                    : '편입 필지 또는 공유수면 면적이 하나 이상 있어야 합니다. [주소 붙여넣기]나 [엑셀 불러오기]로 필지를 넣거나, 해상·하천 사업이면 공유수면 면적을 입력해 주세요.', 'error');
+                return;
+            }
+            const budget = parseFloat(document.getElementById('budget').value);
+            if (!(budget > 0)) { say('사업 재원(억 원)을 입력해 주세요.', 'error'); document.getElementById('budget').focus(); return; }
+            if (!document.getElementById('description').value.trim()) {
+                say('주요 사업 내용이 비어 있습니다. 규모·구조물·굴착 같은 제원을 적을수록 결과가 정확해집니다. 아래 [더 적으면 정확해지는 정보]를 눌러 줄을 추가할 수 있습니다.', 'error');
+                document.getElementById('description').focus();
                 return;
             }
 
             const projectTypeElement = document.querySelector('input[name="projectType"]:checked');
-            const projectType = projectTypeElement ? projectTypeElement.value : '복합공사';
-
             const requestData = {
                 projectName: document.getElementById('projectName').value,
-                projectType: projectType,
-                budget: parseFloat(document.getElementById('budget').value),
+                projectType: projectTypeElement ? projectTypeElement.value : '복합공사',
+                budget: budget,
                 budgetNational: parseFloat(document.getElementById('budgetNational').value) || 0,
                 budgetProvincial: parseFloat(document.getElementById('budgetProvincial').value) || 0,
                 budgetMunicipal: parseFloat(document.getElementById('budgetMunicipal').value) || 0,
@@ -531,66 +641,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 description: document.getElementById('description').value,
                 parcels: parcels
             };
-
-            btnText.textContent = 'AI 기반 법규 분석 및 법령 원문 대조 중... (약 3~4분 소요)';
-            spinner.classList.remove('hidden');
-            analyzeBtn.disabled = true;
-
-
-            try {
-                // 1. 분석 작업 시작 요청
-                const startResponse = await fetch('/api/analyze/start', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(requestData)
-                });
-
-                if (!startResponse.ok) {
-                    const errorText = await startResponse.text();
-                    throw new Error(errorText);
-                }
-
-                const startData = await startResponse.json();
-                const jobId = startData.job_id;
-                
-                // 2. 3초 간격으로 폴링 (최대 8분 = 160회 시도 후 포기)
-                const MAX_POLL_ATTEMPTS = 160;
-                let pollAttempts = 0;
-                while (true) {
-                    await new Promise(r => setTimeout(r, 3000));
-                    pollAttempts++;
-
-                    if (pollAttempts > MAX_POLL_ATTEMPTS) {
-                        throw new Error("응답 시간이 너무 오래 걸립니다 (8분 초과). 서버가 지연 중일 수 있으니 잠시 후 다시 시도해주세요.");
-                    }
-
-                    const statusResponse = await fetch(`/api/analyze/status/${jobId}`);
-                    if (!statusResponse.ok) {
-                        const errorText = await statusResponse.text();
-                        throw new Error(errorText);
-                    }
-
-                    const statusData = await statusResponse.json();
-
-                    if (statusData.status === 'completed') {
-                        sessionStorage.setItem('aiResult', JSON.stringify(statusData.result));
-                        sessionStorage.setItem('projectData', JSON.stringify(requestData));
-                        window.open('/report', '_blank');
-                        break;
-                    } else if (statusData.status === 'error') {
-                        throw new Error(statusData.message || "알 수 없는 서버 오류");
-                    }
-                    // status === 'processing' 인 경우 계속 대기
-                }
-
-            } catch (error) {
-                console.error(error);
-                alert("오류 발생: " + error.message);
-            } finally {
-                btnText.textContent = 'AI 기반 법규 및 지역지구 분석 시작';
-                spinner.classList.add('hidden');
-                analyzeBtn.disabled = false;
-            }
+            if (ui()) ui().clearMessages();
+            await runAnalysis(requestData);
         });
     }
 
@@ -729,8 +781,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 descriptionTextarea.style.backgroundColor = 'white';
             }, 600);
 
-            alert('✨ 선택하신 핵심 조건들이 반영된 표준 사업내용이 텍스트칸에 자동 입력되었습니다!');
+            say('✨ 선택한 조건이 반영된 표준 사업내용을 아래 [주요 사업 내용]에 넣었습니다. 사업에 맞게 고쳐 쓰세요.', 'ok');
+            descriptionTextarea.dispatchEvent(new Event('input', { bubbles: true }));
         });
     }
 
+    // law_review_input.js가 쓰는 필지·합계 함수
+    window.LRForm = { addParcelRow, verifyRow, unverifyRow, restoreParcel, resetParcels, collectParcels, checkBulkVerifyButton, updateTotalArea };
 });

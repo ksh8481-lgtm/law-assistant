@@ -20,7 +20,8 @@ import re
 CIVIL_TYPES = ('토목공사', '조경공사')
 # 토목·조경 공사에는 해당하지 않는 건축 분야 법령(공백·가운뎃점 제거 후 앞부분으로 비교)
 ARCH_LAW_PREFIXES = ('건축법', '건축서비스산업진흥법', '건축물관리법', '녹색건축물조성지원법', '건축물의에너지절약설계기준')
-PHASE_OF_RULE = {'design': 'design', 'construction': 'construction', 'design, construction': 'design', 'both': 'design'}
+PHASE_OF_RULE = {'planning': 'planning', 'design': 'design', 'construction': 'construction', 'completion': 'completion', 'maintenance': 'maintenance',
+                 'design, construction': 'design', 'both': 'design'}
 JUDGE_CHUNK = 8
 _ADM_SUFFIXES = ('지침', '고시', '예규', '훈령', '요령', '기준', '규정')
 _ART = re.compile(r'제\s*(\d+)\s*조(?:\s*의\s*(\d+))?')
@@ -82,6 +83,9 @@ def exclude_mismatched_trade(result, project_type):
 
 # ---------------------------------------------------------------- 2. 룰 엔진 필수 항목 보완
 _ACTION_WORDS = ('수립', '제출', '작성', '실시', '신청', '이행', '의뢰', '시행', '대상여부', '여부', '확인', '및')
+_ART_NO = re.compile(r'제\s*(\d+)\s*조(?:\s*의\s*(\d+))?')
+NAME_SAME = 0.72          # 이름이 이 정도로 비슷하면 같은 항목(서로 다른 규칙을 합쳐 누락시키는 것보다 중복이 낫다: "건설사업관리계획"과 "건설사업관리대상"은 0.71)
+NAME_WITH_SAME_ARTICLE = 0.35   # 같은 조문을 인용하면 이름이 조금만 비슷해도 같은 항목
 
 
 def _core(name):
@@ -92,12 +96,60 @@ def _core(name):
     return n
 
 
+def _dice(a, b):
+    """두 이름의 글자 두 개씩 겹침 비율(0~1). 띄어쓰기·괄호·동작어 차이가 있어도 "공사(건설)기간 적정성 검토"와 "공사기간 적정성 검토"를 같다고 본다."""
+    from collections import Counter
+    A = [a[i:i + 2] for i in range(len(a) - 1)]
+    B = [b[i:i + 2] for i in range(len(b) - 1)]
+    if not A or not B:
+        return 0.0
+    return 2.0 * sum((Counter(A) & Counter(B)).values()) / (len(A) + len(B))
+
+
+def _strip_kind(law):
+    return re.sub(r'(시행령|시행규칙)$', '', law)
+
+
+def _rule_cites(law_link):
+    """지식 기반 law_link(자유 문장: "건설기술진흥법 제39조의2, 시행령 제55조, 같은 법 시행규칙 제3조")에서 {법령+조} 집합을 뽑는다."""
+    cites, law = set(), ''
+    for seg in re.split(r'[,，]', law_link or ''):
+        seg = seg.strip()
+        m = _ART_NO.search(seg)
+        head = _nospace(seg[:m.start()] if m else seg)
+        if head.startswith(('같은법시행령', '동법시행령', '시행령')):
+            law = _strip_kind(law) + '시행령'
+        elif head.startswith(('같은법시행규칙', '동법시행규칙', '시행규칙')):
+            law = _strip_kind(law) + '시행규칙'
+        elif head.startswith(('같은법', '동법')):
+            pass
+        elif head:
+            law = head
+        if m and law:
+            cites.add(f"{law}제{m.group(1)}조" + (f"의{m.group(2)}" if m.group(2) else ''))
+    return cites
+
+
+def _item_cites(item):
+    law = _nospace(item.get('law_name'))
+    return {f"{law}제{n}조" + (f"의{b}" if b else '') for n, b in _ART_NO.findall(item.get('article') or '')} if law else set()
+
+
 def _present(rule, existing):
-    """규칙(KB)의 항목이 이미 결과에 있는가. existing = 결과 항목 이름들의 _core 목록."""
+    """규칙(KB)의 항목이 이미 결과에 있는가. existing = [{'core': 핵심 이름, 'cites': {법령+조}}].
+    이름이 같거나 매우 비슷하면 같은 항목이고, 같은 조문을 인용하면서 이름이 조금이라도 비슷해도 같은 항목이다(AI와 룰이 이름만 다르게 쓴 중복을 합친다)."""
     name = _core(rule.get('name'))
     if len(name) < 4:
         return False
-    return any(name in n or (len(n) >= 4 and n in name) for n in existing)
+    cites = _rule_cites(rule.get('law_link'))
+    for e in existing:
+        n = e['core']
+        if name in n or (len(n) >= 4 and n in name):
+            return True
+        d = _dice(name, n)
+        if d >= NAME_SAME or (d >= NAME_WITH_SAME_ARTICLE and cites & e['cites']):
+            return True
+    return False
 
 
 def split_rules_by_trade(rules, project_type):
@@ -108,7 +160,9 @@ def split_rules_by_trade(rules, project_type):
     keep, skipped = [], []
     for r in rules or []:
         first_law = re.split(r'\s*제\s*\d', r.get('law_link') or '', maxsplit=1)[0]
-        if '건축' in (r.get('name') or '') or _nospace(first_law).startswith(prefixes):
+        # 이름에 '건축'이 들어가면 건축 분야 룰로 보되, "건축물·입목·공작물"처럼 물건을 나열한 말의 '건축물'은 건축 사업을 뜻하지 않는다(지장물 보상 규칙)
+        name_wo_list = re.sub(r'건축물\s*[·ㆍ,]', '', r.get('name') or '')
+        if '건축' in name_wo_list or _nospace(first_law).startswith(prefixes):
             skipped.append({'name': r.get('name'), 'law': r.get('law_link') or '', 'article': '',
                             'reason': f"룰 엔진 항목이지만 {project_type}에는 해당하지 않는 건축 분야 항목이라 덧붙이지 않았습니다."})
         else:
@@ -118,7 +172,7 @@ def split_rules_by_trade(rules, project_type):
 
 def merge_rule_items(result, rules):
     """조건이 맞은 지식 기반 규칙 가운데 결과에 없는 것을 덧붙인다. 덧붙인 항목 [{name, phase}]을 돌려준다."""
-    existing = [_core(_title_of(it)) for _ph, it in _items(result)]
+    existing = [{'core': _core(_title_of(it)), 'cites': _item_cites(it)} for _ph, it in _items(result)]
     phases = result.setdefault('phases', {})
     added, seen = [], set()
     for rule in rules or []:
@@ -136,7 +190,7 @@ def merge_rule_items(result, rules):
                 + (f"해당 조건: {rule.get('condition')[:140]}. " if rule.get('condition') and rule.get('condition').strip() != 'True' else '')
                 + '사업과의 관련성을 확인하십시오.')},
         })
-        existing.append(_core(rule.get('name')))
+        existing.append({'core': _core(rule.get('name')), 'cites': _rule_cites(rule.get('law_link'))})
         added.append({'name': rule.get('name'), 'phase': ph})
     return added
 

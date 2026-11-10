@@ -454,6 +454,27 @@
             white-space: nowrap;
         }
         .markdown-report a:hover { background: #dbeafe; text-decoration: none; }
+
+        /* 점검 체크리스트·내보내기 */
+        .report-toolbar { display: none; gap: 0.6rem; flex-wrap: wrap; align-items: center; margin: 0 0 1.2rem; padding: 0.7rem 0.9rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
+        .report-toolbar button { padding: 0.5rem 0.9rem; border: 1px solid #cbd5e1; background: white; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.9rem; }
+        .report-toolbar button:hover { background: #eff6ff; border-color: #93c5fd; }
+        .report-toolbar .progress { font-weight: 700; color: #15803d; }
+        .report-toolbar .hint { color: #64748b; font-size: 0.8rem; margin-left: auto; }
+        .chk-box { cursor: pointer; position: relative; }
+        .chk-box.on { background: #15803d; border-color: #15803d; }
+        .chk-box.on::after { content: '\2713'; color: white; position: absolute; left: 2px; top: -3px; font-size: 14px; font-weight: 700; }
+        tr.row-done .task-title { color: #94a3b8 !important; text-decoration: line-through; }
+        .chk-memo { width: 100%; margin-top: 0.45rem; padding: 0.3rem 0.5rem; border: 1px dashed #cbd5e1; border-radius: 4px; font-size: 0.82rem; color: #334155; background: #fcfcfd; }
+        .chk-memo:focus { outline: none; border-color: #3b82f6; background: white; }
+        @media print {
+            .report-toolbar, .chk-memo.empty { display: none !important; }
+            .section.law { page-break-inside: auto !important; }
+            .checklist-table tr { page-break-inside: avoid; }
+            .checklist-table thead { display: table-header-group; }
+            .chk-box.on, .vbadge, .vnote, .task-memo { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .chk-memo { border: none; border-bottom: 1px solid #cbd5e1; border-radius: 0; background: transparent; }
+        }
     </style>
 </head>
 <body>
@@ -462,6 +483,13 @@
         <div class="report-header">
             <h1 id="dynamic-report-title">📊 AI 종합 보고서</h1>
             <p id="report-date"></p>
+        </div>
+
+        <div class="report-toolbar" id="report-toolbar">
+            <button type="button" id="btn-csv">📊 엑셀(CSV)로 저장</button>
+            <button type="button" id="btn-print-top">🖨 인쇄 / PDF 저장</button>
+            <span class="progress" id="chk-progress"></span>
+            <span class="hint" id="store-hint"></span>
         </div>
 
         <div id="report-content">
@@ -483,6 +511,7 @@
         </div>
     </div>
 
+    <script src="/static/law_review_store.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const dateStr = new Date().toLocaleDateString('ko-KR', { 
@@ -490,6 +519,16 @@
             });
             document.getElementById('report-date').textContent = `분석 일시: ${dateStr}`;
 
+            // 저장된 분석을 다시 열 때(/report?rec=<id>): 브라우저에 보관된 입력·결과를 불러온다
+            try {
+                const recId = new URLSearchParams(location.search).get('rec');
+                const rec = recId && window.LawReviewStore ? window.LawReviewStore.get(recId) : null;
+                if (rec) {
+                    sessionStorage.setItem('aiResult', JSON.stringify(rec.result));
+                    sessionStorage.setItem('projectData', JSON.stringify(rec.requestData));
+                    sessionStorage.setItem('reportId', rec.id);
+                }
+            } catch (e) { /* 무시: 저장소를 못 쓰면 기존 방식대로 */ }
             const rawData = sessionStorage.getItem('aiResult');
             const contentDiv = document.getElementById('report-content');
 
@@ -548,8 +587,71 @@
 
                 contentDiv.innerHTML = '<div style="text-align:center; padding:3rem; font-weight:bold; color:var(--primary-color);">⏳ 종합 건설사업 생애주기별 필수 항목을 분석 및 통합 중입니다...</div>';
 
-                fetch('/api/supervisor/checklist', fetchOptions)
-                    .then(response => response.json())
+                // ---- 점검 체크리스트(체크·메모는 이 브라우저에 보관) + 엑셀(CSV) 내보내기 + 인쇄 ----
+                const reportId = sessionStorage.getItem('reportId') || '';
+                const Store = window.LawReviewStore;
+                let projectName = '법규검토';
+                try { projectName = JSON.parse(projectDataRaw || '{}').projectName || projectName; } catch (e) {}
+                const rowsOf = () => Array.from(document.querySelectorAll('#report-content tr[data-key]'));
+                const setBox = (box, on) => { box.classList.toggle('on', on); box.setAttribute('aria-checked', on ? 'true' : 'false'); box.closest('tr').classList.toggle('row-done', on); };
+                const updateProgress = () => {
+                    const rows = rowsOf();
+                    const done = rows.filter(r => r.querySelector('.chk-box.on')).length;
+                    document.getElementById('chk-progress').textContent = rows.length ? `점검 완료 ${done} / ${rows.length}` : '';
+                };
+                function initChecklist() {
+                    document.getElementById('report-toolbar').style.display = 'flex';
+                    const saved = Store && reportId ? Store.checks(reportId) : {};
+                    document.getElementById('store-hint').textContent = reportId
+                        ? '체크와 메모는 이 브라우저에 저장됩니다(다시 열어도 유지, 다른 컴퓨터에서는 보이지 않음).'
+                        : '이 분석은 저장되지 않아 체크와 메모가 창을 닫으면 사라집니다. 엑셀로 저장해 두세요.';
+                    rowsOf().forEach(tr => {
+                        const key = tr.dataset.key, st = saved[key] || {};
+                        const box = tr.querySelector('.chk-box'), memo = tr.querySelector('.chk-memo');
+                        if (st.c) setBox(box, true);
+                        if (st.m) { memo.value = st.m; memo.classList.remove('empty'); }
+                        const toggle = () => { const on = !box.classList.contains('on'); setBox(box, on); if (Store && reportId) Store.setCheck(reportId, key, { c: on }); updateProgress(); };
+                        box.addEventListener('click', toggle);
+                        box.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); } });
+                        memo.addEventListener('input', () => { memo.classList.toggle('empty', !memo.value.trim()); if (Store && reportId) Store.setCheck(reportId, key, { m: memo.value }); });
+                    });
+                    updateProgress();
+                }
+                const csvCell = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+                const clean = (el) => el ? el.innerText.replace(/\s+\n/g, '\n').replace(/^(?:🔹|🔸)\s*/u, '').trim() : '';
+                function exportCsv() {
+                    const lines = [['단계', '구분', '항목', '내용', '법적 근거', '원문 대조', '대조 메모', '실무 메모', '점검 완료', '내 메모'].map(csvCell).join(',')];
+                    document.querySelectorAll('#report-content .section.law').forEach(sec => {
+                        const stage = (sec.querySelector('h2') || {}).innerText || '';
+                        sec.querySelectorAll('tr[data-key]').forEach(tr => {
+                            const memo = tr.querySelector('.chk-memo');
+                            lines.push([
+                                stage.replace(/^[^0-9]*/, '').trim(), clean(tr.querySelector('.cat-col')), clean(tr.querySelector('.task-title')), clean(tr.querySelector('.task-desc')),
+                                clean(tr.querySelector('.law-link-badge')) + (tr.querySelector('.law-col span:last-child:not(.law-link-badge)') ? ' ' + clean(tr.querySelector('.law-col span:last-child:not(.law-link-badge)')) : ''),
+                                clean(tr.querySelector('.vbadge')), clean(tr.querySelector('.vnote')), clean(tr.querySelector('.task-memo')),
+                                tr.querySelector('.chk-box.on') ? '완료' : '', memo ? memo.value : '',
+                            ].map(csvCell).join(','));
+                        });
+                    });
+                    const d = new Date(), ymd = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+                    const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `${projectName.replace(/[\\/:*?"<>|]/g, '_')}_법규검토_${ymd}.csv`;
+                    document.body.appendChild(a); a.click(); a.remove();
+                    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+                }
+                document.getElementById('btn-csv').addEventListener('click', exportCsv);
+                document.getElementById('btn-print-top').addEventListener('click', () => window.print());
+
+                // 실무 점검 목록은 서버의 AI가 사업마다 걸러 내서 열 때마다 달라질 수 있다. 저장된 분석을 다시 열면 처음 본 목록을 그대로 쓴다(체크·메모가 맞도록).
+                const savedRec = Store && reportId ? Store.get(reportId) : null;
+                (savedRec && savedRec.supervisor
+                    ? Promise.resolve(savedRec.supervisor)
+                    : fetch('/api/supervisor/checklist', fetchOptions).then(response => response.json()).then(d => {
+                        if (d && d.success && Store && reportId) Store.setSnapshot(reportId, 'supervisor', d);
+                        return d;
+                    }))
                     .then(checkData => {
                         let supervisorStages = {};
                         if (checkData.success && checkData.data && checkData.data.project_stages) {
@@ -573,12 +675,15 @@
                             if (!v || !VERIFY_STYLE[v.status]) return '';
                             const st = VERIFY_STYLE[v.status];
                             const title = v.title ? ` · ${escH(v.title)}` : '';
-                            return `<div style="margin-top:0.35rem; font-size:0.78rem; color:${st.color}; background:${st.bg}; border-radius:4px; padding:0.15rem 0.4rem; display:inline-block; text-align:left;">${st.label}${title}</div>`;
+                            return `<div class="vbadge" style="margin-top:0.35rem; font-size:0.78rem; color:${st.color}; background:${st.bg}; border-radius:4px; padding:0.15rem 0.4rem; display:inline-block; text-align:left;">${st.label}${title}</div>`;
                         };
                         const verifyNote = (v) => (v && v.note && ['mismatch', 'weak', 'missing', 'deleted', 'rule'].includes(v.status))
-                            ? `<div style="margin-top:0.4rem; padding:0.45rem 0.6rem; border-left:3px solid ${VERIFY_STYLE[v.status].color}; background:${VERIFY_STYLE[v.status].bg}; font-size:0.85rem; color:${VERIFY_STYLE[v.status].color};">${escH(v.note)}</div>` : '';
+                            ? `<div class="vnote" style="margin-top:0.4rem; padding:0.45rem 0.6rem; border-left:3px solid ${VERIFY_STYLE[v.status].color}; background:${VERIFY_STYLE[v.status].bg}; font-size:0.85rem; color:${VERIFY_STYLE[v.status].color};">${escH(v.note)}</div>` : '';
 
-                        const renderAITasks = (items, isPermit = false) => {
+                        const rowKey = (sec, name) => `${sec}|${name}`;
+                        const checkCell = `<td class="chk-col"><span class="chk-box" role="checkbox" tabindex="0" aria-checked="false" title="점검 완료 표시"></span></td>`;
+                        const memoInput = '<input class="chk-memo empty" type="text" maxlength="500" placeholder="메모 (담당자, 확인 결과 등)">';
+                        const renderAITasks = (items, isPermit = false, sec = '') => {
                             if (!items || items.length === 0) return '';
                             let html = '';
                             items.forEach(item => {
@@ -589,13 +694,14 @@
                                     ? `<a href="${item.law_url}" target="_blank" style="word-break: keep-all;">${lawText}</a>`
                                     : lawText;
                                 html += `
-                                    <tr>
-                                        <td class="chk-col"><span class="chk-box"></span></td>
+                                    <tr data-key="${escH(rowKey(sec, taskName))}">
+                                        ${checkCell}
                                         <td class="cat-col"><strong>${isPermit ? '사전 인허가' : '행정/법정'}</strong></td>
                                         <td>
                                             <div class="task-title" style="color:var(--primary-color);">🔹 ${taskName}</div>
                                             <div class="task-desc">${taskDesc}</div>
                                             ${verifyNote(item.verify)}
+                                            ${memoInput}
                                         </td>
                                         <td class="law-col" style="text-align: center; vertical-align: middle;">
                                             <span class="law-link-badge" style="display:inline-block;">${lawLinkHTML}</span><br>
@@ -633,7 +739,7 @@
                             return html + '</div>';
                         };
 
-                        const renderSupervisorTasks = (items) => {
+                        const renderSupervisorTasks = (items, sec = '') => {
                             if (!items || items.length === 0) return '';
                             let html = '';
                             items.forEach(task => {
@@ -641,8 +747,8 @@
                                     ? `<a href="${task.law_url}" target="_blank" style="word-break: keep-all;">${task.law_name}</a>`
                                     : task.law_name;
                                 html += `
-                                    <tr>
-                                        <td class="chk-col"><span class="chk-box"></span></td>
+                                    <tr data-key="${escH(rowKey(sec, task.task_name))}">
+                                        ${checkCell}
                                         <td class="cat-col" style="color:#d97706;"><strong>${task.category} (실무)</strong></td>
                                         <td>
                                             <div class="task-title" style="color:#d97706;">🔸 ${task.task_name}</div>
@@ -650,6 +756,7 @@
                                             <div class="task-memo" style="margin-top:0.5rem; padding:0.5rem; background:#fffbeb; border-radius:4px; font-size:0.9rem;">
                                                 <span>💡</span> <span>${task.memo}</span>
                                             </div>
+                                            ${memoInput}
                                         </td>
                                         <td class="law-col" style="text-align: center; vertical-align: middle;">
                                             <span class="law-link-badge" style="display:inline-block; margin-bottom:0.3rem;">${lawLinkHTML}</span><br>
@@ -662,10 +769,10 @@
                         };
 
                         const renderSection = (title, aiTasks, aiPermits, supTasks, supTasks2) => {
-                            let aiHtml = renderAITasks(aiTasks, false);
-                            let permitHtml = renderAITasks(aiPermits, true);
-                            let supHtml = renderSupervisorTasks(supTasks);
-                            let supHtml2 = renderSupervisorTasks(supTasks2);
+                            let aiHtml = renderAITasks(aiTasks, false, title);
+                            let permitHtml = renderAITasks(aiPermits, true, title);
+                            let supHtml = renderSupervisorTasks(supTasks, title);
+                            let supHtml2 = renderSupervisorTasks(supTasks2, title);
                             
                             let totalHtml = aiHtml + permitHtml + supHtml + supHtml2;
                             if (!totalHtml) return '';
@@ -708,6 +815,7 @@
                         finalHtml += renderSection('🛠️ 5. 준공 및 유지관리 단계', combinedPostAi, [], supervisorStages['STG_POST'], []);
                         
                         contentDiv.innerHTML = finalHtml;
+                        initChecklist();
                     })
                     .catch(err => console.error("체크리스트 로딩 오류:", err));
 

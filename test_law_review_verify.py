@@ -197,6 +197,13 @@ class RefinementTests(unittest.TestCase):
         note = r['phases']['construction'][0]['verify']['note']
         self.assertIn('total_area >= 5000', note)             # 어떤 조건에 해당했는지 보여 준다
 
+    def test_object_lists_with_buildings_are_not_building_rules(self):
+        rules = [{'name': '지장물(건축물·입목·공작물·농작물·분묘) 조사 및 보상', 'law_link': '공익사업을 위한 토지 등의 취득 및 보상에 관한 법률 제75조', 'phase': 'design', 'desc': 'd'},
+                 {'name': '건축물 철거 신고', 'law_link': '건축물관리법 제30조', 'phase': 'design', 'desc': 'd'}]
+        keep, skipped = lrv.split_rules_by_trade(rules, '토목공사')
+        self.assertEqual([r['name'] for r in keep], ['지장물(건축물·입목·공작물·농작물·분묘) 조사 및 보상'])      # 물건 나열은 유지
+        self.assertEqual([s['name'] for s in skipped], ['건축물 철거 신고'])
+
     def test_postprocess_reports_skipped_rules_as_excluded(self):
         r = {'phases': {}}
         lrv.postprocess(r, '토목공사', [{'name': '건축공사 감리', 'law_link': '건축법 제25조', 'phase': 'construction', 'desc': 'd'}],
@@ -230,6 +237,44 @@ class PostprocessTests(unittest.TestCase):
     def test_every_status_has_a_label(self):
         for s in ('ok', 'mismatch', 'missing', 'deleted', 'unchecked', 'rule'):
             self.assertIn(s, lrv.STATUS_LABEL)
+
+
+class DedupeTests(unittest.TestCase):
+    """AI 항목과 룰 항목이 이름만 다르게 쓴 중복을 합치되, 서로 다른 규칙을 합쳐 누락시키지는 않는다."""
+
+    def test_rule_cites_parse_free_text_law_links(self):
+        self.assertEqual(lrv._rule_cites('건설산업기본법 제40조, 시행령 제35조, 시행규칙 별표 5'), {'건설산업기본법제40조', '건설산업기본법시행령제35조'})
+        self.assertEqual(lrv._rule_cites('건설기술진흥법 제39조의2, 같은 법 시행령 제55조'), {'건설기술진흥법제39조의2', '건설기술진흥법시행령제55조'})
+        self.assertEqual(lrv._rule_cites('남해군 일상감사 규정'), set())              # 조 번호가 없으면 비교하지 않는다
+
+    def test_item_cites(self):
+        self.assertEqual(lrv._item_cites({'law_name': '건설기술 진흥법 시행령', 'article': '제55조, 제57조'}), {'건설기술진흥법시행령제55조', '건설기술진흥법시행령제57조'})
+
+    def existing(self, *items):
+        return [{'core': lrv._core(n), 'cites': lrv._item_cites({'law_name': ln, 'article': a})} for n, ln, a in items]
+
+    def test_same_item_with_different_wording_is_merged(self):
+        cases = [
+            ('건설기술인의 배치', '건설산업기본법 제40조, 시행령 제35조', ('건설기술인 현장 배치', '건설산업기본법 시행령', '제35조')),
+            ('기본구상용역, 기본계획용역', '건설기술진흥법 시행령 제68조', ('기본구상 및 기본계획 수립', '건설기술진흥법 시행령', '제68조')),
+            ('중기지방재정계획(남해군)', '지방재정법 제33조', ('중기지방재정계획 반영 및 투자심사', '지방재정법', '제33조, 제37조')),
+            ('공사(건설)기간 적정성 검토', '건설기술진흥법 시행규칙 제3조', ('공사기간 적정성 검토', '건설기술 진흥법 시행규칙', '제3조')),
+        ]
+        for name, link, ai in cases:
+            self.assertTrue(lrv._present({'name': name, 'law_link': link}, self.existing(ai)), name)
+
+    def test_different_rules_are_not_merged(self):
+        ex = self.existing(('건설사업관리계획 수립', '건설기술 진흥법', '제39조의2'))
+        self.assertFalse(lrv._present({'name': '건설사업관리대상', 'law_link': '건설기술진흥법 시행령 제57조'}, ex))     # 계획 수립과 대상 여부는 다른 항목
+        ex = self.existing(('안전관리계획서 제출', '건설기술 진흥법', '제62조'))
+        self.assertFalse(lrv._present({'name': '설계안전성검토 (DFS)', 'law_link': '건설기술 진흥법 제62조'}, ex))    # 같은 조문이어도 이름이 전혀 다르면 별개
+        self.assertFalse(lrv._present({'name': '지구단위계획구역 결정(남해군)', 'law_link': '국토의 계획 및 이용에 관한 법률 시행령 제43조'}, self.existing(('도시계획시설사업 실시계획 인가', '국토의 계획 및 이용에 관한 법률', '제88조'))))
+
+    def test_completion_and_maintenance_rules_go_to_their_own_phase(self):
+        r = {'phases': {}}
+        lrv.merge_rule_items(r, [{'name': '하자보수보증금 납부 및 하자 정기검사', 'law_link': '지방계약법 제21조', 'phase': 'maintenance', 'desc': 'd'},
+                                 {'name': '준공 서류 제출', 'law_link': '', 'phase': 'completion', 'desc': 'd'}])
+        self.assertEqual((len(r['phases']['maintenance']), len(r['phases']['completion'])), (1, 1))
 
 
 class ThreeGradeTests(unittest.TestCase):

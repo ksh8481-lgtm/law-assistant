@@ -1532,6 +1532,14 @@ def parse_law_review_json(text):
     return None
 
 
+def _lr_stage(job_id, text):
+    """진행 중인 법규 검토 작업의 현재 단계를 화면에 알린다(작업 저장소가 실패해도 분석은 계속한다)."""
+    try:
+        JOBS[job_id] = {"status": "processing", "stage": text}
+    except Exception as e:
+        print("단계 기록 실패:", type(e).__name__, e)
+
+
 LR_ZONING_ERROR_HINTS = ('API 에러', '통신 에러', 'API 도메인 인증 오류', 'VWorld API', '지역지구 데이터 없음')
 LR_FARM_JIMOK = ('전', '답', '과수원')
 LR_FARM_ZONES = ('농업진흥구역', '농업보호구역', '절대농지')
@@ -1559,6 +1567,7 @@ def run_analysis(job_id, data):
         if not parcels and public_water_area <= 0:
             raise Exception("검증된 편입 필지 또는 공유수면 면적이 없습니다.")
 
+        _lr_stage(job_id, "입력한 사업·필지 정리 중")
         parcel_str_list = []
         all_zonings = set()
         lr_warnings = []                                    # 결과 보고서 상단에 보여 줄 입력 단계 경고
@@ -1596,6 +1605,7 @@ def run_analysis(job_id, data):
         all_rule_vars = get_all_variables()
         vars_instruction = ", ".join(all_rule_vars)
         
+        _lr_stage(job_id, "사업 조건 추출 중(AI)")
         # --- 에이전트 1: 파라미터 추출기 (Extractor Agent) ---
         extractor_prompt = f"""
         당신은 건설공사 내역 분석 에이전트입니다.
@@ -1633,6 +1643,9 @@ def run_analysis(job_id, data):
         if any((p.get('jimok') or '').strip() in LR_FARM_JIMOK for p in parcels) or any(t in zoning_context for t in LR_FARM_ZONES):
             kb_params['has_farmland'] = True
         kb_params['has_parcels'] = len(parcels) > 0
+        # 사업비·면적·필지 주소·도로굴착 여부처럼 입력에서 확정되는 값은 AI 추출값 위에 덮어쓴다(같은 뜻의 변수를 규칙마다 다른 이름으로 쓰므로).
+        import lr_flags
+        kb_params.update(lr_flags.derive_flags(project_name, project_type, budget, total_area, description, parcels))
 
         # --- Rule Engine (Knowledge Base 결정론적 매칭) ---
         matched_laws = evaluate_knowledge_base(kb_params)
@@ -1642,6 +1655,7 @@ def run_analysis(job_id, data):
             scale_permits_str = "\n".join(law_lines)
             scale_permits_str = f"\n        **[지식 기반(Knowledge Base) 강제 적용 목록]**\n        서버의 룰 엔진이 매칭한 절대 누락되어서는 안 될 필수 목록입니다. 이 항목들은 반드시 최종 보고서 JSON의 적절한 phase 배열에 포함시키세요:\n{scale_permits_str}\n"
 
+        _lr_stage(job_id, "법제처에서 관련 법령 원문 조회 중")
         # 국토계획법 등 기본 정보 패치 -> MCP 에이전트 자율 검색으로 업그레이드
         from mcp_agent_sync import get_mcp_context_sync
         mcp_query = f"'{project_type}' 사업에 적용되는 '{zoning_context}' 관련 법령과 필수 인허가 절차를 최대한 상세히 찾아줘."
@@ -1740,6 +1754,7 @@ def run_analysis(job_id, data):
         # 운영에서 두 번 중 한 번 "AI가 반환한 데이터를 파싱할 수 없습니다"로 끝난 적이 있다. JSON 앞뒤의 설명 글을 걷어 내고, 그래도 안 되면 한 번 더 생성한다.
         result = None
         for attempt in (1, 2):
+            _lr_stage(job_id, "인허가·의무 항목 분석 중(AI, 가장 오래 걸리는 단계)" if attempt == 1 else "AI 응답 형식을 바로잡아 다시 분석 중")
             try:
                 response = generate_with_search_grounding(prompt, pro_model_name)
             except Exception as e:
@@ -1752,6 +1767,7 @@ def run_analysis(job_id, data):
         if result is None:
             raise json.JSONDecodeError("AI 응답을 JSON으로 해석하지 못했습니다", "", 0)
 
+        _lr_stage(job_id, "법령 링크 연결 중")
         # 100% Guaranteed Link Injection
         base_dir = os.path.dirname(os.path.abspath(__file__))
         law_urls_path = os.path.join(base_dir, 'data', 'law_urls.json')
@@ -1812,6 +1828,7 @@ def run_analysis(job_id, data):
             _verify_citation(item)
 
         # AI 결과 점검: 공종 불일치 제외, 룰 엔진 필수 항목 보완, 조문 존재·내용 대조(law_review_verify.py). 실패해도 원래 결과는 유지한다.
+        _lr_stage(job_id, "법령 원문과 항목별 대조 중(마무리)")
         try:
             import law_review_verify
             law_review_verify.postprocess(result, project_type, matched_laws, warnings=lr_warnings)
@@ -1857,7 +1874,7 @@ def analyze_status(job_id):
         del JOBS[job_id]
         return jsonify({"status": "error", "message": error_msg})
         
-    return jsonify({"status": "processing"})
+    return jsonify({"status": "processing", "stage": job_info.get("stage", "")})
 
 
 
