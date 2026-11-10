@@ -59,6 +59,7 @@ jobs:
           python test_gemini_version.py
           python test_lr_flags.py
           python test_law_review_page.py
+          python test_project_docs.py
           for f in test_pq_cm test_pq_design test_pq_engine test_pq_env test_pq_mlit test_pq_mof test_pq_safe test_pq_watch test_injection; do
             echo "--- $f"
             python $f.py

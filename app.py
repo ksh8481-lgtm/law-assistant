@@ -3049,5 +3049,108 @@ def api_pq_extract_status(job_id):
     return jsonify({"status": "processing"})
 
 
+# ---------------------------------------------------------------- 내역서·설명서 -> 주요 사업 내용 및 목적 (법규 검토 입력)
+PROJECT_DOCS_MAX_FILES = 6
+
+
+def run_project_docs(job_id, saved, project_type, project_name):
+    """올린 내역서·설명서에서 글을 뽑아 AI가 "주요 사업 내용 및 목적"을 정리한다. 임시 파일은 끝나면 모두 지운다.
+    결과: {text, files:[{name, role, kind, truncated, scanned}], notes:[사용자에게 알릴 말]}"""
+    import project_docs
+    try:
+        files, notes, bill, spec, scanned_parts, scanned_names = [], [], [], [], [], []
+        JOBS[job_id] = {"status": "processing", "stage": "올린 서류에서 글자 읽는 중"}
+        for info in saved:
+            path, fname, role = info['path'], info['name'], info['role']
+            try:
+                doc = project_docs.read_document(path, fname)
+            except project_docs.UnsupportedDoc as e:
+                notes.append(str(e))
+                continue
+            except Exception as e:
+                print(f"[project_docs] 읽기 실패 {fname}: {type(e).__name__}: {e}")
+                notes.append(f'"{fname}"을 읽는 중 오류가 났습니다. 다른 형식으로 저장해 다시 올려 주세요.')
+                continue
+            files.append({'name': fname, 'role': role, 'kind': doc['kind'], 'truncated': doc['truncated'], 'scanned': doc['scanned']})
+            if doc['truncated']:
+                notes.append(f'"{fname}"은 길어서 앞부분(총괄·집계 시트 우선)만 읽었습니다.')
+            if doc['scanned']:
+                try:
+                    scanned_parts.append(gemini_file_part(upload_file_for_gemini(path, display_name=fname)))
+                    scanned_names.append(fname)
+                    notes.append(f'"{fname}"은 스캔본(이미지) PDF로 보여 AI가 파일을 직접 읽었습니다(글자 인식 오류가 있을 수 있으니 확인하세요).')
+                except Exception as e:
+                    print(f"[project_docs] 스캔본 업로드 실패 {fname}: {e}")
+                    notes.append(f'"{fname}"은 스캔본(이미지) PDF라 글자를 뽑지 못했고 AI 업로드에도 실패했습니다. 글자가 선택되는 PDF로 올려 주세요.')
+            if doc['text'].strip():
+                (bill if role == 'bill' else spec).append(f"[파일: {fname}]\n{doc['text']}")
+        if not files:
+            raise Exception(' '.join(notes) or '읽을 수 있는 서류가 없습니다.')
+        if not (bill or spec or scanned_parts):
+            raise Exception(' '.join(notes) or '서류에서 글자를 찾지 못했습니다.')
+
+        JOBS[job_id] = {"status": "processing", "stage": "AI가 서류를 읽고 사업 내용 정리 중"}
+        prompt = project_docs.build_prompt(project_type, '\n\n'.join(bill)[:60000], '\n\n'.join(spec)[:60000], scanned_names, project_name)
+        try:
+            response, _ = gemini_client.generate_with_fallback(
+                scanned_parts + [prompt], models=[gemini_client.fast_model(), gemini_client.main_model()], temperature=0.2, label="사업 서류 정리")
+        except Exception as e:
+            raise Exception(f"AI가 서류를 정리하지 못했습니다: {e}")
+        text = (response.text or '').strip()
+        for fence in ('```text', '```markdown', '```'):
+            if text.startswith(fence):
+                text = text[len(fence):]
+        if text.endswith('```'):
+            text = text[:-3]
+        text = text.strip()
+        if not text:
+            raise Exception('AI가 빈 결과를 돌려주었습니다. 잠시 후 다시 시도해 주세요.')
+        JOBS[job_id] = {"status": "completed", "result": {"text": text, "files": files, "notes": notes}}
+    except Exception as e:
+        print(f"[project_docs] error: {type(e).__name__}: {e}")
+        JOBS[job_id] = {"status": "error", "message": str(e)}
+    finally:
+        for info in saved:
+            try:
+                os.remove(info['path'])
+            except Exception:
+                pass
+
+
+@app.route('/api/project_docs/start', methods=['POST'])
+def api_project_docs_start():
+    """내역서(bill)·설명서(spec) 파일을 받아 읽기 작업을 시작한다. 진행·결과는 /api/analyze/status/<job_id>로 확인한다."""
+    import tempfile
+    saved = []
+    try:
+        if not GEMINI_KEY:
+            return jsonify({"success": False, "message": "Gemini API 키가 설정되지 않았습니다."}), 500
+        for field in ('bill', 'spec'):
+            for f in request.files.getlist(field):
+                if f and f.filename:
+                    if len(saved) >= PROJECT_DOCS_MAX_FILES:
+                        raise ValueError(f'파일은 한 번에 {PROJECT_DOCS_MAX_FILES}개까지 올릴 수 있습니다.')
+                    ext = os.path.splitext(f.filename)[1]
+                    fd, temp_path = tempfile.mkstemp(suffix=ext)
+                    os.close(fd)
+                    f.save(temp_path)
+                    saved.append({'path': temp_path, 'name': f.filename, 'role': field})
+        if not saved:
+            return jsonify({"success": False, "message": "내역서나 설명서 파일을 하나 이상 선택해 주세요."}), 400
+        job_id = str(uuid.uuid4())
+        JOBS[job_id] = {"status": "processing", "stage": "파일 받는 중"}
+        thread = threading.Thread(target=run_project_docs, args=(job_id, saved, request.form.get('projectType', ''), request.form.get('projectName', '')))
+        thread.daemon = True
+        thread.start()
+        return jsonify({"success": True, "job_id": job_id})
+    except Exception as e:
+        for info in saved:
+            try:
+                os.remove(info['path'])
+            except Exception:
+                pass
+        return jsonify({"success": False, "message": str(e)}), 400 if isinstance(e, ValueError) else 500
+
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

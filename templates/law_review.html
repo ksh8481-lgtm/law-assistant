@@ -127,35 +127,37 @@
                         </div>
                     </div>
 
-                    <div class="form-group" style="background: #f8fafc; border: 2px solid #e2e8f0; border-radius: 12px; padding: 1.2rem; margin-bottom: 1.5rem;">
-                        <label style="font-size: 1.05rem; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.8rem;">
-                            <span>🛠️ 스마트 공사 프로파일러 & AI 템플릿 도우미</span>
-                            <span style="font-size: 0.75rem; background: #8b5cf6; color: white; padding: 0.2rem 0.5rem; border-radius: 999px; font-weight: 600;">NEW</span>
+                    <div class="form-group" id="docs-panel" style="background: #f8fafc; border: 2px solid #e2e8f0; border-radius: 12px; padding: 1.2rem; margin-bottom: 1.5rem;">
+                        <label style="font-size: 1.05rem; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.6rem;">
+                            <span>📎 내역서·설명서로 사업 내용 자동 작성</span>
                         </label>
-                        <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 1rem; line-height: 1.4;">
-                            사업 분야를 선택하고 우리 현장에 해당하는 핵심 공사 조건을 클릭하세요. 버튼 한 번으로 감사 지적을 방지하는 <strong>완벽한 표준 공사개요서 양식</strong>이 자동 작성됩니다!
+                        <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 0.9rem; line-height: 1.5;">
+                            내역서와 설명서 파일을 올리면 AI가 읽어서 아래 <b>[주요 사업 내용 및 목적]</b>에 들어갈 글을 정리합니다.
+                            서류에 적힌 내용만 쓰고, 서류에서 못 찾은 정보는 따로 알려 드립니다. 넣기 전에 내용을 확인하고 고칠 수 있습니다.
                         </p>
-                        
-                        <div class="domain-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
-                            <button type="button" class="domain-tab-btn active" data-domain="building" style="flex: 1; min-width: 120px; padding: 0.6rem; border-radius: 8px; border: 1px solid #cbd5e1; background: #3b82f6; color: white; font-weight: 600; cursor: pointer; transition: all 0.2s;">🏢 공공건축 사업</button>
-                            <button type="button" class="domain-tab-btn" data-domain="civil" style="flex: 1; min-width: 120px; padding: 0.6rem; border-radius: 8px; border: 1px solid #cbd5e1; background: white; color: #475569; font-weight: 600; cursor: pointer; transition: all 0.2s;">🛣️ 도로·교통·토목</button>
-                            <button type="button" class="domain-tab-btn" data-domain="water" style="flex: 1; min-width: 120px; padding: 0.6rem; border-radius: 8px; border: 1px solid #cbd5e1; background: white; color: #475569; font-weight: 600; cursor: pointer; transition: all 0.2s;">🌊 하천·상하수도</button>
-                            <button type="button" class="domain-tab-btn" data-domain="park" style="flex: 1; min-width: 120px; padding: 0.6rem; border-radius: 8px; border: 1px solid #cbd5e1; background: white; color: #475569; font-weight: 600; cursor: pointer; transition: all 0.2s;">🌳 단지·공원조성</button>
+                        <div style="display: flex; gap: 0.8rem; flex-wrap: wrap;">
+                            <div style="flex: 1; min-width: 240px;">
+                                <label for="docs-bill" style="font-size: 0.85rem; font-weight: 600;">내역서 <span style="font-weight: 400; color: #64748b;">(엑셀 .xlsx, PDF)</span></label>
+                                <input type="file" id="docs-bill" accept=".xlsx,.xls,.pdf,.csv,.txt" multiple style="width: 100%;">
+                            </div>
+                            <div style="flex: 1; min-width: 240px;">
+                                <label for="docs-spec" style="font-size: 0.85rem; font-weight: 600;">설명서 <span style="font-weight: 400; color: #64748b;">(PDF, 워드 .docx, 한글 .hwpx, 텍스트)</span></label>
+                                <input type="file" id="docs-spec" accept=".pdf,.docx,.hwpx,.hwp,.doc,.txt,.md" multiple style="width: 100%;">
+                            </div>
                         </div>
-
-                        <div id="smart-tags-container" style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.2rem; min-height: 70px; padding: 0.8rem; background: white; border: 1px solid #e2e8f0; border-radius: 8px;">
-                            <!-- JS에서 동적 로딩 -->
+                        <div style="display: flex; justify-content: flex-end; margin-top: 0.8rem;">
+                            <button type="button" id="docs-read-btn" style="padding: 0.7rem 1.2rem; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer;">📖 서류 읽고 사업 내용 작성</button>
                         </div>
-
-                        <div style="display: flex; justify-content: flex-end;">
-                            <button type="button" id="generate-template-btn" style="padding: 0.7rem 1.2rem; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.2); transition: all 0.2s;">
-                                <span>✨ 선택 조건으로 표준 사업내용 자동 작성하기</span>
-                            </button>
-                        </div>
+                        <div id="docs-status" aria-live="polite" style="margin-top: 0.7rem;"></div>
+                        <div id="docs-result" style="margin-top: 0.7rem;"></div>
+                        <p style="font-size: 0.78rem; color: #94a3b8; margin-top: 0.7rem; line-height: 1.45;">
+                            파일은 읽은 뒤 서버에 저장하지 않습니다. 글자는 AI(Gemini)에 보내 정리하고, 글자가 선택되지 않는 스캔본 PDF는 파일째 AI에 올려 읽습니다.
+                            옛 엑셀(.xls)·옛 한글(.hwp)은 읽지 못하니 .xlsx·.hwpx·PDF로 저장해 올려 주세요. 파일은 최대 6개, 하나당 25MB까지입니다.
+                        </p>
                     </div>
 
                     <div class="form-group">
-                        <label for="description">주요 사업 내용 및 목적 (위 버튼을 누르면 자동 입력됩니다)</label>
+                        <label for="description">주요 사업 내용 및 목적 (위 [내역서·설명서로 자동 작성]으로 채우거나 직접 입력)</label>
                         <textarea id="description" rows="4" placeholder="💡 AI가 법령을 정확히 검토할 수 있도록 사업 제원을 상세히 적어주세요.
 (예시) 
 - 최고 층수 5층, 건축물 최대 층높이 20m
@@ -182,7 +184,8 @@
     <!-- 카카오 주소 검색 API -->
     <script src="//t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
     <script src="/static/law_review_store.js?v=1.0"></script>
-    <script src="/static/script.js?v=6.0"></script>
+    <script src="/static/script.js?v=7.0"></script>
     <script src="/static/law_review_input.js?v=1.0"></script>
+    <script src="/static/law_review_docs.js?v=1.0"></script>
 </body>
 </html>
