@@ -26,7 +26,7 @@
 
     function pickFiles() {
         var list = [];
-        ['bill', 'spec'].forEach(function (role) {
+        ['bill', 'spec', 'draw'].forEach(function (role) {
             var input = $('docs-' + role);
             Array.prototype.forEach.call(input.files || [], function (f) { list.push({ role: role, file: f }); });
         });
@@ -35,7 +35,7 @@
 
     function renderResult(res) {
         var notes = (res.notes || []).map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('');
-        var files = (res.files || []).map(function (f) { return esc(f.name) + '(' + (f.role === 'bill' ? '내역서' : '설명서') + ')'; }).join(', ');
+        var files = (res.files || []).map(function (f) { return esc(f.name) + '(' + ({ bill: '내역서', spec: '설명서', draw: '도면' }[f.role] || '서류') + ')'; }).join(', ');
         $('docs-result').innerHTML =
             '<div style="font-size:0.85rem; color:#475569; margin-bottom:0.3rem;">읽은 서류: ' + files + '</div>' +
             (notes ? box('warn', '<b>알림</b><ul style="margin:0.3rem 0 0 1.1rem;">' + notes + '</ul>') : '') +
@@ -68,7 +68,7 @@
     async function run() {
         if (busy) return;
         var picked = pickFiles();
-        if (!picked.length) { status('error', '내역서나 설명서 파일을 하나 이상 선택해 주세요.'); return; }
+        if (!picked.length) { status('error', '내역서·설명서·도면 파일을 하나 이상 선택해 주세요.'); return; }
         if (picked.length > MAX_FILES) { status('error', '파일은 한 번에 ' + MAX_FILES + '개까지 올릴 수 있습니다.'); return; }
         var big = picked.filter(function (p) { return p.file.size > MAX_BYTES; })[0];
         if (big) { status('error', '"' + big.file.name + '"은 25MB를 넘습니다. 필요한 쪽만 나눠 올려 주세요.'); return; }
@@ -83,7 +83,7 @@
         var btn = $('docs-read-btn'); btn.disabled = true; btn.textContent = '읽는 중...';
         $('docs-result').innerHTML = '';
         var startedAt = Date.now(), stage = '파일을 서버로 보내는 중';
-        var tick = function () { var s = Math.round((Date.now() - startedAt) / 1000); status('info', '<b>서류 읽는 중</b> · 경과 ' + s + '초<br>지금 단계: ' + esc(stage) + '<br><span style="font-size:0.8rem; opacity:0.85;">보통 20초~1분 걸립니다. 창을 닫지 마세요.</span>'); };
+        var tick = function () { var s = Math.round((Date.now() - startedAt) / 1000); status('info', '<b>서류 읽는 중</b> · 경과 ' + s + '초<br>지금 단계: ' + esc(stage) + '<br><span style="font-size:0.8rem; opacity:0.85;">보통 20초~1분, 도면이 많으면 더 걸립니다. 창을 닫지 마세요.</span>'); };
         tick();
         var timer = setInterval(tick, 1000);
         try {

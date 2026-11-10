@@ -141,6 +141,103 @@ class OtherFormatTests(Tmp):
         self.assertEqual(pdocs.read_document(p)['text'], '연장 300m')
 
 
+def dxf_bytes(pairs, codepage=None, encoding='utf-8'):
+    """(코드, 값) 쌍 목록으로 최소 ASCII DXF를 만든다."""
+    out = []
+    for c, v in pairs:
+        out.append(f'{c:>3}\r\n{v}\r\n')
+    return ''.join(out).encode(encoding)
+
+
+def sample_dxf(encoding='utf-8', codepage='ANSI_949'):
+    header = [(0, 'SECTION'), (2, 'HEADER'), (9, '$ACADVER'), (1, 'AC1027'), (9, '$DWGCODEPAGE'), (3, codepage), (9, '$INSUNITS'), (70, 4), (0, 'ENDSEC')]
+    ents = [(0, 'SECTION'), (2, 'ENTITIES'),
+            (0, 'TEXT'), (8, '주기'), (1, '도로 확장 B=6.0m (기존 4.0m)'),
+            (0, 'MTEXT'), (8, '주기'), (3, '아스콘 포장 '), (1, '{\\fMalgun Gothic|b0;t=5cm\\P}표층'),
+            (0, 'TEXT'), (8, '주기'), (1, '도로 확장 B=6.0m (기존 4.0m)'),
+            (0, 'DIMENSION'), (8, '치수'), (1, '<>'), (42, '6000.0'),
+            (0, 'DIMENSION'), (8, '치수'), (1, 'L=%%c600'), (42, '310000.0'),
+            (0, 'LINE'), (8, '도로중심선'),
+            (0, 'ATTDEF'), (8, '표제'), (1, 'DWG NO'),
+            (0, 'ATTRIB'), (8, '표제'), (1, '도면명: 남해읍 마을안길 평면도'),
+            (0, 'ENDSEC'), (0, 'EOF')]
+    return dxf_bytes(header + ents, encoding=encoding)
+
+
+class DrawingTests(Tmp):
+    def check_dxf(self, enc):
+        p = self.path('평면도.dxf')
+        with open(p, 'wb') as f:
+            f.write(sample_dxf(encoding=enc))
+        text, cut = pdocs.dxf_text(p)
+        self.assertFalse(cut)
+        self.assertIn('밀리미터(mm)', text)
+        self.assertIn('도로 확장 B=6.0m (기존 4.0m) (x2)', text)          # 같은 글자는 한 번만, 횟수 표시
+        self.assertIn('아스콘 포장 t=5cm 표층', text)                     # MTEXT 이어 붙임 + 서식 코드 제거
+        self.assertIn('도면명: 남해읍 마을안길 평면도', text)
+        self.assertNotIn('DWG NO', text)                                  # ATTDEF(양식 글자)는 제외
+        self.assertIn('6000', text)
+        self.assertIn('310000 (표기: L=Ø600)', text)                      # 치수 값 + 사용자가 바꿔 쓴 표기, %%c -> Ø
+        self.assertIn('도로중심선(1)', text)                              # 레이어 목록
+        self.assertNotIn('Malgun', text)
+        return text
+
+    def test_dxf_utf8(self):
+        self.check_dxf('utf-8')
+
+    def test_dxf_korean_ansi_codepage(self):
+        self.check_dxf('cp949')                                           # 옛 한국 CAD가 저장하는 cp949
+
+    def test_dxf_without_text_says_so(self):
+        p = self.path('lines.dxf')
+        with open(p, 'wb') as f:
+            f.write(dxf_bytes([(0, 'SECTION'), (2, 'ENTITIES'), (0, 'LINE'), (8, '0'), (0, 'ENDSEC'), (0, 'EOF')]))
+        text, _c = pdocs.dxf_text(p)
+        self.assertIn('PDF로 출력해', text)
+
+    def test_dxf_errors_and_dwg(self):
+        p = self.path('b.dxf')
+        with open(p, 'wb') as f:
+            f.write(b'AutoCAD Binary DXF\r\n\x1a\x00')
+        with self.assertRaises(pdocs.UnsupportedDoc) as cm:
+            pdocs.read_document(p, 'b.dxf')
+        self.assertIn('바이너리', str(cm.exception))
+        q = self.path('c.dxf')
+        with open(q, 'wb') as f:
+            f.write(b'this is not dxf at all\nreally')
+        with self.assertRaises(pdocs.UnsupportedDoc):
+            pdocs.read_document(q, 'c.dxf')
+        d = self.path('d.dwg')
+        with open(d, 'wb') as f:
+            f.write(b'AC1032\x00\x00')
+        with self.assertRaises(pdocs.UnsupportedDoc) as cm:
+            pdocs.read_document(d, 'd.dwg')
+        self.assertIn('DXF', str(cm.exception))
+        self.assertIn('PDF', str(cm.exception))
+
+    def test_image_is_visual_only_and_not_rejected(self):
+        p = self.path('도면.png')
+        with open(p, 'wb') as f:
+            f.write(b'\x89PNG\r\n\x1a\n' + b'0' * 100)
+        info = pdocs.read_document(p, '도면.png')
+        self.assertTrue(info['scanned'])
+        self.assertEqual(info['text'], '')
+
+    def test_trim_pdf(self):
+        import pymupdf
+        p = self.path('many.pdf')
+        doc = pymupdf.open()
+        for i in range(5):
+            doc.new_page().insert_text((72, 72), f'page {i}')
+        doc.save(p)
+        doc.close()
+        out = self.path('trim.pdf')
+        self.assertEqual(pdocs.trim_pdf(p, out, max_pages=3), (5, 3))
+        self.assertEqual(len(pymupdf.open(out)), 3)
+        self.assertEqual(pdocs.trim_pdf(p, self.path('x.pdf'), max_pages=9), (5, 5))
+        self.assertFalse(os.path.exists(self.path('x.pdf')))               # 줄일 필요 없으면 만들지 않는다
+
+
 class UnsupportedTests(Tmp):
     def raises(self, name, content=b'x', contains=''):
         p = self.path(name)
@@ -155,7 +252,7 @@ class UnsupportedTests(Tmp):
         self.assertIn('.xlsx', self.raises('a.xls', contains='옛 엑셀'))
         self.assertIn('hwpx', self.raises('a.hwp', contains='옛 한글'))
         self.raises('a.doc', contains='.docx')
-        self.raises('a.png', contains='지원하지 않는 형식')
+        self.raises('a.zip', contains='지원하지 않는 형식')
 
     def test_broken_or_empty_files(self):
         self.raises('b.xlsx', b'not a zip', contains='읽지 못했습니다')
@@ -187,6 +284,14 @@ class PromptTests(unittest.TestCase):
         for needle in ('서류에 적힌 내용만 쓰십시오', '지어내거나', '서류에서 찾지 못한 정보', '법령 적용 의견은 쓰지 마십시오', '내역 본문', '설명 본문', 'scan.pdf', '토목공사', '남해읍 도로'):
             self.assertIn(needle, pr, needle)
         self.assertIn('(설명서 없음)', pdocs.build_prompt('', '내역', '', [], ''))
+        self.assertIn('[3. 내역서 주요 공종·수량]', pdocs.build_prompt('', '내역', '', [], ''))
+        self.assertNotIn('[3. 내역서 주요 공종·수량]', pdocs.build_prompt('', '', '설명', [], ''))   # 내역서가 없으면 [3] 틀을 주지 않는다
+        no_draw = pdocs.build_prompt('', '내역', '설명', [], '')
+        self.assertIn('(도면 없음)', no_draw)
+        self.assertNotIn('(도면)', no_draw)                                    # 도면이 없으면 도면 규칙을 넣지 않는다
+        with_draw = pdocs.build_prompt('', '', '', [], '', draw_text='[DXF 도면] x', draw_names=['평면도.pdf'])
+        for needle in ('"(도면)"', '축척으로 환산해 계산하지 마십시오', '판독 불확실', '평면도.pdf', '[DXF 도면] x'):
+            self.assertIn(needle, with_draw, needle)
 
 
 class EndpointTests(Tmp):
@@ -296,6 +401,61 @@ class EndpointTests(Tmp):
         self.assertIn('429', d['message'])
         self.assertTrue(all(not os.path.exists(t) for t in self.temps))
 
+    def pdf_bytes(self, pages, text='Plan view road width 6m length 310m. ' * 3):
+        import pymupdf
+        p = self.path('d%d.pdf' % pages)
+        doc = pymupdf.open()
+        for i in range(pages):
+            doc.new_page().insert_text((72, 72), text)
+        doc.save(p)
+        doc.close()
+        return open(p, 'rb').read()
+
+    def test_drawing_pdf_is_attached_for_the_ai_to_see_and_text_goes_in_prompt(self):
+        r = self.post([('draw', '평면도.pdf', self.pdf_bytes(2))])
+        d = self.wait(r.get_json()['job_id'])
+        self.assertEqual(d['status'], 'completed', d)
+        self.assertEqual(self.uploaded, ['평면도.pdf'])
+        self.assertEqual(len(self.calls[0]), 2)
+        prompt = self.calls[0][-1]
+        self.assertIn('Plan view road width 6m', prompt)                    # 도면 PDF의 글자도 함께
+        self.assertIn('도면 파일 - 함께 첨부', prompt)
+        self.assertEqual([(f['name'], f['role']) for f in d['result']['files']], [('평면도.pdf', 'draw')])
+        self.assertTrue(all(not os.path.exists(t) for t in self.temps))
+
+    def test_long_drawing_pdf_is_trimmed_for_the_ai_and_temp_files_removed(self):
+        orig = pdocs.DRAW_MAX_PAGES
+        pdocs.DRAW_MAX_PAGES = 2
+        try:
+            r = self.post([('draw', '긴도면.pdf', self.pdf_bytes(5))])
+            d = self.wait(r.get_json()['job_id'])
+        finally:
+            pdocs.DRAW_MAX_PAGES = orig
+        self.assertEqual(d['status'], 'completed', d)
+        self.assertTrue(any('5쪽' in n and '앞의 2쪽' in n for n in d['result']['notes']), d['result']['notes'])
+        self.assertTrue(all(not os.path.exists(t) for t in self.temps), '줄인 임시 PDF가 남았다')
+
+    def test_dxf_drawing_goes_as_text_only(self):
+        r = self.post([('draw', '평면도.dxf', sample_dxf())])
+        d = self.wait(r.get_json()['job_id'])
+        self.assertEqual(d['status'], 'completed', d)
+        self.assertEqual(self.uploaded, [])                                  # DXF는 글로만 보낸다
+        self.assertEqual(len(self.calls[0]), 1)
+        self.assertIn('도면명: 남해읍 마을안길 평면도', self.calls[0][-1])
+
+    def test_image_drawing_is_attached(self):
+        r = self.post([('draw', '단면도.png', b'\x89PNG\r\n\x1a\n' + b'0' * 50)])
+        d = self.wait(r.get_json()['job_id'])
+        self.assertEqual(d['status'], 'completed', d)
+        self.assertEqual(self.uploaded, ['단면도.png'])
+        self.assertTrue(any('이미지' in n for n in d['result']['notes']))
+
+    def test_dwg_only_is_an_error_that_explains_dxf_or_pdf(self):
+        r = self.post([('draw', '원본.dwg', b'AC1032')])
+        d = self.wait(r.get_json()['job_id'])
+        self.assertEqual(d['status'], 'error')
+        self.assertIn('DXF', d['message'])
+
     def test_too_many_files(self):
         r = self.post([('spec', f'{i}.txt', b'abc') for i in range(7)])
         self.assertEqual(r.status_code, 400)
@@ -307,7 +467,7 @@ class PageTests(unittest.TestCase):
     def test_page_has_docs_panel_and_no_profiler(self):
         import app as appmod
         html = appmod.app.test_client().get('/law_review').get_data(as_text=True)
-        for needle in ('id="docs-panel"', 'id="docs-bill"', 'id="docs-spec"', 'id="docs-read-btn"', 'id="docs-result"', 'law_review_docs.js'):
+        for needle in ('id="docs-panel"', 'id="docs-bill"', 'id="docs-spec"', 'id="docs-draw"', 'id="docs-read-btn"', 'id="docs-result"', 'law_review_docs.js'):
             self.assertIn(needle, html, needle)
         for gone in ('스마트 공사 프로파일러', 'generate-template-btn', 'smart-tags-container', 'domain-tab-btn'):
             self.assertNotIn(gone, html, gone)
