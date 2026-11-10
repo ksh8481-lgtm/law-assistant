@@ -558,6 +558,25 @@
                             });
                         }
                         
+                        const escH = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+                        // 법령 원문 대조 결과(서버 law_review_verify.py)를 항목 옆에 표시한다.
+                        const VERIFY_STYLE = {
+                            ok:        {label: '✓ 원문 확인', color: '#15803d', bg: '#f0fdf4'},
+                            mismatch:  {label: '⚠ 내용 불일치 의심', color: '#b45309', bg: '#fffbeb'},
+                            missing:   {label: '✕ 조문 없음', color: '#b91c1c', bg: '#fef2f2'},
+                            deleted:   {label: '✕ 삭제된 조문', color: '#b91c1c', bg: '#fef2f2'},
+                            unchecked: {label: '· 원문 대조 불가', color: '#64748b', bg: '#f8fafc'},
+                            rule:      {label: '＋ 룰 엔진 보완', color: '#1d4ed8', bg: '#eff6ff'},
+                        };
+                        const verifyBadge = (v) => {
+                            if (!v || !VERIFY_STYLE[v.status]) return '';
+                            const st = VERIFY_STYLE[v.status];
+                            const title = v.title ? ` · ${escH(v.title)}` : '';
+                            return `<div style="margin-top:0.35rem; font-size:0.78rem; color:${st.color}; background:${st.bg}; border-radius:4px; padding:0.15rem 0.4rem; display:inline-block; text-align:left;">${st.label}${title}</div>`;
+                        };
+                        const verifyNote = (v) => (v && v.note && ['mismatch', 'missing', 'deleted', 'rule'].includes(v.status))
+                            ? `<div style="margin-top:0.4rem; padding:0.45rem 0.6rem; border-left:3px solid ${VERIFY_STYLE[v.status].color}; background:${VERIFY_STYLE[v.status].bg}; font-size:0.85rem; color:${VERIFY_STYLE[v.status].color};">${escH(v.note)}</div>` : '';
+
                         const renderAITasks = (items, isPermit = false) => {
                             if (!items || items.length === 0) return '';
                             let html = '';
@@ -565,7 +584,7 @@
                                 let taskName = isPermit ? item.name : item.task;
                                 let taskDesc = isPermit ? item.reason : item.desc;
                                 let lawText = item.law_name ? `${item.law_name} ${item.article || ''}`.trim() : (item.law_link || '-');
-                                let lawLinkHTML = item.law_url 
+                                let lawLinkHTML = item.law_url
                                     ? `<a href="${item.law_url}" target="_blank" style="word-break: keep-all;">${lawText}</a>`
                                     : lawText;
                                 html += `
@@ -575,14 +594,41 @@
                                         <td>
                                             <div class="task-title" style="color:var(--primary-color);">🔹 ${taskName}</div>
                                             <div class="task-desc">${taskDesc}</div>
+                                            ${verifyNote(item.verify)}
                                         </td>
                                         <td class="law-col" style="text-align: center; vertical-align: middle;">
-                                            <span class="law-link-badge" style="display:inline-block;">${lawLinkHTML}</span>
+                                            <span class="law-link-badge" style="display:inline-block;">${lawLinkHTML}</span><br>
+                                            ${verifyBadge(item.verify)}
                                         </td>
                                     </tr>
                                 `;
                             });
                             return html;
+                        };
+
+                        // 상단 요약: 원문 대조 결과, 입력 단계 경고, 공종 불일치로 제외한 항목
+                        const renderVerificationSummary = (vf) => {
+                            if (!vf) return '';
+                            const c = vf.counts || {};
+                            const parts = [];
+                            if (c.ok) parts.push(`<span style="color:#15803d;">✓ 원문 확인 ${c.ok}건</span>`);
+                            if (c.mismatch) parts.push(`<span style="color:#b45309; font-weight:700;">⚠ 내용 불일치 의심 ${c.mismatch}건</span>`);
+                            const bad = (c.missing || 0) + (c.deleted || 0);
+                            if (bad) parts.push(`<span style="color:#b91c1c; font-weight:700;">✕ 조문 없음·삭제 ${bad}건</span>`);
+                            if (c.unchecked) parts.push(`<span style="color:#64748b;">· 원문 대조 불가 ${c.unchecked}건</span>`);
+                            if (c.rule) parts.push(`<span style="color:#1d4ed8;">＋ 룰 엔진 보완 ${c.rule}건</span>`);
+                            let html = '<div style="margin:0 0 1.5rem; padding:1rem 1.2rem; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc; font-size:0.92rem;">';
+                            html += '<div style="font-weight:700; margin-bottom:0.4rem;">📋 법령 원문 대조 결과</div>';
+                            html += `<div style="display:flex; gap:1rem; flex-wrap:wrap;">${parts.join('') || '<span style="color:#64748b;">대조 결과가 없습니다.</span>'}</div>`;
+                            html += '<div style="margin-top:0.5rem; color:#64748b; font-size:0.82rem; line-height:1.5;">AI가 작성한 목록을 법제처 법령 원문과 항목마다 대조한 결과입니다. "내용 불일치 의심"은 조문 번호는 있으나 실제 조문의 주제가 항목 내용과 달라 보인다는 뜻이며, 자동으로 지우지 않으니 원문(법적 근거 링크)을 직접 확인하십시오. "룰 엔진 보완"은 서버의 필수 항목 기준에 해당하는데 AI가 빠뜨려 덧붙인 항목입니다.</div>';
+                            (vf.warnings || []).forEach(w => { html += `<div style="margin-top:0.5rem; padding:0.4rem 0.6rem; background:#fef2f2; border-left:3px solid #b91c1c; color:#b91c1c;">⚠ ${escH(w)}</div>`; });
+                            if ((vf.steps_failed || []).length) html += `<div style="margin-top:0.5rem; color:#b91c1c;">⚠ 일부 점검 단계(${escH(vf.steps_failed.join(', '))})가 실패해 그 부분은 확인되지 않았습니다.</div>`;
+                            if ((vf.excluded || []).length) {
+                                html += `<details style="margin-top:0.6rem;"><summary style="cursor:pointer; font-weight:600;">공종과 맞지 않아 제외한 항목 ${vf.excluded.length}건 보기</summary><ul style="margin:0.4rem 0 0 1.1rem; line-height:1.6;">`;
+                                vf.excluded.forEach(e => { html += `<li>${escH(e.name)} (${escH(e.law)} ${escH(e.article || '')}) — ${escH(e.reason)}</li>`; });
+                                html += '</ul></details>';
+                            }
+                            return html + '</div>';
                         };
 
                         const renderSupervisorTasks = (items) => {
@@ -650,6 +696,7 @@
                             </div>
                         `;
                         
+                        finalHtml += renderVerificationSummary(data.verification);
                         finalHtml += renderSection('💡 1. 구상 및 기획 단계', phases.planning, [], [], []);
                         finalHtml += renderSection('🖌️ 2. 설계 및 인허가 단계', phases.design, data.permits, [], []);
                         finalHtml += renderSection('🚧 3. 착공 준비 단계', phases.construction, [], supervisorStages['STG_PRE'], []);

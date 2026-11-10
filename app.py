@@ -1512,6 +1512,12 @@ def verify_parcel():
         "zoning": zoning_list
     })
 
+LR_ZONING_ERROR_HINTS = ('API 에러', '통신 에러', 'API 도메인 인증 오류', 'VWorld API', '지역지구 데이터 없음')
+LR_FARM_JIMOK = ('전', '답', '과수원')
+LR_FARM_ZONES = ('농업진흥구역', '농업보호구역', '절대농지')
+LR_MOUNTAIN_ZONES = ('보전산지', '준보전산지', '공익용산지', '임업용산지')
+
+
 def run_analysis(job_id, data):
     try:
         # 모델은 gemini_client에 고정된 이름을 쓴다(예전에는 list_models() 결과를 정렬해 골랐고, 그 호출이 구버전 SDK에서
@@ -1535,10 +1541,20 @@ def run_analysis(job_id, data):
 
         parcel_str_list = []
         all_zonings = set()
+        lr_warnings = []                                    # 결과 보고서 상단에 보여 줄 입력 단계 경고
         for p in parcels:
-            parcel_str_list.append(f"- {p['address']} (면적: {p['area']}㎡) | 지역지구: {p['zoning']}")
-            for z in p['zoning'].split(', '):
+            clean = []
+            for z in (p.get('zoning') or '').split(', '):
+                z = z.strip()
+                if not z:
+                    continue
+                if any(h in z for h in LR_ZONING_ERROR_HINTS):
+                    lr_warnings.append(f"필지 {p.get('address')}: 지역지구를 조회하지 못해('{z[:40]}') 지역지구 없이 분석했습니다. 해당 필지를 다시 검증해 보세요.")
+                    continue
+                clean.append(z)
                 all_zonings.add(z)
+            p['zoning'] = ', '.join(clean) if clean else '지역지구 정보 없음'
+            parcel_str_list.append(f"- {p['address']} (면적: {p['area']}㎡) | 지역지구: {p['zoning']}")
                 
         parcel_str = "\n".join(parcel_str_list)
         if not parcel_str:
@@ -1591,8 +1607,12 @@ def run_analysis(job_id, data):
             'is_public': True
         })
         
-        if '임야' in zoning_context or '산지' in zoning_context: kb_params['has_mountain'] = True
-        if '농지' in zoning_context or '전' in zoning_context or '답' in zoning_context: kb_params['has_farmland'] = True
+        # 예전에는 '전'·'답'이 지역지구 글자에 들어 있는지만 봐서 "준보전산지"·"전용" 같은 말에도 농지로 판단했다. 지목(전·답·과수원/임야)과 정확한 지역지구 이름으로 판단한다.
+        if any((p.get('jimok') or '').strip() == '임야' for p in parcels) or any(t in zoning_context for t in LR_MOUNTAIN_ZONES):
+            kb_params['has_mountain'] = True
+        if any((p.get('jimok') or '').strip() in LR_FARM_JIMOK for p in parcels) or any(t in zoning_context for t in LR_FARM_ZONES):
+            kb_params['has_farmland'] = True
+        kb_params['has_parcels'] = len(parcels) > 0
 
         # --- Rule Engine (Knowledge Base 결정론적 매칭) ---
         matched_laws = evaluate_knowledge_base(kb_params)
@@ -1772,6 +1792,13 @@ def run_analysis(job_id, data):
         # 한해서만이라도 조항 실존 여부를 기계적으로 대조해 걸러낸다.
         for item in items_to_resolve:
             _verify_citation(item)
+
+        # AI 결과 점검: 공종 불일치 제외, 룰 엔진 필수 항목 보완, 조문 존재·내용 대조(law_review_verify.py). 실패해도 원래 결과는 유지한다.
+        try:
+            import law_review_verify
+            law_review_verify.postprocess(result, project_type, matched_laws, warnings=lr_warnings)
+        except Exception as ve:
+            print("법규 검토 후처리 오류:", type(ve).__name__, ve)
 
         JOBS[job_id] = {"status": "completed", "result": result}
         

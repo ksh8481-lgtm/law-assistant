@@ -419,6 +419,8 @@ document.addEventListener('DOMContentLoaded', () => {
             row.dataset.actualArea = actualArea;
             row.dataset.pnu = pnu;
             row.dataset.zoning = zoning_list.join(', ');
+            row.dataset.jimok = jimok;                              // 농지·산지 판단은 글자 포함 검사가 아니라 지목으로 한다
+            row.dataset.zoningError = apiDomainError ? '1' : '';     // 지역지구 조회가 실패한 필지는 분석에 넘기지 않는다
             row.dataset.fullAddr = isExcel ? reqData.address : row.querySelector('.p-addr').value;
             
             if (statusBadge) {
@@ -495,10 +497,17 @@ document.addEventListener('DOMContentLoaded', () => {
                         pnu: row.dataset.pnu,
                         area: row.dataset.actualArea,
                         zoning: row.dataset.zoning,
+                        jimok: row.dataset.jimok || '',
                         address: address
                     });
                 }
             });
+
+            const failedRows = Array.from(document.querySelectorAll('.parcel-row')).filter(row => row.dataset.verified === 'true' && row.dataset.zoningError === '1');
+            if (failedRows.length > 0) {
+                alert(`지역지구 조회에 실패한 필지가 ${failedRows.length}개 있습니다(표의 [API 오류] 표시). 오류 문구가 지역지구로 분석에 들어가 결과가 틀어지므로, 해당 필지를 다시 검증한 뒤 분석해 주세요.`);
+                return;
+            }
 
             const pubArea = parseFloat(publicWaterInput ? publicWaterInput.value : 0) || 0;
             
@@ -523,7 +532,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 parcels: parcels
             };
 
-            btnText.textContent = 'AI 기반 법규 및 지역지구 분석 중... (최대 2~3분 소요)';
+            btnText.textContent = 'AI 기반 법규 분석 및 법령 원문 대조 중... (약 3~4분 소요)';
             spinner.classList.remove('hidden');
             analyzeBtn.disabled = true;
 
@@ -544,15 +553,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 const startData = await startResponse.json();
                 const jobId = startData.job_id;
                 
-                // 2. 3초 간격으로 폴링 (최대 5분 = 100회 시도 후 포기)
-                const MAX_POLL_ATTEMPTS = 100;
+                // 2. 3초 간격으로 폴링 (최대 8분 = 160회 시도 후 포기)
+                const MAX_POLL_ATTEMPTS = 160;
                 let pollAttempts = 0;
                 while (true) {
                     await new Promise(r => setTimeout(r, 3000));
                     pollAttempts++;
 
                     if (pollAttempts > MAX_POLL_ATTEMPTS) {
-                        throw new Error("응답 시간이 너무 오래 걸립니다 (5분 초과). 서버가 지연 중일 수 있으니 잠시 후 다시 시도해주세요.");
+                        throw new Error("응답 시간이 너무 오래 걸립니다 (8분 초과). 서버가 지연 중일 수 있으니 잠시 후 다시 시도해주세요.");
                     }
 
                     const statusResponse = await fetch(`/api/analyze/status/${jobId}`);
