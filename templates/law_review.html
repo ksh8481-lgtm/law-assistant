@@ -7,6 +7,20 @@
     <link rel="stylesheet" href="/static/style.css">
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <style>
+        .parcel-row { cursor: pointer; }
+        .parcel-row.pm-selected { background: #fef2f2; box-shadow: inset 3px 0 0 #dc2626; }
+        #parcel-map { height: 440px; width: 100%; background: #e2e8f0; }
+        .pm-bar button { padding: 0.3rem 0.7rem; border: 1px solid #cbd5e1; background: #fff; border-radius: 6px; font-size: 0.82rem; cursor: pointer; }
+        .pm-bar button.pm-on { background: #2563eb; color: #fff; border-color: #1d4ed8; }
+        .pm-label { background: none; border: 0; }
+        .pm-label span { display: none; transform: translate(-50%, -50%); position: absolute; white-space: nowrap; font-size: 11px; font-weight: 700; color: #111827; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff; }
+        .pm-zoomed .pm-label span { display: block; }
+        .pm-tip { font-size: 0.8rem; line-height: 1.4; }
+        @media (max-width: 640px) { #parcel-map { height: 320px; } }
+    </style>
 </head>
 <body>
     <div class="app-container">
@@ -112,6 +126,24 @@
                         <button type="button" id="bulk-verify-btn" class="submit-btn" style="margin-top: 1rem; background-color: #2563eb; color: white; display: none;">
                             ✅ 등록된 전체 필지 토지이음 일괄 검증
                         </button>
+
+                        <div id="parcel-map-panel" style="display: none; margin-top: 1rem; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; background: #fff;">
+                            <div class="pm-bar" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.55rem 0.8rem; background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                                <b style="font-size: 0.95rem;">🗺️ 편입 필지 지도 <span id="pm-count" style="font-weight: 400; color: #64748b; font-size: 0.82rem;"></span></b>
+                                <span style="margin-left: auto; display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
+                                    <button type="button" id="pm-base-map" class="pm-on">지도</button>
+                                    <button type="button" id="pm-base-sat">위성</button>
+                                    <label style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.82rem; font-weight: normal; cursor: pointer;"><input type="checkbox" id="pm-cadastral"> 지적도(주변 필지 경계)</label>
+                                    <button type="button" id="pm-fit">전체 보기</button>
+                                </span>
+                            </div>
+                            <div id="parcel-map"></div>
+                            <div style="padding: 0.5rem 0.8rem; font-size: 0.82rem; color: #475569;">
+                                <div id="pm-legend" style="margin-bottom: 0.25rem;"></div>
+                                <div style="color: #64748b;">표의 필지 줄을 누르면 지도에서 강조되고, 지도의 필지를 누르면 표의 줄이 강조됩니다. 확대하면 지번이 보입니다. 검증이 끝난 필지만 표시됩니다.</div>
+                                <div id="pm-note" style="margin-top: 0.25rem;"></div>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="form-group" style="padding: 1rem; background: #e0f2fe; border-radius: 8px;">
@@ -191,5 +223,6 @@
     <script src="/static/script.js?v=7.0"></script>
     <script src="/static/law_review_input.js?v=1.0"></script>
     <script src="/static/law_review_docs.js?v=1.1"></script>
+    <script src="/static/parcel_map.js?v=1.0"></script>
 </body>
 </html>

@@ -3049,6 +3049,80 @@ def api_pq_extract_status(job_id):
     return jsonify({"status": "processing"})
 
 
+# ---------------------------------------------------------------- 편입 필지 지도: 필지 경계(연속지적도) 조회
+_PARCEL_GEOM_CACHE = {}          # pnu -> GeoJSON Feature (경계는 거의 안 바뀌므로 프로세스 동안 보관, 찾은 것만)
+_PARCEL_GEOM_CACHE_MAX = 3000
+PARCEL_GEOM_MAX_PNUS = 80
+
+
+def _vworld_data_domain():
+    """req/data 호출에 쓸 도메인. 로컬 개발 서버(localhost)는 등록 도메인이 아니라 INCORRECT_KEY가 나므로 배포 주소로 바꿔 부른다."""
+    d = _vworld_domain()
+    host = d.split(':')[0].replace('http://', '').replace('https://', '')
+    return _VWORLD_DOMAIN_FALLBACK if host in ('localhost', '127.0.0.1', '[::1]') or host.endswith('.localhost') else d
+
+
+def fetch_parcel_feature(pnu, domain):
+    """필지 하나의 경계. (Feature 또는 None, 오류 문장 또는 None). 연속지적도(LP_PA_CBND_BUBUN)를 조회한다."""
+    if pnu in _PARCEL_GEOM_CACHE:
+        return _PARCEL_GEOM_CACHE[pnu], None
+    try:
+        res = requests.get("https://api.vworld.kr/req/data", params={
+            "service": "data", "request": "GetFeature", "data": "LP_PA_CBND_BUBUN", "key": VWORLD_KEY.strip(), "domain": domain,
+            "attrFilter": f"pnu:=:{pnu}", "geometry": "true", "crs": "EPSG:4326", "format": "json", "size": "5"}, timeout=10).json()
+    except Exception as e:
+        return None, f"{type(e).__name__}: {e}"
+    resp = res.get('response', {}) if isinstance(res, dict) else {}
+    status = resp.get('status')
+    if status == 'NOT_FOUND':
+        return None, None
+    if status != 'OK':
+        return None, (resp.get('error') or {}).get('text') or str(status)
+    feats = (((resp.get('result') or {}).get('featureCollection') or {}).get('features')) or []
+    if not feats:
+        return None, None
+    f = feats[0]
+    p = f.get('properties') or {}
+    feat = {"type": "Feature", "geometry": f.get('geometry'),
+            "properties": {"pnu": p.get('pnu') or pnu, "jibun": p.get('jibun', ''), "addr": p.get('addr', ''), "jiga": p.get('jiga', '')}}
+    if len(_PARCEL_GEOM_CACHE) >= _PARCEL_GEOM_CACHE_MAX:
+        _PARCEL_GEOM_CACHE.clear()
+    _PARCEL_GEOM_CACHE[pnu] = feat
+    return feat, None
+
+
+@app.route('/api/parcel_geometry')
+def api_parcel_geometry():
+    """?pnu=<19자리>,<19자리>... -> {success, features:[GeoJSON Feature], missing:[지적도에서 못 찾은 pnu], errors:[{pnu, message}]}.
+    편입 필지 지도(static/parcel_map.js)가 쓴다. 필지 경계를 서버가 대신 받아 오므로 브라우저에서 VWorld 도메인 인증을 신경 쓸 필요가 없다."""
+    import re as _re
+    from concurrent.futures import ThreadPoolExecutor
+    pnus = []
+    for p in (request.args.get('pnu', '') or '').split(','):
+        p = p.strip()
+        if p and p not in pnus:
+            pnus.append(p)
+    if not pnus:
+        return jsonify({"success": False, "message": "pnu가 없습니다."}), 400
+    if len(pnus) > PARCEL_GEOM_MAX_PNUS:
+        return jsonify({"success": False, "message": f"한 번에 {PARCEL_GEOM_MAX_PNUS}개까지 조회할 수 있습니다."}), 400
+    bad = [p for p in pnus if not _re.fullmatch(r'\d{19}', p)]
+    if bad:
+        return jsonify({"success": False, "message": f"필지 고유번호(PNU, 숫자 19자리) 형식이 아닙니다: {bad[0]}"}), 400
+    domain = _vworld_data_domain()
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        results = list(ex.map(lambda p: fetch_parcel_feature(p, domain), pnus))
+    features, missing, errors = [], [], []
+    for p, (feat, err) in zip(pnus, results):
+        if feat:
+            features.append(feat)
+        elif err:
+            errors.append({"pnu": p, "message": err})
+        else:
+            missing.append(p)
+    return jsonify({"success": True, "features": features, "missing": missing, "errors": errors})
+
+
 # ---------------------------------------------------------------- 내역서·설명서·도면 -> 주요 사업 내용 및 목적 (법규 검토 입력)
 PROJECT_DOCS_MAX_FILES = 6
 
