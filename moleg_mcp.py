@@ -371,39 +371,82 @@ def search_laws_with_text(law_names: list, topic_keywords: list,
     넘겨도 이 함수는 그대로 다 처리한다), 프롬프트에 들어가는 법령 원문 총량이 무제한으로
     커질 수 있다. max_total_len으로 전체 합계에도 상한을 둬서, 법령이 여러 개 걸린
     질의에서도 프롬프트 크기가 과도하게 불어나지 않게 한다."""
-    sections = []
     seen = set(skip_msts or ())      # 이미 프롬프트에 통째로 들어 있는 법령(법정 의무 마스터 채팅의 선택 법령)은 다시 가져오지 않는다
-    total_len = 0
-    for name in law_names:
-        if total_len >= max_total_len:
-            break
+    notes = []
+
+    # 1) 이름마다 정식명 계열(법/시행령/시행규칙) 후보를 찾는다. 약칭 검색이면 첫 결과의 정식명 기준으로 계열을 잡는다.
+    families = []                     # (law_names 안의 순서, 이름, [(법령명, 일련번호), ...])
+    for idx, name in enumerate(law_names):
         try:
             root = _fetch_law_xml_with_retry(
                 f"https://www.law.go.kr/DRF/lawSearch.do?OC={MOLEG_API_KEY}&target=law&type=XML"
                 f"&query={urllib.parse.quote(name)}")
         except Exception as e:
-            sections.append(f"[법령 '{name}' 검색 실패: {e}]")
+            notes.append(f"[법령 '{name}' 검색 실패: {e}]")
             continue
         hits = [(l.findtext('법령명한글', ''), l.findtext('법령일련번호', ''))
                 for l in root.findall('.//law')]
-        # 정식명 계열(법/시행령/시행규칙)만 채택. 약칭 검색이면 첫 결과의 정식명 기준으로 계열을 잡는다.
         if not hits:
+            notes.append(f"[법령 '{name}': 법제처 정식명칭 검색에서 찾지 못해 원문을 싣지 못했습니다(정식 명칭이 아니거나 검색이 일시적으로 실패했을 수 있습니다)]")
             continue
         base = hits[0][0]
-        fetched_for_name = 0
+        family = []
         for nm, mst in hits:
-            if fetched_for_name >= per_name_max or total_len >= max_total_len:
+            if len(family) >= per_name_max:
                 break
             if not mst or mst in seen or not nm.startswith(base):
                 continue
             seen.add(mst)
-            text = _law_detail_text(mst, topic_keywords, per_law_len, include_byeolpyo)
-            link = f"https://www.law.go.kr/법령/{urllib.parse.quote(nm)}"
-            if text:
-                sections.append(f"[법령 원문 발췌: {nm}] ({link})\n{text}")
-                total_len += len(text)
-            fetched_for_name += 1
-    return "\n\n".join(sections)
+            family.append((nm, mst))
+        families.append((idx, name, family))
+
+    def fetch(nm, mst):
+        text = _law_detail_text(mst, topic_keywords, per_law_len, include_byeolpyo)
+        link = f"https://www.law.go.kr/법령/{urllib.parse.quote(nm)}"
+        return f"[법령 원문 발췌: {nm}] ({link})\n{text}" if text else ""
+
+    # 2) 질의가 가리키는 법령마다 본 법률(계열의 첫 번째)은 분량 상한과 상관없이 먼저 모두 가져온다.
+    #    예전에는 상한(max_total_len)을 이름 순서대로 앞에서부터 썼다. 그래서 LLM이 목록 앞쪽에 둔 법령의 법·시행령·시행규칙이
+    #    상한을 다 쓰면 뒤쪽 법령이 통째로 빠졌고, AI는 "제공된 법령 데이터베이스에 원문이 없다"며 직접 찾아보라고 답했다
+    #    (실사용 중 발견: 관광단지 면적 변경 시 재해영향평가 질의에서 목록은 [재난안전기본법, 관광진흥법, 자연재해대책법]이었고
+    #    재난안전기본법 3단계 + 관광진흥법이 20,000자를 채워 정작 핵심인 자연재해대책법이 빠짐).
+    docs = {}                         # (이름 순서, 계열 안 순서) -> 본문 구획
+    total_len = 0
+    relevance = {}                    # 이름 순서 -> 본 법률 발췌 안에서 질의 핵심어가 나온 횟수(시행령 등 추가분의 우선순위)
+    kws = [_kw_norm(k) for k in dict.fromkeys(topic_keywords or []) if k and len(k) >= 2]
+    for idx, name, family in families:
+        if not family:
+            continue
+        sec = fetch(*family[0])
+        if sec:
+            docs[(idx, 0)] = sec
+            total_len += len(sec)
+            body = _kw_norm(sec)
+            relevance[idx] = sum(body.count(k) for k in kws)
+    # 3) 시행령·시행규칙은 상한이 남은 만큼만, 질의와 더 관련 있는 법령(본 법률 발췌에 핵심어가 많은 순)부터 채운다.
+    skipped = []
+    ordered = sorted((f for f in families if len(f[2]) > 1), key=lambda f: (-relevance.get(f[0], 0), f[0]))
+    # 시행령(계열의 두 번째)을 모든 법령에 대해 먼저, 시행규칙(세 번째)은 그다음에 채운다. 한 법령의 시행령·시행규칙을 몰아서 채우면
+    # 그 법령의 시행규칙이 다른 법령의 시행령보다 먼저 상한을 써 버린다(측정: 관광단지 질의에서 자연재해대책법 시행규칙이 관광진흥법 시행령을 밀어냄).
+    max_tier = max((len(f[2]) for f in ordered), default=1)
+    for tier in range(1, max_tier):
+        for idx, name, family in ordered:
+            if tier >= len(family):
+                continue
+            nm, mst = family[tier]
+            if total_len >= max_total_len:
+                skipped.append(nm)
+                continue
+            sec = fetch(nm, mst)
+            if sec:
+                docs[(idx, tier)] = sec
+                total_len += len(sec)
+    sections = [docs[k] for k in sorted(docs)]
+    if skipped:
+        # 싣지 못한 법령을 AI에게 알린다. 알리지 않으면 "원문이 없다"를 "그런 법령이 없다/DB에 없다"로 오해한다.
+        sections.append("[분량 제한으로 이번 답변에 원문 발췌를 싣지 못한 법령: " + ", ".join(skipped)
+                        + " - 이 법령의 조문은 제공되지 않았으므로 단정하지 말고, 필요하면 확인이 필요하다고 안내하십시오]")
+    return "\n\n".join(sections + notes)
 
 
 # ---------------------------------------------------------------------------

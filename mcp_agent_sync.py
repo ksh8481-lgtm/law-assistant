@@ -400,7 +400,10 @@ def get_mcp_context_sync(query: str, uploaded_file=None) -> str:
             law_keywords = _merge_keywords(topic_keywords or [keyword], _query_terms(query))
             bp = _law_byeolpyo_enabled()
             # 별표를 켜면 시행규칙까지(법·시행령·시행규칙 3단계) 가져온다. 2개까지만 가져오면 고용노동부령·국토교통부령에 있는 시간·기준이 통째로 빠진다.
-            law_text = search_laws_with_text(law_names, law_keywords, per_name_max=3 if bp else 2, include_byeolpyo=bp)
+            # 본 법률은 분량 상한과 무관하게 모두 싣고(moleg_mcp 참고), 시행령·시행규칙은 질의와 관련 높은 법령부터 상한까지 채운다.
+            # 상한을 20,000자에서 34,000자로 늘린 이유: 법령이 3개 걸리는 질의에서 본 법률 3개와 핵심 법령의 시행령(별표 포함)만으로 이미 30,000자 가까이 돼
+            # 관광진흥법 시행령이 빠지고 AI가 "시행령은 직접 확인하라"고 답했다(관광단지 면적 변경 + 재해영향평가 질의에서 측정).
+            law_text = search_laws_with_text(law_names, law_keywords, per_name_max=3 if bp else 2, include_byeolpyo=bp, max_total_len=34000)
             if law_text:
                 evidence = _term_evidence(law_text, _query_terms(query))
                 if evidence:
