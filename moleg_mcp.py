@@ -48,6 +48,103 @@ def _fetch_law_xml_with_retry(url: str, timeout: float = 12, retries: int = 2):
                 time.sleep(0.5 * (attempt + 1))
     raise last_err
 
+# ---------------------------------------------------------------------------
+# 법령해석례(법제처가 중앙행정기관·지자체 질의에 공식 회신한 법령 해석)
+#
+# 왜 필요한가: 시행령 조문만으로는 "처음 협의가 없었던 계획의 변경에도 재협의 기준을 적용하는가", "지정이 감소하면 재협의 대상인가"처럼
+# 조문이 직접 답하지 않는 쟁점이 많고, 이런 쟁점에는 법제처 해석례가 있는 경우가 많다(실사용 중 발견: 관광단지 면적 변경 + 재해영향평가
+# 질의에서 다른 AI 답변은 법제처 해석 25-0166을 근거로 들었는데 이 프로그램은 해석례를 아예 조회하지 않았다). lawSearch(target=expc)가
+# 안건명(제목)을 검색하며 여러 단어를 모두 포함해야 걸리므로(실측: "재해영향평가 면적" 5건, "관광단지 재해영향평가" 0건) 짧은 검색어 여러 개로
+# 찾아 합치고, 제목에 질의 용어가 많이 든 순으로 골라 상위 몇 건은 질의요지·회답을 함께 가져온다.
+# ---------------------------------------------------------------------------
+def _interp_link(seq: str) -> str:
+    return f"https://www.law.go.kr/LSW/expcInfoP.do?expcSeq={seq}"      # (API 주소에는 인증키가 들어 있어 쓰지 않는다)
+
+
+def _interp_search_one(query: str, display: int = 10) -> list:
+    root = _fetch_law_xml_with_retry(
+        f"https://www.law.go.kr/DRF/lawSearch.do?OC={MOLEG_API_KEY}&target=expc&type=XML"
+        f"&query={urllib.parse.quote(query)}&display={display}")
+    out = []
+    for e in root.findall('.//expc'):
+        seq = (e.findtext('법령해석례일련번호') or '').strip()
+        if seq:
+            out.append({'seq': seq, 'title': (e.findtext('안건명') or '').strip(), 'no': (e.findtext('안건번호') or '').strip(),
+                        'org': (e.findtext('회신기관명') or '').strip(), 'date': (e.findtext('회신일자') or '').strip()})
+    return out
+
+
+def _interp_detail(seq: str, max_len: int = 700) -> dict:
+    root = _fetch_law_xml_with_retry(f"https://www.law.go.kr/DRF/lawService.do?OC={MOLEG_API_KEY}&target=expc&type=XML&ID={seq}")
+
+    def clip(tag, n):
+        t = re.sub(r'\s+', ' ', (root.findtext(tag) or '')).strip()
+        return t if len(t) <= n else t[:n] + '…'
+    return {'question': clip('질의요지', max_len), 'answer': clip('회답', max_len)}
+
+
+def search_interpretations(queries: list, relevance_terms: list, max_items: int = 4, detail_items: int = 3) -> str:
+    """법령해석례를 queries(짧은 검색어 목록)로 찾아 합치고 relevance_terms가 제목에 많이 든 순으로 max_items건을 골라 돌려준다.
+    상위 detail_items건은 질의요지·회답도 붙인다. 못 찾으면 빈 문자열. 네트워크 오류는 흡수한다(보조 자료이므로 답변을 막지 않는다)."""
+    from concurrent.futures import ThreadPoolExecutor
+    queries = [q for q in dict.fromkeys(q.strip() for q in queries if q and q.strip())][:8]
+    if not queries:
+        return ""
+
+    def one(q):
+        try:
+            return _interp_search_one(q)
+        except Exception as e:
+            print(f"[moleg_mcp] 법령해석례 검색 실패({q}): {type(e).__name__}: {e}")
+            return []
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        results = list(ex.map(one, queries))
+    merged = {}
+    for hits in results:
+        for h in hits:
+            merged.setdefault(h['no'] or h['seq'], h)          # 같은 안건번호가 여러 일련번호로 나오는 일이 있어 안건번호로 합친다
+    if not merged:
+        return ""
+    # 같은 사안을 여러 기관·여러 안건번호로 회신한 해석례는 제목이 같다(실측: 24-0880·25-0165·25-0166). 하나로 합치고 나머지 번호는 덧붙인다.
+    by_title = {}
+    for h in merged.values():
+        key = re.sub(r'\s+', '', h['title'])
+        by_title.setdefault(key, []).append(h)
+    merged = {}
+    for group in by_title.values():
+        group.sort(key=lambda h: (h['date'], h['no']), reverse=True)
+        rep = dict(group[0])
+        rep['also'] = sorted(g['no'] for g in group[1:] if g['no'])
+        merged[rep['no'] or rep['seq']] = rep
+    terms = [_kw_norm(t) for t in dict.fromkeys(relevance_terms) if t and len(t) >= 2]
+
+    def score(h):
+        title = _kw_norm(h['title'])
+        return sum(1 for t in terms if t in title)
+    # 제목에 질의 용어가 많이 든 순, 같으면 최신 회신일이 먼저
+    ranked = sorted(merged.values(), key=lambda h: (score(h), h['date']), reverse=True)[:max_items]
+    ranked = [h for h in ranked if score(h) > 0] or ranked[:1]
+    lines = ["[법령해석례(법제처 공식 회신) 검색 결과] 아래는 법제처가 질의기관에 회신한 해석례입니다. 질문의 사실관계와 같지 않을 수 있으므로 '유사 사안의 해석례'로만 "
+             "인용하고, 안건번호와 링크를 함께 쓰십시오. 아래에 적힌 질의요지·회답 밖의 내용은 지어내지 마십시오."]
+
+    def detail(h):
+        try:
+            return _interp_detail(h['seq'])
+        except Exception as e:
+            print(f"[moleg_mcp] 법령해석례 상세 조회 실패({h['no']}): {type(e).__name__}: {e}")
+            return None
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        details = list(ex.map(detail, ranked[:detail_items]))
+    for i, h in enumerate(ranked):
+        d = details[i] if i < len(details) else None
+        also = f"; 같은 사안의 다른 회신 안건번호: {', '.join(h['also'])}" if h.get('also') else ''
+        lines.append(f"- [{h['org'] or '법제처'} 해석례 {h['no']}]({_interp_link(h['seq'])}) ({h['date']}{also}) {h['title']}")
+        if d and (d['question'] or d['answer']):
+            lines.append(f"  · 질의요지: {d['question']}")
+            lines.append(f"  · 회답: {d['answer']}")
+    return "\n".join(lines)
+
+
 # law.go.kr 검색 API가 반환하는 사건번호는 "법원명-연도-사건종류-번호" 형식인데
 # (예: "서울중앙지방법원-2020-가합-560874"), 이 형식 그대로 검색하면 실제로
 # 존재하는 판례인데도 검색결과가 0건으로 나오는 경우가 있음 - 실사용 중 발견

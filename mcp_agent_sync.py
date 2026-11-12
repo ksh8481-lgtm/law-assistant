@@ -25,7 +25,7 @@ import gemini_client
 from concurrent.futures import ThreadPoolExecutor
 
 from moleg_mcp import (search_law, search_precedents_by_keyword, search_precedent_by_case_number,
-                       search_ordinance, search_laws_with_text, search_admrul_with_text)
+                       search_ordinance, search_laws_with_text, search_admrul_with_text, search_interpretations)
 from korea_regions import find_jurisdiction_in_text, BASIC_REGIONS, METROPOLITAN_REGIONS
 
 _VALID_REGIONS = set(BASIC_REGIONS) | set(METROPOLITAN_REGIONS)
@@ -68,7 +68,57 @@ def _merge_unique(first: list, second: list) -> list:
 
 
 _TRAILING_PARTICLES = '은는이가을를에의로와과도만'
-_QUERY_STOPWORDS = {'검토', '판단', '여부', '가능', '가능여부', '해줘', '알려줘', '어떻게', '관련', '대한', '대해', '경우'}
+_SHORT_TRAILING_PARTICLES = '은는이가을를'
+# 말투·시간 표현으로 끝나는 덩어리는 법령 용어가 아니다(실측: "그이후", "관련법이생기기전", "지정을"이 조문 고르는 키워드에 섞여 들어갔다).
+_COLLOQUIAL_ENDINGS = ('기전', '이후', '이전', '했어', '있어', '돼', '건가', '어요', '니다', '해줘', '인데', '하고', '해서', '는데', '겼어', '었어', '았어', '였어')
+_QUERY_STOPWORDS = {'검토', '판단', '여부', '가능', '가능여부', '해줘', '알려줘', '어떻게', '관련', '대한', '대해', '경우', '그리고', '그래서', '그러면', '그런데'}
+
+# 합성어 키워드("면적변경")는 조문에 그대로 나오지 않는다(제6조의2는 "부지면적이 ... 증가", "토지이용 면적이 ... 변경"). 동작어 앞뒤를 나눠 함께 쓴다.
+_ACTION_WORDS = ('변경', '증가', '감소', '신청', '승인', '협의', '허가', '지정', '해제', '취소', '심의', '등록', '신고')
+
+
+def _split_compound(keyword: str) -> list:
+    """'면적변경' -> ['면적', '변경']. 띄어쓰기가 있거나 동작어가 없으면 빈 목록."""
+    k = (keyword or '').strip()
+    if ' ' in k or len(k) < 4:
+        return []
+    for w in _ACTION_WORDS:
+        if k.endswith(w) and len(k) - len(w) >= 2:
+            return [k[:-len(w)], w]
+        if k.startswith(w) and len(k) - len(w) >= 2:
+            return [w, k[len(w):]]
+    return []
+
+
+# 질의 속 낱말 -> (항상 포함할 법률, 조문을 고르는 데 더할 키워드, 해석례 검색 주제어).
+# 법령명 추출은 AI가 매번 다르게 뽑는다(같은 질문 5번 중 1번은 자연재해대책법이 빠졌고, temperature 0이어도 마찬가지). 그래서 주제어가 분명한 것은
+# 소관 법률을 결정적으로 넣는다. 법령명은 법제처 정식 명칭과 한 글자도 다르지 않아야 하며, test_law_budget.py가 실제 검색으로 확인한다.
+# 낱말이 너무 흔하면 관련 없는 질문에도 법이 붙으므로 해당 제도에서만 쓰는 낱말만 고른다. 앞쪽 항목이 우선한다(질문당 최대 _MAX_HINTED_LAWS개).
+_LAW_HINTS = [
+    (('재해영향',), '자연재해대책법', ['재협의', '협의 대상', '부지면적', '경미한 변경'], '재해영향평가'),
+    (('환경영향평가',), '환경영향평가법', [], '환경영향평가'),
+    (('교통영향평가', '교통영향분석'), '도시교통정비 촉진법', [], '교통영향평가'),
+    (('관광단지', '관광지조성계획', '관광특구'), '관광진흥법', ['조성계획', '면적의 변경'], '관광단지'),
+    (('개발행위허가',), '국토의 계획 및 이용에 관한 법률', [], '개발행위허가'),
+    (('산지전용', '산지일시사용'), '산지관리법', [], '산지전용'),
+    (('농지전용', '농지보전부담금'), '농지법', [], '농지전용'),
+    (('하천점용',), '하천법', [], '하천점용'),
+    (('공유수면',), '공유수면 관리 및 매립에 관한 법률', [], '공유수면'),
+    (('매장문화재', '매장유산', '문화재지표조사'), '매장유산 보호 및 조사에 관한 법률', [], '매장유산'),
+]
+_MAX_HINTED_LAWS = 2
+
+
+def _hinted_laws(query: str) -> list:
+    """[(법률명, 추가 키워드, 해석례 주제어)] - 질의에 주제어가 있는 순서대로 최대 _MAX_HINTED_LAWS개."""
+    flat = re.sub(r'\s+', '', query or '')
+    out = []
+    for triggers, law, extra, topic in _LAW_HINTS:
+        if any(t in flat for t in triggers):
+            out.append((law, extra, topic))
+        if len(out) >= _MAX_HINTED_LAWS:
+            break
+    return out
 
 
 def _query_terms(query: str, limit: int = 6) -> list:
@@ -77,7 +127,9 @@ def _query_terms(query: str, limit: int = 6) -> list:
     for tok in re.findall(r'[가-힣]{3,}', query[:600]):
         if len(tok) >= 4 and tok[-1] in _TRAILING_PARTICLES:
             tok = tok[:-1]
-        if tok in _QUERY_STOPWORDS or tok in terms:
+        elif len(tok) == 3 and tok[-1] in _SHORT_TRAILING_PARTICLES:
+            tok = tok[:-1]                       # "지정을" -> "지정"(2글자라 아래에서 버려진다). '하수도'의 '도'처럼 명사의 일부일 수 있는 글자는 제외했다.
+        if len(tok) < 3 or tok.endswith(_COLLOQUIAL_ENDINGS) or tok in _QUERY_STOPWORDS or tok in terms:
             continue
         terms.append(tok)
         if len(terms) >= limit:
@@ -311,8 +363,10 @@ def _extract_keyword_and_jurisdiction(query: str) -> tuple:
             "계획서-건설기술진흥법, 유해위험방지계획서-산업안전보건법, 퇴직공제-건설산업기본법처럼 "
             "서로 다른 법이 여러 개 걸려 있으면) 최대한 그 법률들을 빠짐없이 나열해라. 확실히 "
             "존재하는 정식 명칭만 쓰고 확신이 없으면 비워둬.\n"
-            "- 조문키워드들: 그 법령 안에서 관련 조문을 찾아내는 데 쓸 핵심어를 쉼표로 3~6개 "
-            "(예: 영업손실,영업의 폐지,휴업,사업인정고시일,무허가건축물).\n"
+            "- 조문키워드들: 그 법령 안에서 관련 조문을 찾아내는 데 쓸 핵심어를 쉼표로 6~10개. 질의에 쓰인 말뿐 아니라 "
+            "법 조문이 실제로 쓰는 표현(동의어·상하위어·절차어)도 포함해라(예: 질의가 '면적 변경'이면 '변경,증가,재협의,경미한 변경'도; "
+            "'지정'이면 '지정,지정 해제,지정 변경'도). 띄어 써야 조문에 나오는 말은 띄어 써라(예: '면적변경'이 아니라 '면적 변경') "
+            "(예: 영업손실,영업의 폐지,휴업,사업인정고시일,무허가건축물,폐업,보상 대상).\n"
             "예시: '하도급|남해군|하도급|건설산업기본법|하도급,직접시공' 또는 "
             "'영업손실보상||영업손실|공익사업을 위한 토지 등의 취득 및 보상에 관한 법률|영업손실,휴업,폐업'\n"
             "텍스트: " + query[:8000]
@@ -343,7 +397,7 @@ def _extract_keyword_and_jurisdiction(query: str) -> tuple:
         finally:
             subject_pool.shutdown(wait=False)
         law_names = _merge_unique(law_names, subject_laws)[:5]
-        topic_keywords = [x.strip() for x in (parts[4] if len(parts) > 4 else "").split(',') if x.strip()][:6]
+        topic_keywords = [x.strip() for x in (parts[4] if len(parts) > 4 else "").split(',') if x.strip()][:10]
         jurisdiction_raw = parts[1].strip().replace("'", "").replace('"', "")[:10] if len(parts) > 1 else ""
         ordinance_keyword = parts[2].strip().replace("'", "").replace('"', "")[:15] if len(parts) > 2 else keyword
 
@@ -357,6 +411,26 @@ def _extract_keyword_and_jurisdiction(query: str) -> tuple:
     except Exception as e:
         print(f"[mcp_agent_sync] keyword/jurisdiction extraction failed: {e}")
         return "", "", "", [], []
+
+
+def _interpretation_queries(keyword: str, topic_keywords: list, hinted: list, query: str) -> tuple:
+    """법령해석례 검색어(짧은 것 여러 개)와 결과를 고를 관련어를 만든다. 해석례 검색은 제목에 모든 단어가 있어야 걸리므로
+    (실측: "재해영향평가 면적" 5건, "관광단지 재해영향평가" 0건) '주제어 단독'과 '주제어 + 다른 낱말 하나'로 짧게 여러 번 찾는다."""
+    primaries = [p for p in dict.fromkeys([h[2] for h in hinted] + ([keyword] if keyword else [])) if p][:2]
+    pool = []
+    for k in (topic_keywords or []):
+        pool += _split_compound(k) or [k]            # '면적변경'은 조합 그대로보다 '면적', '변경'으로 쪼개야 제목에 걸린다
+    pool += _query_terms(query)
+    others = []
+    for t in pool:
+        t = (t or '').strip()
+        if 2 <= len(t) <= 8 and t not in others and not any(t in p or p in t for p in primaries):
+            others.append(t)
+    queries = []
+    for p in primaries:
+        queries.append(p)
+        queries += [f"{p} {o}" for o in others[:3]]
+    return queries, primaries + others[:8]
 
 
 def get_mcp_context_sync(query: str, uploaded_file=None) -> str:
@@ -389,6 +463,10 @@ def get_mcp_context_sync(query: str, uploaded_file=None) -> str:
         except Exception as e:
             sections.append(f"[사건번호 '{case_no}' 조회 실패: {e}]")
 
+    # 주제어가 분명한 제도는 AI가 법령명을 빠뜨려도 소관 법률이 들어가게 한다(_LAW_HINTS 설명 참고).
+    hinted = _hinted_laws(query)
+    law_names = _merge_unique([h[0] for h in hinted], law_names)[:5]
+
     # 정식 법령명으로 조문 원문을 가져온다(일반 키워드 검색은 결과가 0건인 경우가 많고
     # 이름/링크만 줘서 AI가 조문 내용을 검토하지 못했음).
     if law_names:
@@ -397,7 +475,10 @@ def get_mcp_context_sync(query: str, uploaded_file=None) -> str:
             # 물었는데 현행 관광진흥법에서 개명 전 용어인 "유원시설업"을 키워드로 뽑아, 정작
             # "테마파크업"이 나오는 조문이 발췌에서 빠짐). 사용자가 질문에 직접 쓴 단어는 가장 믿을
             # 만한 키워드이므로 같이 합친다. 법령에 없는 단어는 IDF가 0이라 점수에 영향이 없다.
-            law_keywords = _merge_keywords(topic_keywords or [keyword], _query_terms(query))
+            base_kws = topic_keywords or [keyword]
+            law_keywords = _merge_keywords(
+                _merge_keywords(base_kws, [k for h in hinted for k in h[1]]),
+                _merge_keywords([p for k in base_kws for p in _split_compound(k)], _query_terms(query)))
             bp = _law_byeolpyo_enabled()
             # 별표를 켜면 시행규칙까지(법·시행령·시행규칙 3단계) 가져온다. 2개까지만 가져오면 고용노동부령·국토교통부령에 있는 시간·기준이 통째로 빠진다.
             # 본 법률은 분량 상한과 무관하게 모두 싣고(moleg_mcp 참고), 시행령·시행규칙은 질의와 관련 높은 법령부터 상한까지 채운다.
@@ -414,6 +495,15 @@ def get_mcp_context_sync(query: str, uploaded_file=None) -> str:
                 sections.append(law_text)
         except Exception as e:
             sections.append(f"[법령 원문 조회 실패: {e}]")
+
+    # 법령해석례: 조문이 직접 답하지 않는 쟁점(예: 처음 협의가 없던 계획의 변경에 재협의 기준을 적용하는지)에 법제처가 공식 회신한 해석이 있는 경우가 많다.
+    try:
+        queries, rel_terms = _interpretation_queries(keyword, topic_keywords, hinted, query)
+        interp = search_interpretations(queries, rel_terms)
+        if interp:
+            sections.append(interp)
+    except Exception as e:
+        print(f"[mcp_agent_sync] 법령해석례 조회 실패(무시): {type(e).__name__}: {e}")
 
     # 고시·지침(행정규칙)의 조문과 별표 원문. 법령 조회(target=law)와 달리 별표까지 읽는다.
     try:
