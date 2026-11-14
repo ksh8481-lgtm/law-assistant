@@ -639,7 +639,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 totalArea: totalVerifiedArea + pubArea,
                 publicWaterArea: pubArea,
                 description: document.getElementById('description').value,
-                parcels: parcels
+                parcels: parcels,
+                design: window.TomokCard ? window.TomokCard.collect() : null
             };
             if (ui()) ui().clearMessages();
             await runAnalysis(requestData);

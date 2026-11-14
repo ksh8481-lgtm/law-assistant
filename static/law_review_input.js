@@ -92,6 +92,7 @@
             projectName: $('projectName').value, projectType: typeValue(), budget: $('budget').value,
             budgetNational: $('budgetNational').value, budgetProvincial: $('budgetProvincial').value, budgetMunicipal: $('budgetMunicipal').value,
             publicWaterArea: $('publicWaterArea').value, description: $('description').value, parcels: parcels, pendingParcels: pending,
+            design: window.TomokCard ? window.TomokCard.collect() : null,
         };
     }
     function applyForm(d) {
@@ -104,6 +105,7 @@
         $('budgetMunicipal').value = d.budgetMunicipal || '';
         $('publicWaterArea').value = d.publicWaterArea || 0;
         $('description').value = d.description || '';
+        if (window.TomokCard) window.TomokCard.apply(d.design || null);
         if (window.LRForm) {
             window.LRForm.resetParcels();
             (d.parcels || []).forEach(function (p) { window.LRForm.restoreParcel(p); });
@@ -115,7 +117,7 @@
     }
 
     // ------------------------------------------------------------ 작성 중 내용 자동 보관
-    function hasContent(d) { return !!(d && (d.projectName || d.description || (d.parcels && d.parcels.length) || (d.pendingParcels && d.pendingParcels.length))); }
+    function hasContent(d) { return !!(d && (d.projectName || d.description || d.design || (d.parcels && d.parcels.length) || (d.pendingParcels && d.pendingParcels.length))); }
     var saveDraft = debounce(function () {
         var d = collectForm();
         if (hasContent(d)) lsWrite(DRAFT_KEY, { savedAt: Date.now(), data: d }); else lsDrop(DRAFT_KEY);

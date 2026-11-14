@@ -376,6 +376,11 @@ def design_review():
 def commencement_review():
     return render_template('commencement_review.html')
 
+@app.route('/tomok_3d')
+def tomok_3d():
+    # 공사 카드 3D(포장·수로관·집수정 모형과 수량). three.js는 static/vendor/three에 포함(행정망 대비).
+    return render_template('tomok_3d.html')
+
 @app.route('/api/extract_parcel_from_drawing', methods=['POST'])
 def extract_parcel_from_drawing():
     try:
