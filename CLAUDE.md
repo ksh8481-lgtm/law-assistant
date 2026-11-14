@@ -20,6 +20,7 @@
 ## 구조 한눈에
 - `app.py` — Flask 라우트 전체(`gunicorn app:app`, 설정은 `gunicorn.conf.py`)
 - `templates/` 화면, `static/` 화면 스크립트, `static/vendor/three/` three.js 0.160.0(오프라인용)
+- `tools/pdf_digest.py` — 글자·표·그림이 섞인 PDF를 토큰이 적게 드는 요약본(`digest.md` + `figs/`)으로 바꾸는 개발용 도구(앱과 무관). 큰 PDF를 검토할 때 먼저 이걸로 변환한 뒤 `digest.md`만 읽는다. 자세한 내용: `docs/작업기록/2026-11-14_pdf-요약본-도구.md`
 - 시험: `python test_*.py` (예: `python test_tomok_3d.py`). 법제처 접속 시험을 건너뛰려면 `SKIP_ONLINE_TESTS=1`
 - 운영 주소: https://port-0-law-assistant-mpgbhts4cec2050f.sel3.cloudtype.app/
 
