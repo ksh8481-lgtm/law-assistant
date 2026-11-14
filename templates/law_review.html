@@ -159,6 +159,33 @@
                         </div>
                     </div>
 
+                    <div class="form-group" id="design-panel" style="background: #f8fafc; border: 2px solid #e2e8f0; border-radius: 12px; padding: 1.2rem; margin-bottom: 1.5rem;">
+                        <label style="font-size: 1.05rem; font-weight: 700; color: #1e293b; margin-bottom: 0.4rem;">📐 설계 수치 (공사 카드 · 3D 보기) <span style="font-weight: 400; color: #64748b; font-size: 0.82rem;">선택 입력</span></label>
+                        <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 0.8rem; line-height: 1.5;">
+                            콘크리트 포장과 U형 수로관 사업이면 연장·폭·두께를 넣으세요. 수량(포장 면적·체적, 줄눈, 수로관 본수, 집수정 개소)이 자동 계산되고 [🧊 3D 보기]로 모형을 볼 수 있습니다. 사업명도 함께 넘어갑니다.
+                        </p>
+                        <div class="form-row" style="flex-wrap: wrap;">
+                            <div class="form-group" style="flex: 1; min-width: 120px;"><label for="d3-L">연장 L (m)</label><input type="number" id="d3-L" min="1" step="1" placeholder="예: 120"></div>
+                            <div class="form-group" style="flex: 1; min-width: 120px;"><label for="d3-B">포장 폭 B (m)</label><input type="number" id="d3-B" min="0.5" step="0.1" placeholder="예: 4.0"></div>
+                            <div class="form-group" style="flex: 1; min-width: 120px;"><label for="d3-T">포장 두께 T (m)</label><input type="number" id="d3-T" min="0.05" max="1" step="0.01" placeholder="예: 0.15"></div>
+                            <div class="form-group" style="flex: 1; min-width: 120px;"><label for="d3-joint">줄눈 간격 (m)</label><input type="number" id="d3-joint" min="1" step="0.5" placeholder="8"></div>
+                        </div>
+                        <div class="form-row" style="flex-wrap: wrap;">
+                            <div class="form-group" style="flex: 1; min-width: 120px;"><label for="d3-flume">수로관 규격</label>
+                                <select id="d3-flume"><option value="300">300C</option><option value="400" selected>400C</option><option value="500">500C</option><option value="600">600C</option></select></div>
+                            <div class="form-group" style="flex: 1; min-width: 120px;"><label for="d3-unit">수로관 1본 길이 (m)</label><input type="number" id="d3-unit" min="0.5" step="0.1" placeholder="2.0"></div>
+                            <div class="form-group" style="flex: 1; min-width: 120px;"><label for="d3-pit">집수정 간격 (m)</label><input type="number" id="d3-pit" min="5" step="5" placeholder="40"></div>
+                            <div class="form-group" style="flex: 1; min-width: 120px;"></div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                            <button type="button" id="d3-toggle" class="secondary-btn" style="width: auto; flex: 1; padding: 0.5rem 1rem; background-color: #0f172a; color: #f5c518; border-color: #0f172a; font-weight: 700;">🧊 3D 보기</button>
+                            <button type="button" id="d3-open" class="secondary-btn" style="width: auto; flex: 1; padding: 0.5rem 1rem;">↗ 새 창으로 열기</button>
+                            <button type="button" id="d3-desc" class="secondary-btn" style="width: auto; flex: 1; padding: 0.5rem 1rem;">📝 사업 내용에 넣기</button>
+                            </div><div id="d3-note" aria-live="polite" style="font-size: 0.82rem; color: #b45309; margin-top: 0.4rem;"></div><div>
+                        </div>
+                        <div id="d3-frame-wrap" style="display: none; margin-top: 0.8rem; border-radius: 10px; overflow: hidden; border: 1px solid #1e293b;"></div>
+                    </div>
+
                     <div class="form-group" id="docs-panel" style="background: #f8fafc; border: 2px solid #e2e8f0; border-radius: 12px; padding: 1.2rem; margin-bottom: 1.5rem;">
                         <label style="font-size: 1.05rem; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.6rem;">
                             <span>📎 내역서·설명서·도면으로 사업 내용 자동 작성</span>
@@ -220,9 +247,10 @@
     <!-- 카카오 주소 검색 API -->
     <script src="//t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
     <script src="/static/law_review_store.js?v=1.0"></script>
-    <script src="/static/script.js?v=7.0"></script>
-    <script src="/static/law_review_input.js?v=1.0"></script>
+    <script src="/static/script.js?v=7.1"></script>
+    <script src="/static/law_review_input.js?v=1.1"></script>
     <script src="/static/law_review_docs.js?v=1.1"></script>
     <script src="/static/parcel_map.js?v=1.0"></script>
+    <script src="/static/tomok_card.js?v=1.0"></script>
 </body>
 </html>

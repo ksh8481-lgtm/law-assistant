@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>공사 카드 3D 시각화</title>
+<!--
+  공사 카드 3D: 콘크리트 포장 + U형 수로관 + 집수정을 입력값대로 3D로 그리고 수량을 계산한다.
+  - three.js는 /static/vendor/three/ 에 들어 있어 인터넷(CDN)이 막힌 행정망에서도 열린다.
+  - 데이터 전달: window.loadCard({...}), postMessage({type:'tomok-card', card:{...}}), 또는 주소 #card=<JSON>
+  - ?embed=1 이면 법규 검토 화면 안(iframe)에 넣는 모드: 사업·포장·수로관 입력은 그 화면에서 받으므로 숨긴다.
+  - 수로관 단면·집수정 치수는 규격별로 이 브라우저에 저장해(표준도 값) 다음부터 기본값으로 쓴다.
+-->
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif; background: #0f1115; color: #e8e8e8; }
+  #app { display: flex; height: 100vh; }
+  #panel { width: 330px; padding: 16px; overflow-y: auto; background: #171a21; border-right: 1px solid #2a2e38; }
+  #view { flex: 1; position: relative; min-height: 300px; }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  h1 span { color: #f5c518; }
+  h1 a { color: #8a8f9c; font-size: 12px; font-weight: 400; text-decoration: none; float: right; margin-top: 4px; }
+  .sub { font-size: 12px; color: #8a8f9c; margin-bottom: 16px; }
+  .group { margin-bottom: 14px; }
+  .group h2 { font-size: 12px; color: #f5c518; margin-bottom: 8px; letter-spacing: .5px; }
+  .group h2 small { color: #8a8f9c; font-weight: 400; letter-spacing: 0; }
+  label { display: flex; justify-content: space-between; align-items: center; font-size: 13px; margin-bottom: 6px; gap: 8px; }
+  input, select { width: 110px; padding: 5px 7px; background: #0f1115; color: #fff; border: 1px solid #343a46; border-radius: 6px; font-size: 13px; text-align: right; }
+  select { text-align: left; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td { padding: 5px 2px; border-bottom: 1px solid #262a33; }
+  td:last-child { text-align: right; font-variant-numeric: tabular-nums; color: #fff; }
+  .btns { display: flex; gap: 6px; margin-top: 10px; }
+  button { flex: 1; padding: 8px; background: #262a33; color: #e8e8e8; border: 1px solid #343a46; border-radius: 6px; font-size: 12px; cursor: pointer; }
+  button:hover { background: #f5c518; color: #111; }
+  .note { font-size: 11px; color: #6c7280; margin-top: 10px; line-height: 1.5; }
+  #dimState { font-size: 11px; margin: -2px 0 6px; }
+  #dimState.assumed { color: #f59e0b; }
+  #dimState.standard { color: #34d399; }
+  #tag { position: absolute; top: 12px; left: 12px; background: rgba(15,17,21,.85); border: 1px solid #2a2e38; border-radius: 8px; padding: 8px 12px; font-size: 13px; pointer-events: none; }
+  #tag b { color: #f5c518; }
+  #err { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; text-align: center; color: #fca5a5; font-size: 14px; }
+  .embed .full-only { display: none; }
+  @media (max-width: 760px) {
+    #app { flex-direction: column-reverse; height: auto; }
+    #panel { width: 100%; border-right: none; }
+    #view { height: 55vh; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="panel">
+    <h1>공사 카드 <span>3D</span> <a class="full-only" href="/">🏠 메인</a></h1>
+    <div class="sub">값을 바꾸면 모형과 수량이 바로 바뀝니다</div>
+
+    <div class="full-only">
+      <div class="group">
+        <h2>사업 정보</h2>
+        <label>사업명 <input id="name" value="○○마을 배수로 정비" style="width:170px;text-align:left"></label>
+      </div>
+
+      <div class="group">
+        <h2>콘크리트 포장</h2>
+        <label>연장 L (m) <input id="L" type="number" value="120" min="5" max="2000" step="1"></label>
+        <label>폭 B (m) <input id="B" type="number" value="4.0" min="1" max="20" step="0.1"></label>
+        <label>두께 T (m) <input id="T" type="number" value="0.15" min="0.1" max="0.4" step="0.01"></label>
+        <label>줄눈 간격 (m) <input id="joint" type="number" value="8" min="2" max="20" step="0.5"></label>
+      </div>
+
+      <div class="group">
+        <h2>수로관</h2>
+        <label>규격 <select id="flume">
+          <option value="300">300C</option>
+          <option value="400" selected>400C</option>
+          <option value="500">500C</option>
+          <option value="600">600C</option>
+        </select></label>
+        <label>1본 길이 (m) <input id="unit" type="number" value="2.0" min="0.5" max="5" step="0.1"></label>
+        <label>집수정 간격 (m) <input id="pit" type="number" value="40" min="10" max="200" step="5"></label>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>단면 치수 <small id="dimTitle">(400C, mm)</small></h2>
+      <div id="dimState"></div>
+      <label>수로관 내폭 <input id="dW" type="number" min="100" max="2000" step="10"></label>
+      <label>수로관 내고 <input id="dH" type="number" min="100" max="2000" step="10"></label>
+      <label>측벽 두께 <input id="dWall" type="number" min="30" max="300" step="5"></label>
+      <label>바닥 두께 <input id="dBase" type="number" min="30" max="300" step="5"></label>
+      <label>집수정 외폭(정사각) <input id="dPitW" type="number" min="300" max="3000" step="10"></label>
+      <label>집수정 수로 아래 깊이 <input id="dPitD" type="number" min="0" max="2000" step="10"></label>
+      <div class="btns" style="margin-top:4px">
+        <button id="dimSave" title="이 브라우저에 저장해 다음부터 이 규격의 기본값으로 씁니다">표준도 값으로 저장</button>
+        <button id="dimReset">가정값으로 되돌리기</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>수량 (자동 산출)</h2>
+      <table id="qty"></table>
+    </div>
+
+    <div class="btns">
+      <button id="exportBtn">공사 카드 저장(JSON)</button>
+      <button id="importBtn">불러오기</button>
+      <input id="file" type="file" accept=".json" hidden>
+    </div>
+    <div class="btns">
+      <button id="csvBtn">수량표 CSV</button>
+      <button id="resetCam">시점 초기화</button>
+    </div>
+
+    <div class="note">※ 단면 치수가 <b style="color:#f59e0b">가정값</b>으로 표시되면 시각화용 임시 치수입니다. 사용하는 표준도(제품 규격표)의 내폭·내고·벽 두께와 집수정 치수를 넣고 [표준도 값으로 저장]을 누르면 이 브라우저에서 해당 규격의 기본값이 됩니다. 수량표의 수로관 콘크리트 체적은 이 치수로 계산합니다.</div>
+  </div>
+  <div id="view"><div id="tag"></div><div id="err"></div></div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "/static/vendor/three/three.module.min.js",
+  "three/addons/": "/static/vendor/three/addons/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $ = id => document.getElementById(id);
+const view = $('view');
+const EMBED = new URLSearchParams(location.search).get('embed') === '1';
+if (EMBED) document.body.classList.add('embed');
+
+// ---------- 단면 치수 (mm) ----------
+// 가정값: 표준도 치수가 아니다(내폭=내고=규격, 벽·바닥 두께 = 규격×18%·최소 60, 집수정 = 수로 외폭+300).
+// 표준도 값은 사용자가 넣어 이 브라우저(localStorage)에 규격별로 저장한다.
+const DIM_KEY = 'tomokFlumeDims';
+const DIM_FIELDS = ['dW', 'dH', 'dWall', 'dBase', 'dPitW', 'dPitD'];
+function assumedDims(size) {
+  const t = Math.max(60, Math.round(size * 0.18 / 5) * 5);
+  return { dW: size, dH: size, dWall: t, dBase: t, dPitW: size + 2 * t + 300, dPitD: 300 };
+}
+function savedDimTable() { try { return JSON.parse(localStorage.getItem(DIM_KEY)) || {}; } catch { return {}; } }
+function standardDims(size) { const s = savedDimTable()[size]; return s ? { ...assumedDims(size), ...s } : null; }
+function dimsFor(size) { return standardDims(size) || assumedDims(size); }
+function readDims() { const d = {}; for (const k of DIM_FIELDS) d[k] = +$(k).value; return d; }
+function writeDims(d) { for (const k of DIM_FIELDS) if (d && d[k] !== undefined) $(k).value = d[k]; }
+function sameDims(a, b) { return !!a && !!b && DIM_FIELDS.every(k => +a[k] === +b[k]); }
+function refreshDimState() {
+  const size = +$('flume').value, cur = readDims(), std = standardDims(size);
+  $('dimTitle').textContent = `(${size}C, mm)`;
+  const el = $('dimState');
+  if (std && sameDims(cur, std)) { el.className = 'standard'; el.textContent = '● 저장한 표준도 값'; }
+  else if (sameDims(cur, assumedDims(size))) { el.className = 'assumed'; el.textContent = '● 가정값 (표준도 치수로 바꿔 주세요)'; }
+  else { el.className = 'assumed'; el.textContent = '● 직접 입력한 값 (저장 전)'; }
+}
+
+// ---------- 장면 ----------
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+} catch (e) {
+  $('err').style.display = 'flex';
+  $('err').textContent = '이 컴퓨터(브라우저)에서 3D(WebGL)를 쓸 수 없습니다. 수량 계산은 왼쪽 표에서 그대로 볼 수 있습니다.';
+}
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0f1115);
+scene.fog = new THREE.Fog(0x0f1115, 150, 600);
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
+let controls = null;
+if (renderer) {
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  view.appendChild(renderer.domElement);
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.maxPolarAngle = Math.PI * 0.49;
+}
+
+scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x3a3020, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+sun.position.set(60, 100, 40);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -150, right: 150, top: 150, bottom: -150, far: 400 });
+scene.add(sun);
+
+// 논밭 바닥
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(1000, 1000),
+  new THREE.MeshStandardMaterial({ color: 0x5c6b3a, roughness: 1 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -0.01;
+ground.receiveShadow = true;
+scene.add(ground);
+const grid = new THREE.GridHelper(1000, 100, 0x3e4a28, 0x4a5730);
+grid.position.y = 0.005;
+scene.add(grid);
+
+const mat = {
+  pave: new THREE.MeshStandardMaterial({ color: 0xc9c9c4, roughness: 0.9 }),
+  joint: new THREE.MeshBasicMaterial({ color: 0x333333 }),
+  flume: new THREE.MeshStandardMaterial({ color: 0xa8aaa6, roughness: 0.8 }),
+  water: new THREE.MeshStandardMaterial({ color: 0x3a8fd6, transparent: true, opacity: 0.75 }),
+  pit: new THREE.MeshStandardMaterial({ color: 0x8d8f8b, roughness: 0.8 }),
+  grate: new THREE.MeshStandardMaterial({ color: 0x2b2b2b, metalness: 0.6 }),
+  soil: new THREE.MeshStandardMaterial({ color: 0x7a6248, roughness: 1 }),
+};
+
+let model = new THREE.Group();
+scene.add(model);
+
+function clearModel() {
+  model.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+  scene.remove(model);
+  model = new THREE.Group();
+  scene.add(model);
+}
+
+// U형 수로관 단면 (m)
+function flumeShape(d) {
+  const w = d.dW / 1000, h = d.dH / 1000, t = d.dWall / 1000, b = d.dBase / 1000;
+  const s = new THREE.Shape();
+  s.moveTo(-w/2 - t, 0);
+  s.lineTo(w/2 + t, 0);
+  s.lineTo(w/2 + t, h + b);
+  s.lineTo(w/2, h + b);
+  s.lineTo(w/2, b);
+  s.lineTo(-w/2, b);
+  s.lineTo(-w/2, h + b);
+  s.lineTo(-w/2 - t, h + b);
+  s.closePath();
+  const outerW = w + 2*t, outerH = h + b;
+  return { shape: s, w, h, t, b, outerW, outerH, area: outerW * outerH - w * h };
+}
+
+// ---------- 입력 읽기 / 계산 ----------
+const CARD_FIELDS = ['name','L','B','T','joint','flume','unit','pit'];
+function readCard() {
+  return {
+    name: $('name').value,
+    L: +$('L').value, B: +$('B').value, T: +$('T').value,
+    joint: +$('joint').value,
+    flume: +$('flume').value, unit: +$('unit').value, pit: +$('pit').value,
+    dims: readDims(),
+  };
+}
+function writeCard(c) {
+  if (!c || typeof c !== 'object') return;
+  const prevSize = $('flume').value;
+  for (const k of CARD_FIELDS) if (c[k] !== undefined && c[k] !== null && c[k] !== '') $(k).value = c[k];
+  // 카드에 치수가 있으면 그대로, 없고 규격이 바뀌었으면 그 규격의 기본값(저장한 표준도 → 가정값)
+  if (c.dims) writeDims(c.dims);
+  else if ($('flume').value !== prevSize || !$('dW').value) writeDims(dimsFor(+$('flume').value));
+}
+
+function calc(c) {
+  const f = flumeShape(c.dims);
+  const area = c.B * c.L;
+  const vol = area * c.T;
+  const joints = Math.max(0, Math.ceil(c.L / c.joint) - 1);
+  const flumes = Math.ceil(c.L / c.unit);
+  const pits = Math.floor(c.L / c.pit) + 1;
+  return [
+    ['콘크리트 포장 면적', area.toFixed(1) + ' m²'],
+    ['콘크리트 포장 체적', vol.toFixed(2) + ' m³'],
+    ['줄눈', joints + ' 곳'],
+    [`수로관 ${c.flume}C`, flumes + ' 본'],
+    ['수로관 연장', c.L.toFixed(1) + ' m'],
+    ['수로관 콘크리트(참고)', (f.area * c.L).toFixed(2) + ' m³'],
+    ['집수정', pits + ' 개소'],
+  ];
+}
+
+function valid(c) {
+  return c.L > 0 && c.B > 0 && c.T > 0 && c.joint > 0 && c.unit > 0 && c.pit > 0 &&
+    c.dims.dW > 0 && c.dims.dH > 0 && c.dims.dWall > 0 && c.dims.dBase > 0 && c.dims.dPitW > 0 && c.dims.dPitD >= 0;
+}
+
+// ---------- 모형 생성 ----------
+function build() {
+  const c = readCard();
+  refreshDimState();
+  if (!valid(c)) return;
+  $('qty').innerHTML = calc(c).map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+  $('tag').innerHTML = `<b>${escapeHtml(c.name || '사업명 없음')}</b><br>포장 B=${c.B}·T=${c.T}·L=${c.L}m / 수로관 ${c.flume}C`;
+  if (!renderer) return;
+  clearModel();
+
+  // 포장 (x축 방향으로 연장)
+  const pave = new THREE.Mesh(new THREE.BoxGeometry(c.L, c.T, c.B), mat.pave);
+  pave.position.set(c.L/2, c.T/2, 0);
+  pave.castShadow = pave.receiveShadow = true;
+  model.add(pave);
+
+  // 줄눈 (너무 많으면 화면이 무거워지므로 2,000개까지만 그림)
+  const jGeo = new THREE.BoxGeometry(0.03, 0.01, c.B);
+  for (let x = c.joint, n = 0; x < c.L - 0.01 && n < 2000; x += c.joint, n++) {
+    const j = new THREE.Mesh(jGeo, mat.joint);
+    j.position.set(x, c.T + 0.003, 0);
+    model.add(j);
+  }
+
+  // 수로관 (포장 옆, 윗면을 포장면에 맞춤)
+  const f = flumeShape(c.dims);
+  const fz = c.B/2 + 0.1 + f.outerW/2;
+  const fGeo = new THREE.ExtrudeGeometry(f.shape, { depth: c.L, bevelEnabled: false });
+  const flume = new THREE.Mesh(fGeo, mat.flume);
+  flume.rotation.y = Math.PI / 2;      // 압출 방향을 x축으로
+  flume.position.set(0, c.T - f.outerH, fz);
+  flume.castShadow = flume.receiveShadow = true;
+  model.add(flume);
+
+  // 수로관 이음매 표시
+  const seamGeo = new THREE.BoxGeometry(0.02, f.outerH + 0.005, f.outerW + 0.005);
+  for (let x = c.unit, n = 0; x < c.L - 0.01 && n < 2000; x += c.unit, n++) {
+    const s = new THREE.Mesh(seamGeo, mat.joint);
+    s.position.set(x, c.T - f.outerH/2, fz);
+    model.add(s);
+  }
+
+  // 물
+  const water = new THREE.Mesh(new THREE.BoxGeometry(c.L, f.h * 0.4, f.w * 0.98), mat.water);
+  water.position.set(c.L/2, c.T - f.outerH + f.b + f.h*0.2, fz);
+  model.add(water);
+
+  // 집수정: 외폭 dPitW 정사각형, 윗면은 포장면, 바닥은 수로 바닥보다 dPitD 아래
+  const pw = Math.max(c.dims.dPitW / 1000, f.outerW), ph = f.outerH + c.dims.dPitD / 1000;
+  const pitGeo = new THREE.BoxGeometry(pw, ph, pw);
+  const grateGeo = new THREE.BoxGeometry(pw*0.8, 0.02, pw*0.8);
+  for (let x = 0; x <= c.L + 0.001; x += c.pit) {
+    const px = Math.min(x, c.L);
+    const pit = new THREE.Mesh(pitGeo, mat.pit);
+    pit.position.set(px, c.T - ph/2 + 0.02, fz);
+    pit.castShadow = true;
+    model.add(pit);
+    const grate = new THREE.Mesh(grateGeo, mat.grate);
+    grate.position.set(px, c.T + 0.03, fz);
+    model.add(grate);
+  }
+
+  // 가장 깊은 곳이 지면에 오도록 올리고, 포장 아래 노반(흙)을 채움
+  const lift = Math.max(0, ph - c.T);
+  model.position.y = lift;
+  if (lift > 0.001) {
+    const soil = new THREE.Mesh(new THREE.BoxGeometry(c.L, lift, c.B + 1.0), mat.soil);
+    soil.position.set(c.L/2, -lift/2, -0.5);
+    soil.receiveShadow = true;
+    model.add(soil);
+  }
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+
+function resetCamera() {
+  if (!controls) return;
+  const c = readCard();
+  const d = Math.max(12, Math.min(c.L, 60) * 0.35);
+  camera.position.set(-d * 0.4, d * 0.5, d * 0.9);
+  controls.target.set(Math.min(c.L, 60) * 0.3, 0, 0);
+  controls.update();
+}
+
+// ---------- 저장 / 불러오기 ----------
+function safeName(s) { return (s || '공사카드').replace(/[\\/:*?"<>|]/g, '_'); }
+function download(name, text, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+$('exportBtn').onclick = () => {
+  const c = readCard();
+  download(`${safeName(c.name)}.json`, JSON.stringify(c, null, 2), 'application/json');
+};
+$('importBtn').onclick = () => $('file').click();
+$('file').onchange = async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try { window.loadCard(JSON.parse(await file.text())); }
+  catch { $('tag').textContent = '파일을 읽지 못했습니다'; }
+  e.target.value = '';
+};
+$('csvBtn').onclick = () => {
+  const c = readCard();
+  const rows = [['항목','수량'], ...calc(c)].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+  download(`${safeName(c.name)}_수량.csv`, '﻿' + rows.join('\n'), 'text/csv');
+};
+$('resetCam').onclick = resetCamera;
+
+$('dimSave').onclick = () => {
+  const size = +$('flume').value, d = readDims();
+  if (!DIM_FIELDS.every(k => d[k] > 0 || (k === 'dPitD' && d[k] === 0))) { $('dimState').textContent = '● 치수를 모두 입력해 주세요'; return; }
+  const all = savedDimTable(); all[size] = d;
+  try { localStorage.setItem(DIM_KEY, JSON.stringify(all)); } catch { $('dimState').textContent = '● 이 브라우저에 저장할 수 없습니다(공사 카드 JSON으로 보관해 주세요)'; return; }
+  refreshDimState();
+};
+$('dimReset').onclick = () => {
+  const size = +$('flume').value, all = savedDimTable();
+  delete all[size];
+  try { localStorage.setItem(DIM_KEY, JSON.stringify(all)); } catch { /* 무시 */ }
+  writeDims(assumedDims(size)); build();
+};
+
+// 다른 페이지에서 데이터 전달용: window.loadCard({...}) 또는 postMessage
+window.loadCard = c => { writeCard(c); build(); resetCamera(); };
+window.addEventListener('message', e => {
+  if (e.origin !== location.origin) return;           // 같은 서버의 화면에서 온 것만 받는다
+  if (e.data && e.data.type === 'tomok-card') {
+    const keepView = !!e.data.keepView;
+    writeCard(e.data.card); build(); if (!keepView) resetCamera();
+  }
+});
+
+$('flume').addEventListener('change', () => writeDims(dimsFor(+$('flume').value)));
+document.querySelectorAll('#panel input:not([type=file]), #panel select').forEach(el => el.addEventListener('input', build));
+
+// ---------- 렌더 루프 ----------
+function resize() {
+  if (!renderer) return;
+  const w = view.clientWidth, h = view.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / Math.max(h, 1);
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+// 처음 값: 주소의 #card=<JSON> → 없으면 화면 기본값
+writeDims(dimsFor(+$('flume').value));
+let initial = null;
+const m = location.hash.match(/^#card=(.+)$/);
+if (m) { try { initial = JSON.parse(decodeURIComponent(m[1])); } catch { /* 무시 */ } }
+writeCard(initial);
+build();
+resetCamera();
+if (renderer) (function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+// 감싼 화면(법규 검토)에 준비됐다고 알린다
+if (window.parent !== window) window.parent.postMessage({ type: 'tomok-3d-ready' }, location.origin);
+</script>
+</body>
+</html>
