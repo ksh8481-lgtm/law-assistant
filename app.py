@@ -2033,8 +2033,10 @@ def run_other_review(job_id, text_content, temp_path, filename, file_obj_exists)
         try:
             response, _used_model = gemini_client.generate_with_fallback(
                 contents_payload, temperature=LEGAL_GEN_CONFIG["temperature"], label="본 답변")
+        except gemini_client.GeminiError:
+            raise                                   # 이미 원인과 해야 할 일이 적힌 문장이다(크레딧 소진·한도·인증 등을 구분)
         except Exception as e:
-            raise Exception(f"모든 AI 모델이 요청 한도 초과 또는 오류로 실패했습니다. 마지막 오류: {e}")
+            raise Exception(f"AI가 답변을 만들지 못했습니다: {e}")
 
         # 🚨 법조항 인용 검증 패스(공용 헬퍼: verify_law_citations_via_search 참고). 설계도서 검토와
         # 똑같이 "법조항 번호를 기억에만 의존해 답함" 위험이 있어 같은 검증을 적용하되, 질의응답

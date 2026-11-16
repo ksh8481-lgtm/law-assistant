@@ -74,6 +74,52 @@ def get_client():
     return _client
 
 
+# ---------------------------------------------------------------- 오류를 사용자가 알아볼 수 있는 말로
+class GeminiError(Exception):
+    """Gemini 호출 실패. str(e)는 사용자에게 그대로 보여 줘도 되는 문장이다(원인과 해야 할 일 + 짧은 오류 코드).
+    kind: 'credits'(선불 크레딧 소진) | 'rate'(호출 한도·몰림) | 'key'(인증·권한) | 'overloaded'(서버 일시 장애) | 'bad_request'(입력 문제) | 'other'"""
+
+    def __init__(self, kind, user_message, cause=""):
+        super().__init__(user_message)
+        self.kind = kind
+        self.user_message = user_message
+        self.cause = cause
+
+
+# 같은 키로 부르는 다른 모델도 똑같이 실패하는 종류라 모델을 바꿔 다시 시도하지 않는다(시간만 낭비한다).
+FAIL_FAST_KINDS = ("credits", "key")
+
+
+def classify_error(e):
+    """예외 -> (종류, 사용자용 문장). 문장에는 원인, 해야 할 일, 짧은 오류 코드를 넣는다."""
+    code = getattr(e, "code", None)
+    raw = str(e)
+    low = raw.lower()
+    status = str(getattr(e, "status", "") or "")
+    tag = (f"오류 코드 {code}" if code else "") + (f" {status}" if status else "")
+    tag = f" ({tag.strip()})" if tag.strip() else ""
+    if "prepayment credits" in low or "credits are depleted" in low or "billing" in low and "depleted" in low:
+        return "credits", ("AI 사용 크레딧(선불 잔액)이 모두 소진되어 AI 기능을 쓸 수 없습니다. 관리자가 Google AI Studio(https://ai.studio/projects)의 "
+                           "결제 화면에서 크레딧을 충전하면 바로 다시 쓸 수 있습니다." + tag)
+    if code in (401, 403) or "api key" in low or "permission_denied" in low or "unauthenticated" in low:
+        return "key", ("AI 인증(API 키 또는 권한)에 문제가 있어 AI 기능을 쓸 수 없습니다. 관리자가 키와 결제 상태를 확인해야 합니다." + tag)
+    if code == 429 or "quota" in low or "rate limit" in low or "resource_exhausted" in low or "resource exhausted" in low:
+        return "rate", ("AI 호출이 한꺼번에 몰렸거나 사용 한도에 걸렸습니다. 1~2분 뒤 다시 시도해 주세요. 계속되면 관리자에게 알려 주세요." + tag)
+    if code in (500, 502, 503, 504) or "unavailable" in low or "overloaded" in low or "deadline" in low or "timed out" in low or "timeout" in low:
+        return "overloaded", ("AI 서버가 일시적으로 바쁘거나 응답이 늦습니다. 잠시 뒤 다시 시도해 주세요." + tag)
+    if code == 400 or "invalid_argument" in low:
+        return "bad_request", ("AI가 요청을 처리하지 못했습니다(입력 내용이나 형식 문제). 입력을 줄이거나 다른 파일로 다시 시도해 주세요." + tag)
+    return "other", (f"AI 호출 중 오류가 났습니다: {raw[:150]}")
+
+
+def as_gemini_error(e):
+    """이미 GeminiError면 그대로, 아니면 분류해서 GeminiError 로 바꾼다."""
+    if isinstance(e, GeminiError):
+        return e
+    kind, msg = classify_error(e)
+    return GeminiError(kind, msg, cause=str(e)[:300])
+
+
 def _log(label, model, seconds, resp):
     um = getattr(resp, "usage_metadata", None)
     print(f"[gemini] {label or '-'} model={model} {seconds:.1f}s "
@@ -141,7 +187,12 @@ def generate(contents, model=None, temperature=None, json_mode=False, search=Fal
         kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=thinking_budget)
     config = types.GenerateContentConfig(**kwargs) if kwargs else None
     t = time.time()
-    resp = get_client().models.generate_content(model=model, contents=normalize_contents(contents), config=config)
+    try:
+        resp = get_client().models.generate_content(model=model, contents=normalize_contents(contents), config=config)
+    except Exception as e:
+        ge = as_gemini_error(e)
+        print(f"[gemini] {label or '-'} model={model} 실패 kind={ge.kind} {ge.cause[:160]}")
+        raise ge from e
     _log(label, model, time.time() - t, resp)
     return resp
 
@@ -153,6 +204,8 @@ def generate_with_fallback(contents, models=None, temperature=None, label="", **
         try:
             return generate(contents, model=m, temperature=temperature, label=label, **kwargs), m
         except Exception as e:
-            last = e
-            print(f"[gemini] {label or '-'} model={m} 실패: {type(e).__name__}: {str(e)[:200]}")
+            last = as_gemini_error(e)
+            print(f"[gemini] {label or '-'} model={m} 실패: kind={last.kind} {last.cause[:200]}")
+            if last.kind in FAIL_FAST_KINDS:
+                break                                         # 크레딧 소진·인증 오류는 모델을 바꿔도 똑같이 실패한다
     raise last if last else RuntimeError("시도할 모델이 없습니다")

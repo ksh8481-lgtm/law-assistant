@@ -30,6 +30,13 @@ from korea_regions import find_jurisdiction_in_text, BASIC_REGIONS, METROPOLITAN
 
 _VALID_REGIONS = set(BASIC_REGIONS) | set(METROPOLITAN_REGIONS)
 
+
+def _reraise_if_fatal(e):
+    """AI 크레딧 소진·인증 오류는 보조 단계(키워드·법령명 추출 등)에서 삼키지 않고 바로 올린다. 삼키면 뒤 단계도 전부 같은 이유로 실패해서
+    사용자는 영문 모를 오류를 한참 기다린 뒤에야 보게 된다(실사용 중 발견: 크레딧이 바닥난 날 3단계를 지나서야 실패)."""
+    if isinstance(e, gemini_client.GeminiError) and e.kind in gemini_client.FAIL_FAST_KINDS:
+        raise e
+
 # 대법원 판례 사건번호 패턴 (예: 2010두11641, 2018다12345)
 _CASE_NO_PATTERN = re.compile(r'\d{2,4}[가-힣]\d{3,7}')
 
@@ -222,6 +229,7 @@ def _extract_subject_laws(query: str) -> list:
         line = resp.text.strip().splitlines()[0].strip()
         return [x.strip().strip("'\"") for x in line.split(',') if x.strip()][:4]
     except Exception as e:
+        _reraise_if_fatal(e)
         print(f"[mcp_agent_sync] subject-law extraction failed: {e}")
         return []
 
@@ -310,6 +318,7 @@ def _extract_admrul_names(query: str) -> list:
         line = (resp.text or '').strip().splitlines()[0].strip()
         names.extend(x for x in line.split(',') if x.strip())
     except Exception as e:
+        _reraise_if_fatal(e)
         print(f"[mcp_agent_sync] admrul name extraction failed: {e}")
     seen, out = set(), []
     for n in names:
@@ -392,6 +401,7 @@ def _extract_keyword_and_jurisdiction(query: str) -> tuple:
         try:
             subject_laws = subject_future.result(timeout=90)
         except Exception as e:
+            _reraise_if_fatal(e)
             print(f"[mcp_agent_sync] subject-law extraction failed: {e}")
             subject_laws = []
         finally:
@@ -409,6 +419,7 @@ def _extract_keyword_and_jurisdiction(query: str) -> tuple:
 
         return keyword, jurisdiction, ordinance_keyword, law_names, topic_keywords
     except Exception as e:
+        _reraise_if_fatal(e)
         print(f"[mcp_agent_sync] keyword/jurisdiction extraction failed: {e}")
         return "", "", "", [], []
 
@@ -509,6 +520,7 @@ def get_mcp_context_sync(query: str, uploaded_file=None) -> str:
     try:
         admrul_names = adm_future.result(timeout=60)
     except Exception as e:
+        _reraise_if_fatal(e)
         print(f"[mcp_agent_sync] admrul names unavailable: {e}")
         admrul_names = _hinted_admruls(query)
     finally:
