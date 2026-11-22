@@ -13,6 +13,13 @@ Gemini에는 한 번도 접속하지 않는다(키·비용·네트워크 불필�
 SDK를 바꾸면서 가장 흔한 사고는 "맨 문자열을 parts에 넣으면 신 SDK가 거부한다"처럼 형식이 어긋나 한 기능만 조용히 죽는 것이다.
 이미지·채팅·JSON처럼 손으로 확인하기 어려운 경로를 여기서 한꺼번에 잡는다.
 """
+import os
+
+# 이 시험은 "본 모델과 가벼운 모델이 서로 다를 때 엔드포인트가 어느 모델을 먼저 부르는가"를 확인한다. 기본 모델이 둘 다 gemini-3.8-flash 로 바뀌었으므로(2026-11-22)
+# 서로 다른 이름으로 고정해 호출 순서·폴백 동작을 그대로 시험한다(기본값 자체는 test_admrul.py 의 GeminiClientTests 가 확인한다).
+os.environ["GEMINI_MAIN_MODEL"] = "gemini-2.5-pro"
+os.environ["GEMINI_FAST_MODEL"] = "gemini-2.5-flash"
+os.environ.pop("GEMINI_MAIN_FALLBACKS", None)
 import json
 import types
 import unittest
@@ -130,7 +137,7 @@ class EndpointContractTests(unittest.TestCase):
         self.assertEqual([c["model"] for c in self.fake.models.calls], ["gemini-2.5-pro", "gemini-2.5-flash"])
 
     def test_chat_other_review_reports_failure_when_all_models_fail(self):
-        self.fake.models.fail_models = {"gemini-2.5-pro", "gemini-2.5-flash"}
+        self.fake.models.fail_models = {"gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.6-flash"}          # 마지막 예비 모델까지 모두 실패
         r = self.http.post("/api/chat/other_review", json={"new_message": "Q", "initial_context": "C"})
         body = r.get_json()
         self.assertFalse(body["success"])
@@ -212,7 +219,7 @@ class EndpointContractTests(unittest.TestCase):
         self.assertTrue(_cfg(self.fake.models.calls[1], "tools"))
 
     def test_design_review_reports_error_text_when_every_model_fails(self):
-        self.fake.models.fail_models = {"gemini-2.5-pro", "gemini-2.5-flash"}
+        self.fake.models.fail_models = {"gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.6-flash"}          # 마지막 예비 모델까지 모두 실패
         appmod.run_design_review("dr-fail", "시험 공사", "civil", ["kcsc"], "", {})
         job = appmod.JOBS["dr-fail"]
         self.assertEqual(job["status"], "completed")

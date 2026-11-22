@@ -199,9 +199,11 @@ class GeminiClientTests(unittest.TestCase):
                 self.os.environ[k] = v
 
     def test_defaults_are_pinned(self):
-        self.assertEqual(self.gc.main_model(), "gemini-2.5-pro")
-        self.assertEqual(self.gc.fast_model(), "gemini-2.5-flash")
-        self.assertEqual(self.gc.main_fallbacks(), ["gemini-2.5-pro", "gemini-2.5-flash"])
+        # 2026-11-22: 구글이 2.5 모델을 폐기(12/1에 자동 연결)해 3.x 로 옮겼다. 바꾸려면 docs/작업기록/2026-11-22_gemini-모델-교체.md 의 측정을 먼저 볼 것.
+        self.assertEqual(self.gc.main_model(), "gemini-3.8-flash")
+        self.assertEqual(self.gc.fast_model(), "gemini-3.8-flash")
+        self.assertEqual(self.gc.light_model(), "gemini-3.5-flash-lite")
+        self.assertEqual(self.gc.main_fallbacks(), ["gemini-3.8-flash", "gemini-3.6-flash"])           # 같은 모델은 한 번만, 마지막 예비는 이전 세대
 
     def test_env_overrides_and_models_prefix_is_stripped(self):
         self.os.environ["GEMINI_MAIN_FALLBACKS"] = "models/gemini-x-pro, gemini-x-flash ,"
@@ -212,9 +214,9 @@ class GeminiClientTests(unittest.TestCase):
     def test_citation_verify_mode(self):
         self.assertIsNone(self.gc.citation_verify_model())                          # 기본 off(측정 근거는 gemini_client 참고)
         self.os.environ["CITATION_VERIFY_MODE"] = "pro"
-        self.assertEqual(self.gc.citation_verify_model(), "gemini-2.5-pro")
+        self.assertEqual(self.gc.citation_verify_model(), self.gc.main_model())
         self.os.environ["CITATION_VERIFY_MODE"] = " Flash "
-        self.assertEqual(self.gc.citation_verify_model(), "gemini-2.5-flash")
+        self.assertEqual(self.gc.citation_verify_model(), self.gc.fast_model())
         self.os.environ["CITATION_VERIFY_MODE"] = " OFF "
         self.assertIsNone(self.gc.citation_verify_model())
 
@@ -254,7 +256,7 @@ class GeminiClientTests(unittest.TestCase):
 
         def fake_generate(contents, model=None, **kw):
             calls.append(model)
-            if model == "gemini-2.5-pro":
+            if model == "gemini-3.8-flash":
                 raise RuntimeError("429 quota")
             return type("R", (), {"text": "ok"})()
 
@@ -264,7 +266,7 @@ class GeminiClientTests(unittest.TestCase):
             resp, used = self.gc.generate_with_fallback("q", label="t")
         finally:
             self.gc.generate = real
-        self.assertEqual((resp.text, used, calls), ("ok", "gemini-2.5-flash", ["gemini-2.5-pro", "gemini-2.5-flash"]))
+        self.assertEqual((resp.text, used, calls), ("ok", "gemini-3.6-flash", ["gemini-3.8-flash", "gemini-3.6-flash"]))
 
     def test_fallback_raises_last_error_when_all_fail(self):
         real = self.gc.generate
@@ -274,11 +276,11 @@ class GeminiClientTests(unittest.TestCase):
 
         self.gc.generate = always_fail
         try:
-            with self.assertRaises(RuntimeError) as cm:
+            with self.assertRaises(self.gc.GeminiError) as cm:                       # 원시 오류는 GeminiError(사용자용 문장)로 바뀌어 올라온다
                 self.gc.generate_with_fallback("q")
         finally:
             self.gc.generate = real
-        self.assertIn("gemini-2.5-flash", str(cm.exception))
+        self.assertIn("gemini-3.6-flash", str(cm.exception))                         # 마지막으로 시도한 모델의 오류
 
 
 class HintTests(unittest.TestCase):

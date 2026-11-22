@@ -195,7 +195,7 @@ def _build_citation_verify_prompt(ai_result: str, source_context: str = "") -> s
 """
 
 
-def verify_law_citations_via_search(ai_result: str, model_name: str = 'gemini-2.5-pro',
+def verify_law_citations_via_search(ai_result: str, model_name: str = None,
                                     source_context: str = "") -> str:
     """법조항 인용을 구글 검색으로 검증/교정하는 공용 2차 패스.
 
@@ -211,6 +211,7 @@ def verify_law_citations_via_search(ai_result: str, model_name: str = 'gemini-2.
     서버가 법제처 원문으로 직접 대조하므로 기본값이 off다(gemini_client.citation_verify_model 참고)."""
     if not ai_result:
         return ai_result
+    model_name = model_name or gemini_client.main_model()
     verify_prompt = _build_citation_verify_prompt(ai_result, source_context)
     try:
         verify_resp = generate_with_search_grounding(verify_prompt, model_name, temperature=0)

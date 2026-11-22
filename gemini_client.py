@@ -10,12 +10,19 @@ Gemini 호출 공용 래퍼 (신버전 SDK `google-genai` 기반).
 
 [환경변수로 바꿀 수 있는 값]
   GEMINI_API_KEY            API 키
-  GEMINI_MAIN_MODEL         본 답변 모델 (기본 gemini-2.5-pro)
-  GEMINI_FAST_MODEL         키워드 추출·인용 판정 등 가벼운 호출 모델 (기본 gemini-2.5-flash)
-  GEMINI_MAIN_FALLBACKS     본 답변 실패 시 순서대로 시도할 모델들(쉼표) (기본 "<MAIN>,<FAST>")
+  GEMINI_MAIN_MODEL         본 답변 모델 (기본 gemini-3.8-flash)
+  GEMINI_FAST_MODEL         인용 판정·서류 정리·도면 읽기 등 가벼운 호출 모델 (기본 gemini-3.8-flash)
+  GEMINI_LIGHT_MODEL        키워드·법령명 추출 같은 아주 짧은 호출 모델 (기본 gemini-3.5-flash-lite)
+  GEMINI_MAIN_FALLBACKS     본 답변 실패 시 순서대로 시도할 모델들(쉼표) (기본 "<MAIN>,<FAST>,gemini-3.6-flash"에서 중복 제거)
+
+[모델 교체 이력 - 2026-11-22]
+  구글이 gemini-2.5-pro / gemini-2.5-flash 를 폐기해 2026-12-01부터 요청이 각각 gemini-3.8-flash / gemini-3.5-flash-lite 로 자동 연결되고
+  API 규칙도 바뀐다(thinking_budget -> thinking_level, temperature 등 샘플링 설정 제거). 같은 질문(관광단지 면적 변경 + 재해영향평가)을 모델 조합별로 돌린 측정은
+  docs/작업기록/2026-11-22_gemini-모델-교체.md 참고. 새 모델 규칙은 아래 thinking_config_for 와 generate 의 재시도에서 흡수한다.
   CITATION_VERIFY_MODE      구글검색 인용 검증 패스: off(기본) | pro | flash  (아래 citation_verify_model 설명 참고)
 """
 import os
+import re
 import threading
 import time
 
@@ -25,17 +32,64 @@ _client_lock = threading.Lock()
 
 
 def main_model() -> str:
-    return os.environ.get("GEMINI_MAIN_MODEL", "gemini-2.5-pro")
+    return os.environ.get("GEMINI_MAIN_MODEL", "gemini-3.8-flash")
 
 
 def fast_model() -> str:
-    return os.environ.get("GEMINI_FAST_MODEL", "gemini-2.5-flash")
+    return os.environ.get("GEMINI_FAST_MODEL", "gemini-3.8-flash")
+
+
+def light_model() -> str:
+    """키워드·법령명·고시명 추출 같은 입력이 짧은 호출용(가장 싸고 빠르다: 호출당 1~3초). 정확도가 필요한 판정·서류 정리·도면 읽기에는 쓰지 않는다."""
+    return os.environ.get("GEMINI_LIGHT_MODEL", "gemini-3.5-flash-lite")
+
+
+RESERVE_MODEL = "gemini-3.6-flash"          # 주 모델이 막혔을 때의 마지막 예비(이전 세대 Flash, 공식 문서에서 계속 지원 중)
 
 
 def main_fallbacks() -> list:
     raw = os.environ.get("GEMINI_MAIN_FALLBACKS", "")
     models = [m.strip().replace("models/", "") for m in raw.split(",") if m.strip()]
-    return models or [main_model(), fast_model()]
+    if models:
+        return models
+    return list(dict.fromkeys([main_model(), fast_model(), RESERVE_MODEL]))     # 같은 모델이 겹치면 한 번만
+
+
+def model_generation(model: str) -> int:
+    """'gemini-3.8-flash' -> 3, 'gemini-2.5-pro' -> 2, 알 수 없으면 0."""
+    m = re.match(r"gemini-(\d+)", (model or "").replace("models/", ""))
+    return int(m.group(1)) if m else 0
+
+
+def thinking_config_for(model, thinking_budget=None, thinking_level=None):
+    """모델 세대에 맞는 사고(thinking) 설정을 만든다. 없으면 None(모델 기본값).
+
+    Gemini 3 이상은 토큰 예산(thinking_budget) 대신 단계(thinking_level: minimal/low/medium/high)를 받는다. 실측(2026-11-22, 짧은 질문):
+      gemini-3.8-flash     : 기본(medium) 사고 700~900토큰 9~10초 / low 는 사고 없음 3초 / minimal 은 400 오류("not supported")
+      gemini-3.5-flash-lite: 모든 단계 허용, 기본은 사고 없음 1.3초 / medium 약 600토큰 3초 / thinking_budget=0 은 400 오류
+    그래서 예산이 오면 단계로 바꾼다: 0 -> (lite: minimal, 그 밖: low), 1024 이하 -> low, 8192 이하 -> medium, 그 위 -> high.
+    thinking_level 을 직접 주면 그것이 우선한다. Gemini 2.x 는 예전처럼 예산을 쓴다(pro 는 사고를 끌 수 없어 0 은 무시)."""
+    from google.genai import types
+    model = (model or "").replace("models/", "")
+    if model_generation(model) >= 3:
+        level = (thinking_level or "").lower() or None
+        if level is None and thinking_budget is not None:
+            if thinking_budget <= 0:
+                level = "minimal" if "lite" in model else "low"
+            elif thinking_budget <= 1024:
+                level = "low"
+            elif thinking_budget <= 8192:
+                level = "medium"
+            else:
+                level = "high"
+        if level is None:
+            return None
+        if level == "minimal" and "lite" not in model:
+            level = "low"                                              # minimal 은 lite 에서만 된다
+        return types.ThinkingConfig(thinking_level=level.upper())
+    if thinking_budget is not None and not (thinking_budget == 0 and "pro" in model):
+        return types.ThinkingConfig(thinking_budget=thinking_budget)
+    return None
 
 
 def citation_verify_model():
@@ -164,13 +218,15 @@ def get_file(name):
     return get_client().files.get(name=name)
 
 
-def generate(contents, model=None, temperature=None, json_mode=False, search=False, label="", thinking_budget=None):
+def generate(contents, model=None, temperature=None, json_mode=False, search=False, label="", thinking_budget=None, thinking_level=None):
     """한 번 호출해서 응답 객체(.text, .usage_metadata)를 돌려준다.
 
     contents: 문자열, 또는 [문자열, 파일 조각, ...]. 파일 조각은 `gemini_file_part()`가 만든 dict도 된다.
     json_mode: 응답을 JSON으로 강제한다. search: 구글 검색 그라운딩을 붙인다.
-    thinking_budget: 사고(thinking) 토큰 상한. 0이면 끈다(flash만 가능, pro는 항상 사고하므로 0은 무시). 양수는 pro에도 적용.
-      실측(2.5-flash): 키워드 추출처럼 단순한 호출도 사고에 1,000~2,000토큰을 써서 7~12초가 걸렸다."""
+    thinking_budget: 사고(thinking) 토큰 상한. 0이면 끈다(2.5-flash만 가능, 2.5-pro는 항상 사고하므로 0은 무시). 양수는 pro에도 적용.
+      Gemini 3 이상 모델에서는 자동으로 thinking_level 로 바뀐다(thinking_config_for 참고).
+      실측(2.5-flash): 키워드 추출처럼 단순한 호출도 사고에 1,000~2,000토큰을 써서 7~12초가 걸렸다.
+    thinking_level: 'minimal'|'low'|'medium'|'high'. Gemini 3 이상에서만 적용되고 2.x 에서는 무시한다."""
     from google.genai import types
     model = (model or fast_model()).replace("models/", "")
     kwargs = {}
@@ -182,13 +238,26 @@ def generate(contents, model=None, temperature=None, json_mode=False, search=Fal
         kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
         # 검색 도구만 쓰는 호출이라 함수 자동호출(AFC)은 필요 없고, 켜 두면 불필요한 경고 로그가 남는다.
         kwargs["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(disable=True)
-    # pro는 사고를 끌 수 없으므로(0 불가) 0만 무시하고, 양수 예산은 pro에도 적용한다(사고량 상한).
-    if thinking_budget is not None and not (thinking_budget == 0 and "pro" in model):
-        kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=thinking_budget)
-    config = types.GenerateContentConfig(**kwargs) if kwargs else None
+    tc = thinking_config_for(model, thinking_budget, thinking_level)
+    if tc is not None:
+        kwargs["thinking_config"] = tc
+
+    def call(kw):
+        config = types.GenerateContentConfig(**kw) if kw else None
+        return get_client().models.generate_content(model=model, contents=normalize_contents(contents), config=config)
     t = time.time()
     try:
-        resp = get_client().models.generate_content(model=model, contents=normalize_contents(contents), config=config)
+        try:
+            resp = call(kwargs)
+        except Exception as e:
+            ge = as_gemini_error(e)
+            # 새 모델이 사고 설정·샘플링 설정을 거부(400)하면 그 설정만 빼고 한 번 더 부른다(모델이 바뀌면서 규칙이 달라지는 일이 반복돼서 호출이 통째로 실패하지 않게).
+            if ge.kind == "bad_request" and ("thinking_config" in kwargs or "temperature" in kwargs):
+                slim = {k: v for k, v in kwargs.items() if k not in ("thinking_config", "temperature")}
+                print(f"[gemini] {label or '-'} model={model} 400 -> 사고·temperature 설정을 빼고 재시도: {ge.cause[:120]}")
+                resp = call(slim)
+            else:
+                raise
     except Exception as e:
         ge = as_gemini_error(e)
         print(f"[gemini] {label or '-'} model={model} 실패 kind={ge.kind} {ge.cause[:160]}")
@@ -200,7 +269,10 @@ def generate(contents, model=None, temperature=None, json_mode=False, search=Fal
 def generate_with_fallback(contents, models=None, temperature=None, label="", **kwargs):
     """models를 순서대로 시도해 처음 성공한 (응답, 사용한 모델)을 돌려준다. 전부 실패하면 마지막 예외를 올린다."""
     last = None
-    for m in (models or main_fallbacks()):
+    models = list(dict.fromkeys(models or main_fallbacks()))       # 본 모델과 가벼운 모델이 같으면 같은 모델을 두 번 부르지 않는다
+    if len(models) == 1 and models[0] != RESERVE_MODEL:
+        models.append(RESERVE_MODEL)                               # 한 모델뿐이면 이전 세대를 마지막 예비로 둔다
+    for m in models:
         try:
             return generate(contents, model=m, temperature=temperature, label=label, **kwargs), m
         except Exception as e:

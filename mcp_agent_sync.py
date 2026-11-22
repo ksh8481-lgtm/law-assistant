@@ -225,7 +225,7 @@ def _extract_subject_laws(query: str) -> list:
             "시행령/시행규칙은 쓰지 말고 법률명만, 확실히 존재하는 정식 명칭만 쓰고 확신이 없으면 비워둬.\n"
             "질문: " + query[:2000]
         )
-        resp = gemini_client.generate(prompt, temperature=0, label="소관법률 추출")
+        resp = gemini_client.generate(prompt, model=gemini_client.light_model(), temperature=0, thinking_level="medium", label="소관법률 추출")
         line = resp.text.strip().splitlines()[0].strip()
         return [x.strip().strip("'\"") for x in line.split(',') if x.strip()][:4]
     except Exception as e:
@@ -314,7 +314,7 @@ def _extract_admrul_names(query: str) -> list:
             "법제처(law.go.kr)에 실제로 있는 정식 명칭만 쓰고, 확신이 없으면 비워둬.\n"
             "질문: " + query[:2000]
         )
-        resp = gemini_client.generate(prompt, temperature=0, label="고시명 추출")
+        resp = gemini_client.generate(prompt, model=gemini_client.light_model(), temperature=0, thinking_level="medium", label="고시명 추출")
         line = (resp.text or '').strip().splitlines()[0].strip()
         names.extend(x for x in line.split(',') if x.strip())
     except Exception as e:
@@ -388,7 +388,7 @@ def _extract_keyword_and_jurisdiction(query: str) -> tuple:
         # 건설산업기본법)이 빠지는 일이 측정됐고(4개 질문 중 3개), 이 프로젝트는 법령이 빠지면 결론이 틀어진 전례가 있다.
         subject_pool = ThreadPoolExecutor(max_workers=1)
         subject_future = subject_pool.submit(_extract_subject_laws, query)
-        resp = gemini_client.generate(prompt, temperature=0, label="키워드·법령명 추출")
+        resp = gemini_client.generate(prompt, model=gemini_client.light_model(), temperature=0, thinking_level="medium", label="키워드·법령명 추출")
         line = resp.text.strip().splitlines()[0].strip()
         parts = line.split('|')
         keyword = parts[0].strip().replace("'", "").replace('"', "")[:15]
