@@ -47,9 +47,25 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(gc.classify_error(FakeAPIError(503, 'UNAVAILABLE', 'The model is overloaded'))[0], 'overloaded')
         self.assertEqual(gc.classify_error(TimeoutError('Deadline exceeded'))[0], 'overloaded')
         self.assertEqual(gc.classify_error(FakeAPIError(400, 'INVALID_ARGUMENT', 'JSON mode is not enabled for api version v1'))[0], 'bad_request')
-        kind, msg = gc.classify_error(ValueError('something unexpected'))
+        kind, msg = gc.classify_error(ValueError('something unexpected https://internal.example/x?key=SECRET123'))
         self.assertEqual(kind, 'other')
-        self.assertIn('something unexpected', msg)
+        self.assertIn('ValueError', msg)
+        self.assertNotIn('SECRET123', msg)                                   # 원문(주소·키가 섞일 수 있음)은 화면에 보이지 않는다
+        self.assertNotIn('internal.example', msg)
+        self.assertIn('SECRET123', gc.as_gemini_error(ValueError('x key=SECRET123')).cause)   # 서버 로그용 cause 에는 남는다
+
+    def test_missing_or_retired_model_gets_its_own_message(self):
+        kind, msg = gc.classify_error(FakeAPIError(404, 'NOT_FOUND', 'models/gemini-2.5-pro is not found for API version v1beta'))
+        self.assertEqual(kind, 'model')
+        self.assertIn('GEMINI_MAIN_MODEL', msg)
+        self.assertNotIn('gemini-2.5-pro', msg)
+        self.assertNotIn(kind, gc.FAIL_FAST_KINDS)                              # 다른 모델은 될 수 있으니 폴백을 계속한다
+
+    def test_http_402_is_credits_even_with_different_wording(self):
+        for text in ('billing account has no available funds', 'RESOURCE_EXHAUSTED: please top up'):
+            kind, _msg = gc.classify_error(FakeAPIError(402, 'RESOURCE_EXHAUSTED', text))
+            self.assertEqual(kind, 'credits', text)                          # 문구가 바뀌어도 402 면 크레딧 소진(다른 모델을 계속 부르지 않는다)
+        self.assertEqual(gc.classify_error(FakeAPIError(429, 'RESOURCE_EXHAUSTED', 'billing depleted rate'))[0], 'rate')
 
     def test_as_gemini_error_is_idempotent_and_keeps_cause(self):
         raw = FakeAPIError(402, 'RESOURCE_EXHAUSTED', CREDITS_MSG)

@@ -388,7 +388,11 @@ def _extract_keyword_and_jurisdiction(query: str) -> tuple:
         # 건설산업기본법)이 빠지는 일이 측정됐고(4개 질문 중 3개), 이 프로젝트는 법령이 빠지면 결론이 틀어진 전례가 있다.
         subject_pool = ThreadPoolExecutor(max_workers=1)
         subject_future = subject_pool.submit(_extract_subject_laws, query)
-        resp = gemini_client.generate(prompt, model=gemini_client.light_model(), temperature=0, thinking_level="medium", label="키워드·법령명 추출")
+        try:
+            resp = gemini_client.generate(prompt, model=gemini_client.light_model(), temperature=0, thinking_level="medium", label="키워드·법령명 추출")
+        except Exception:
+            subject_pool.shutdown(wait=False)                          # 주 호출이 실패해 예외가 올라가도 소관 법률 추출용 스레드 풀을 정리한다
+            raise
         line = resp.text.strip().splitlines()[0].strip()
         parts = line.split('|')
         keyword = parts[0].strip().replace("'", "").replace('"', "")[:15]
@@ -451,7 +455,11 @@ def get_mcp_context_sync(query: str, uploaded_file=None) -> str:
     # 고시명 추출은 법령명 추출과 서로 독립이라 동시에 돌려서 지연을 늘리지 않는다.
     adm_pool = ThreadPoolExecutor(max_workers=1)
     adm_future = adm_pool.submit(_extract_admrul_names, query)
-    keyword, jurisdiction, ordinance_keyword, law_names, topic_keywords = _extract_keyword_and_jurisdiction(query)
+    try:
+        keyword, jurisdiction, ordinance_keyword, law_names, topic_keywords = _extract_keyword_and_jurisdiction(query)
+    except Exception:
+        adm_pool.shutdown(wait=False)                                  # 크레딧 소진 등으로 중단될 때 고시명 추출용 스레드 풀도 정리한다
+        raise
     if not keyword:
         # 키워드 추출 자체가 실패해도 빈 컨텍스트보다는 질의 앞부분이라도 검색어로 쓰는 게 낫다.
         keyword = query.strip()[:15]

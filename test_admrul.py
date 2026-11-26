@@ -280,7 +280,7 @@ class GeminiClientTests(unittest.TestCase):
                 self.gc.generate_with_fallback("q")
         finally:
             self.gc.generate = real
-        self.assertIn("gemini-3.6-flash", str(cm.exception))                         # 마지막으로 시도한 모델의 오류
+        self.assertIn("gemini-3.6-flash", cm.exception.cause)                        # 마지막으로 시도한 모델의 오류(원문은 사용자 문장이 아니라 cause/로그에 남는다)
 
 
 class HintTests(unittest.TestCase):

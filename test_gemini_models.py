@@ -40,6 +40,10 @@ class ThinkingConfigTests(unittest.TestCase):
         self.assertEqual(f('gemini-2.5-pro', thinking_budget=512).thinking_budget, 512)
         self.assertIsNone(f('gemini-2.5-flash', thinking_level='high'))                              # 2.x 는 thinking_level 을 모른다
 
+    def test_negative_budget_is_left_to_the_model_default_on_gen3(self):
+        self.assertIsNone(gc.thinking_config_for('gemini-3.8-flash', thinking_budget=-1))
+        self.assertEqual(gc.thinking_config_for('gemini-2.5-flash', thinking_budget=-1).thinking_budget, -1)    # 2.x 의 -1 은 동적 사고
+
     def test_model_generation(self):
         self.assertEqual([gc.model_generation(m) for m in ('gemini-3.8-flash', 'models/gemini-2.5-pro', 'gemini-4-hydrogen', 'other', '')], [3, 2, 4, 0, 0])
 
@@ -125,6 +129,34 @@ class DefaultsAndFallbackTests(unittest.TestCase):
             gc.generate_with_fallback('x', models=[gc.fast_model(), gc.main_model()])               # 둘 다 gemini-3.8-flash
         self.assertEqual(tried, ['gemini-3.8-flash', 'gemini-3.6-flash'])
 
+    def test_prefix_and_spaces_are_normalized_before_deduplication(self):
+        tried = []
+
+        def fake(contents, model=None, **k):
+            tried.append(model)
+            raise gc.as_gemini_error(FakeAPIError(503, 'UNAVAILABLE', 'busy'))
+        gc.generate = fake
+        with self.assertRaises(gc.GeminiError):
+            gc.generate_with_fallback('x', models=['models/gemini-3.8-flash', ' gemini-3.8-flash '])
+        self.assertEqual(tried, ['gemini-3.8-flash', 'gemini-3.6-flash'])
+
+    def test_400_retry_failure_is_still_reported_as_a_gemini_error(self):
+        class Models:
+            @staticmethod
+            def generate_content(model, contents, config=None):
+                raise FakeAPIError(400, 'INVALID_ARGUMENT', 'Request contains an invalid argument.')
+
+        class Client:
+            models = Models()
+        orig = gc.get_client
+        gc.get_client = lambda: Client()
+        try:
+            with self.assertRaises(gc.GeminiError) as cm:
+                gc.generate('x', model='gemini-3.8-flash', temperature=0.2, thinking_budget=512, label='t')       # 설정을 빼고 다시 불러도 400
+        finally:
+            gc.get_client = orig
+        self.assertEqual(cm.exception.kind, 'bad_request')
+
     def test_reserve_is_not_duplicated_when_it_is_the_only_model(self):
         tried = []
 
@@ -135,6 +167,36 @@ class DefaultsAndFallbackTests(unittest.TestCase):
         with self.assertRaises(gc.GeminiError):
             gc.generate_with_fallback('x', models=['gemini-3.6-flash'])
         self.assertEqual(tried, ['gemini-3.6-flash'])
+
+
+class ThreadPoolCleanupTests(unittest.TestCase):
+    """크레딧 소진으로 보조 단계가 예외를 올릴 때 이미 만든 스레드 풀을 정리하는지(Codex 검토 지적)."""
+
+    def test_pools_are_shut_down_when_the_main_extraction_fails_fatally(self):
+        import mcp_agent_sync as m
+        created = []
+        real_pool = m.ThreadPoolExecutor
+
+        class SpyPool(real_pool):
+            def __init__(self, *a, **k):
+                super().__init__(*a, **k)
+                self.shut = False
+                created.append(self)
+
+            def shutdown(self, *a, **k):
+                self.shut = True
+                return super().shutdown(*a, **k)
+        orig = gc.generate
+        m.ThreadPoolExecutor = SpyPool
+        gc.generate = lambda *a, **k: (_ for _ in ()).throw(gc.as_gemini_error(FakeAPIError(402, 'RESOURCE_EXHAUSTED', 'x')))
+        try:
+            with self.assertRaises(gc.GeminiError):
+                m.get_mcp_context_sync('아무 질문')
+        finally:
+            m.ThreadPoolExecutor = real_pool
+            gc.generate = orig
+        self.assertGreaterEqual(len(created), 2)                                   # 고시명 풀 + 소관 법률 풀
+        self.assertTrue(all(p.shut for p in created), [p.shut for p in created])
 
 
 class ExtractionUsesLightModelTests(unittest.TestCase):

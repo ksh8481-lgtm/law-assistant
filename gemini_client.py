@@ -73,6 +73,8 @@ def thinking_config_for(model, thinking_budget=None, thinking_level=None):
     model = (model or "").replace("models/", "")
     if model_generation(model) >= 3:
         level = (thinking_level or "").lower() or None
+        if thinking_budget is not None and thinking_budget < 0:
+            thinking_budget = None                                     # -1(동적 사고)은 3세대에서 의미가 없으니 모델 기본값에 맡긴다
         if level is None and thinking_budget is not None:
             if thinking_budget <= 0:
                 level = "minimal" if "lite" in model else "low"
@@ -131,7 +133,7 @@ def get_client():
 # ---------------------------------------------------------------- 오류를 사용자가 알아볼 수 있는 말로
 class GeminiError(Exception):
     """Gemini 호출 실패. str(e)는 사용자에게 그대로 보여 줘도 되는 문장이다(원인과 해야 할 일 + 짧은 오류 코드).
-    kind: 'credits'(선불 크레딧 소진) | 'rate'(호출 한도·몰림) | 'key'(인증·권한) | 'overloaded'(서버 일시 장애) | 'bad_request'(입력 문제) | 'other'"""
+    kind: 'credits'(선불 크레딧 소진) | 'rate'(호출 한도·몰림) | 'key'(인증·권한) | 'overloaded'(서버 일시 장애) | 'model'(모델을 찾을 수 없음: 이름 오류·폐기) | 'bad_request'(입력 문제) | 'other'"""
 
     def __init__(self, kind, user_message, cause=""):
         super().__init__(user_message)
@@ -152,7 +154,8 @@ def classify_error(e):
     status = str(getattr(e, "status", "") or "")
     tag = (f"오류 코드 {code}" if code else "") + (f" {status}" if status else "")
     tag = f" ({tag.strip()})" if tag.strip() else ""
-    if "prepayment credits" in low or "credits are depleted" in low or "billing" in low and "depleted" in low:
+    loose_billing = "billing" in low and "depleted" in low and code != 429          # 429(호출 한도)에 우연히 섞인 문구는 크레딧 소진으로 보지 않는다
+    if code == 402 or "prepayment credits" in low or "credits are depleted" in low or loose_billing:
         return "credits", ("AI 사용 크레딧(선불 잔액)이 모두 소진되어 AI 기능을 쓸 수 없습니다. 관리자가 Google AI Studio(https://ai.studio/projects)의 "
                            "결제 화면에서 크레딧을 충전하면 바로 다시 쓸 수 있습니다." + tag)
     if code in (401, 403) or "api key" in low or "permission_denied" in low or "unauthenticated" in low:
@@ -161,9 +164,13 @@ def classify_error(e):
         return "rate", ("AI 호출이 한꺼번에 몰렸거나 사용 한도에 걸렸습니다. 1~2분 뒤 다시 시도해 주세요. 계속되면 관리자에게 알려 주세요." + tag)
     if code in (500, 502, 503, 504) or "unavailable" in low or "overloaded" in low or "deadline" in low or "timed out" in low or "timeout" in low:
         return "overloaded", ("AI 서버가 일시적으로 바쁘거나 응답이 늦습니다. 잠시 뒤 다시 시도해 주세요." + tag)
+    if code == 404 or "not_found" in low or "is not found" in low:
+        return "model", ("설정된 AI 모델을 찾을 수 없습니다(모델 이름이 잘못됐거나 구글이 폐기했을 수 있습니다). 관리자가 모델 설정(GEMINI_MAIN_MODEL, GEMINI_FAST_MODEL, GEMINI_LIGHT_MODEL)과 "
+                         "구글의 모델 폐기 공지를 확인해야 합니다." + tag)
     if code == 400 or "invalid_argument" in low:
         return "bad_request", ("AI가 요청을 처리하지 못했습니다(입력 내용이나 형식 문제). 입력을 줄이거나 다른 파일로 다시 시도해 주세요." + tag)
-    return "other", (f"AI 호출 중 오류가 났습니다: {raw[:150]}")
+    # 원문(요청 주소·세부 정보가 섞일 수 있다)은 사용자 화면에 보이지 않고 GeminiError.cause 로 서버 로그에만 남긴다.
+    return "other", (f"AI 호출 중 오류가 났습니다(오류 종류: {type(e).__name__}). 같은 오류가 반복되면 관리자에게 알려 주세요.")
 
 
 def as_gemini_error(e):
@@ -269,7 +276,7 @@ def generate(contents, model=None, temperature=None, json_mode=False, search=Fal
 def generate_with_fallback(contents, models=None, temperature=None, label="", **kwargs):
     """models를 순서대로 시도해 처음 성공한 (응답, 사용한 모델)을 돌려준다. 전부 실패하면 마지막 예외를 올린다."""
     last = None
-    models = list(dict.fromkeys(models or main_fallbacks()))       # 본 모델과 가벼운 모델이 같으면 같은 모델을 두 번 부르지 않는다
+    models = list(dict.fromkeys(m.strip().replace("models/", "") for m in (models or main_fallbacks()) if m and m.strip()))   # 접두사·공백을 맞춘 뒤 중복 제거: 같은 모델을 두 번 부르지 않는다
     if len(models) == 1 and models[0] != RESERVE_MODEL:
         models.append(RESERVE_MODEL)                               # 한 모델뿐이면 이전 세대를 마지막 예비로 둔다
     for m in models:
